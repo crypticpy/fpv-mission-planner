@@ -6,6 +6,7 @@ import {
 } from './data.js';
 import { planMission, CHEMISTRY, U } from './physics.js';
 import { lineChart, barChart, missionProfile, legend, hideTooltip } from './charts.js';
+import { unitSystem } from './units.js';
 
 const $ = (id) => document.getElementById(id);
 const SERIES = ['var(--series-1)', 'var(--series-2)', 'var(--series-3)', 'var(--series-4)'];
@@ -13,6 +14,7 @@ const f0 = (x) => isFinite(x) ? x.toLocaleString('en-US', { maximumFractionDigit
 const f1 = (x) => isFinite(x) ? x.toLocaleString('en-US', { maximumFractionDigits: 1, minimumFractionDigits: 1 }) : '—';
 
 const state = {
+  units: 'imperial',
   droneId: 'moz7v2',
   manufacturerId: 'all',
   batteryId: 'nav5000',
@@ -46,6 +48,7 @@ function manufacturer(id) {
 }
 function payload() { return PAYLOADS.find(p => p.id === state.payloadId) || PAYLOADS[0]; }
 function scenario() { return SCENARIOS.find(s => s.id === state.scenarioId) || SCENARIOS[0]; }
+function units() { return unitSystem(state.units); }
 
 function missionInputs(batt = battery(), envOverride = null) {
   const env = envOverride || state.env;
@@ -84,7 +87,16 @@ function fillSelect(sel, items, value) {
   sel.value = value;
 }
 
+function configureNumericInput(input, config, value) {
+  input.min = config.min;
+  input.max = config.max;
+  input.step = config.step;
+  input.value = Math.round(value / config.step) * config.step;
+}
+
 function populateControls() {
+  const u = units();
+  $('sel-units').value = state.units;
   fillSelect($('sel-drone'), DRONES.map(d => ({ value: d.id, label: d.name })), state.droneId);
   const manufacturerIds = new Set(droneBatteries().map(b => b.manufacturerId || 'custom'));
   const availableManufacturers = allManufacturers().filter(m => manufacturerIds.has(m.id));
@@ -106,14 +118,16 @@ function populateControls() {
   $('in-elev').value = state.env.elevFt;
   $('in-temp').value = state.env.tempF;
   $('in-rh').value = state.env.rhPct;
-  $('in-wind').value = state.env.windMph;
-  $('in-gust').value = state.env.gustMph;
+  configureNumericInput($('in-wind'), u.input.wind, u.speedFromMph(state.env.windMph));
+  configureNumericInput($('in-gust'), u.input.gust, u.speedFromMph(state.env.gustMph));
+  $('wind-label').textContent = `Wind avg (${u.speedUnit})`;
+  $('gust-label').textContent = `Gusts (${u.speedUnit})`;
   $('sel-windmode').value = state.env.windMode;
   $('in-reserve').value = state.reservePct;
   $('reserve-val').textContent = `${state.reservePct}%`;
   $('sel-cruise').value = state.cruiseMode;
-  $('in-speed').value = state.manualMph;
-  $('speed-val').textContent = `${state.manualMph} mph`;
+  configureNumericInput($('in-speed'), u.input.manualSpeed, u.speedFromMph(state.manualMph));
+  $('speed-val').textContent = `${f0(u.speedFromMph(state.manualMph))} ${u.speedUnit}`;
   $('speed-row').hidden = state.cruiseMode !== 'manual';
   $('in-extra').value = state.extraG;
   renderCustomList();
@@ -193,9 +207,11 @@ function renderWarnings(warnings) {
 }
 
 function renderStats(r) {
-  $('hero-value').textContent = f1(U.kmToMi(r.radiusKm));
-  $('hero-sub').textContent = `${f1(r.radiusKm)} km out — turn around here and land with ${f0(r.energy.reservePct)}% reserve`;
-  setTile('tile-time', `${f1(r.timeMin)} min`, `${f1(U.kmToMi(r.totalKm))} mi round trip`);
+  const u = units();
+  $('hero-value').textContent = f1(u.distanceFromKm(r.radiusKm));
+  $('hero-unit').textContent = u.distanceUnit;
+  $('hero-sub').textContent = `${f1(u.distanceFromKm(r.radiusKm))} ${u.distanceUnit} out — turn around here and land with ${f0(r.energy.reservePct)}% reserve`;
+  setTile('tile-time', `${f1(r.timeMin)} min`, `${f1(u.distanceFromKm(r.totalKm))} ${u.distanceUnit} round trip`);
   setTile('tile-hover', `${f1(r.hoverTimeMin)} min`, `hover · ${f0(r.hover.pW)} W · ${f1(r.hover.iA)} A`);
   setTile('tile-auw', `${f0(r.massKg * 1000)} g`, `${f1(r.massKg * 2.20462)} lb takeoff`);
   const d = drone();
@@ -204,75 +220,78 @@ function renderStats(r) {
   setTile('tile-da', `${f0(U.mToFt(r.densityAltM))} ft`, `density altitude · ρ ${r.rho.toFixed(3)} kg/m³`);
   const out = r.legs.out, back = r.legs.back;
   setTile('tile-cruise',
-    out && back ? `${f0(U.msToMph(out.v))} / ${f0(U.msToMph(back.v))} mph` : '—',
-    out && back ? `airspeed out / back · ${f0(U.msToMph(out.vg))} / ${f0(U.msToMph(back.vg))} gs` : 'wind exceeds capability');
+    out && back ? `${f0(u.speedFromMs(out.v))} / ${f0(u.speedFromMs(back.v))} ${u.speedUnit}` : '—',
+    out && back ? `airspeed out / back · ${f0(u.speedFromMs(out.vg))} / ${f0(u.speedFromMs(back.vg))} ${u.speedUnit} gs` : 'wind exceeds capability');
   setTile('tile-energy', `${f1(r.energy.usableWh)} Wh`,
     `usable of ${f1(r.energy.packWh)} Wh nominal${r.overheadF > 1 ? ` · burn ×${r.overheadF.toFixed(2)}` : ''}`);
 }
 
 function renderPowerCurve(r) {
-  const pts = r.curve.map(p => ({ x: U.msToMph(p.v), y: p.p }));
+  const u = units();
+  const pts = r.curve.map(p => ({ x: u.speedFromMs(p.v), y: p.p }));
   const markers = [];
-  if (r.endurance) markers.push({ x: U.msToMph(r.endurance.vMs), y: r.endurance.pW, color: 'var(--series-3)', label: 'endurance' });
-  if (r.legs.out) markers.push({ x: U.msToMph(r.legs.out.v), y: r.legs.pOut, color: 'var(--series-1)', label: 'out' });
+  if (r.endurance) markers.push({ x: u.speedFromMs(r.endurance.vMs), y: r.endurance.pW, color: 'var(--series-3)', label: 'endurance' });
+  if (r.legs.out) markers.push({ x: u.speedFromMs(r.legs.out.v), y: r.legs.pOut, color: 'var(--series-1)', label: 'out' });
   if (r.legs.back && Math.abs(r.legs.back.v - (r.legs.out?.v ?? -1)) > 0.3) {
-    markers.push({ x: U.msToMph(r.legs.back.v), y: r.legs.pBack, color: 'var(--series-2)',
+    markers.push({ x: u.speedFromMs(r.legs.back.v), y: r.legs.pBack, color: 'var(--series-2)',
       label: 'back', labelBelow: true });
   }
   lineChart($('chart-power'), {
     series: [{ name: 'electrical power', color: 'var(--series-1)', pts }],
     markers, height: 250,
-    xLabel: 'airspeed (mph)', yLabel: 'W',
+    xLabel: `airspeed (${u.speedUnit})`, yLabel: 'W',
     xFmt: v => `${f0(v)}`, yFmt: v => `${f0(v)}`,
     tipTitle: 'airspeed',
   });
 }
 
 function renderSpeedTradeoff(r) {
+  const u = units();
   const d = drone();
   const base = missionInputs();
   const time = state.speedMetric === 'time';
-  const unit = time ? 'min' : 'mi';
+  const unit = time ? 'min' : u.distanceUnit;
   const pts = [];
   let best = null;
   for (let v = 2; v <= d.maxSpeedMs * 0.95; v += 0.5) {
     const rr = planMission({ ...base, cruiseMode: 'manual', manualVMs: v });
-    const p = { x: v * 3.6, y: time ? rr.timeMin : U.kmToMi(rr.radiusKm) };
+    const p = { x: u.speedFromMs(v), y: time ? rr.timeMin : u.distanceFromKm(rr.radiusKm) };
     pts.push(p);
     if (!best || p.y > best.y) best = p;
   }
-  const nearestY = (xKmh) => pts.reduce((a, b) => Math.abs(b.x - xKmh) < Math.abs(a.x - xKmh) ? b : a).y;
+  const nearestY = x => pts.reduce((a, b) => Math.abs(b.x - x) < Math.abs(a.x - x) ? b : a).y;
   const markers = [];
   const viable = best && best.y > 0;
   const peakLabel = time ? 'longest flight' : 'best range';
   if (viable) markers.push({ x: best.x, y: best.y, color: 'var(--series-3)', label: peakLabel });
-  const plannedKmh = r.legs.out ? r.legs.out.v * 3.6 : null;
-  const atOptimum = viable && plannedKmh !== null && Math.abs(plannedKmh - best.x) < 2;
-  if (viable && plannedKmh !== null && !atOptimum) {
-    markers.push({ x: plannedKmh, y: nearestY(plannedKmh), color: 'var(--series-2)', label: 'planned',
-      labelBelow: Math.abs(best.x - plannedKmh) < 0.12 * (pts.at(-1).x - pts[0].x) });
+  const plannedSpeed = r.legs.out ? u.speedFromMs(r.legs.out.v) : null;
+  const atOptimum = viable && plannedSpeed !== null && Math.abs(plannedSpeed - best.x) < u.speedFromMs(2 / 3.6);
+  if (viable && plannedSpeed !== null && !atOptimum) {
+    markers.push({ x: plannedSpeed, y: nearestY(plannedSpeed), color: 'var(--series-2)', label: 'planned',
+      labelBelow: Math.abs(best.x - plannedSpeed) < 0.12 * (pts.at(-1).x - pts[0].x) });
   }
   lineChart($('chart-speed'), {
     series: [{ name: time ? 'mission time' : 'mission radius', color: 'var(--series-1)', pts }],
     markers, height: 250,
-    xLabel: 'cruise airspeed (km/h)', yLabel: unit,
+    xLabel: `cruise airspeed (${u.speedUnit})`, yLabel: unit,
     xFmt: v => f0(v), yFmt: v => f1(v), tipTitle: 'cruise',
   });
   const note = $('speed-note');
-  if (viable && plannedKmh !== null) {
-    const py = nearestY(plannedKmh);
+  if (viable && plannedSpeed !== null) {
+    const py = nearestY(plannedSpeed);
     const cost = best.y - py;
     note.textContent =
-      `${time ? 'Longest flight' : 'Best range'}: ${f0(best.x)} km/h (${f0(best.x / 1.609)} mph) → ${f1(best.y)} ${unit} · ` +
-      `planned: ${f0(plannedKmh)} km/h (${f0(plannedKmh / 1.609)} mph) → ${f1(py)} ${unit}` +
+      `${time ? 'Longest flight' : 'Best range'}: ${f0(best.x)} ${u.speedUnit} → ${f1(best.y)} ${unit} · ` +
+      `planned: ${f0(plannedSpeed)} ${u.speedUnit} → ${f1(py)} ${unit}` +
       (atOptimum || cost <= 0.05 ? ' · already at the optimum'
-        : ` · pushing costs ${f1(cost)} ${time ? 'min of flight time' : 'mi of radius'}`);
+        : ` · pushing costs ${f1(cost)} ${time ? 'min of flight time' : `${u.distanceUnit} of radius`}`);
   } else {
     note.textContent = 'No cruise speed produces a viable out-and-back in this wind.';
   }
 }
 
 function renderProfile(r) {
+  const u = units();
   const empty = $('chart-profile-empty');
   empty.hidden = r.timeline.length > 0;
   missionProfile($('chart-profile'), {
@@ -281,19 +300,22 @@ function renderProfile(r) {
     reservePct: r.energy.reservePct,
     colorSoc: 'var(--series-1)',
     colorV: 'var(--series-2)',
+    distanceFromKm: u.distanceFromKm,
+    distanceUnit: u.distanceUnit,
     height: 300,
   });
 }
 
 function renderComparison() {
+  const u = units();
   const batts = compatibleBatteries();
   const runs = batts.map(b => ({ b, r: planMission(missionInputs(b)) }));
   barChart($('chart-cmp-radius'), {
     items: runs.map(({ b, r }, i) => ({
-      label: b.short || b.name, value: U.kmToMi(r.radiusKm),
+      label: b.short || b.name, value: u.distanceFromKm(r.radiusKm),
       color: SERIES[i % SERIES.length], note: 'mission radius',
     })),
-    valueFmt: v => `${f1(v)} mi`,
+    valueFmt: v => `${f1(v)} ${u.distanceUnit}`,
   });
   barChart($('chart-cmp-time'), {
     items: runs.map(({ b, r }, i) => ({
@@ -317,9 +339,9 @@ function renderComparison() {
       `${f0(b.capAh * 1000)} mAh`,
       `${f1(r.energy.packWh)} Wh`,
       `${f0(b.massG)} g`,
-      `${f1(U.kmToMi(r.radiusKm))} mi`,
+      `${f1(u.distanceFromKm(r.radiusKm))} ${u.distanceUnit}`,
       `${f1(r.timeMin)} min`,
-      r.legs.out && r.legs.back ? `${f1((r.legs.out.whPerKm + r.legs.back.whPerKm) / 2 / 0.621371)} Wh/mi` : '—',
+      r.legs.out && r.legs.back ? `${f1(u.burnFromWhPerKm((r.legs.out.whPerKm + r.legs.back.whPerKm) / 2))} ${u.burnUnit}` : '—',
       b.priceUsd ? `$${b.priceUsd}` : '—',
     ];
     cells.forEach((c, i) => {
@@ -333,19 +355,20 @@ function renderComparison() {
 }
 
 function renderWindSensitivity() {
+  const u = units();
   const batts = compatibleBatteries().slice(0, 4);
   const series = batts.map((b, i) => {
     const pts = [];
     for (let w = 0; w <= 30; w += 2) {
       const env = { ...state.env, windMph: w, gustMph: w * 1.5 }; // gusts scale with the sweep
       const r = planMission(missionInputs(b, env));
-      pts.push({ x: w, y: U.kmToMi(r.radiusKm) });
+      pts.push({ x: u.speedFromMph(w), y: u.distanceFromKm(r.radiusKm) });
     }
     return { name: b.short || b.name, color: SERIES[i % SERIES.length], pts };
   });
   lineChart($('chart-wind'), {
     series, height: 250,
-    xLabel: 'average wind (mph)', yLabel: 'mi',
+    xLabel: `average wind (${u.speedUnit})`, yLabel: u.distanceUnit,
     xFmt: v => f0(v), yFmt: v => f1(v),
     tipTitle: 'wind',
   });
@@ -353,6 +376,7 @@ function renderWindSensitivity() {
 }
 
 function update() {
+  const u = units();
   const batts = compatibleBatteries();
   if (!batts.find(b => b.id === state.batteryId)) {
     state.batteryId = batts[0]?.id;
@@ -360,7 +384,8 @@ function update() {
   }
   const sc = scenario();
   $('scenario-desc').textContent =
-    `${sc.desc} ≈${f0(U.msToMph(drone().cruiseMs * sc.speedFactor))} mph realistic cruise · +${f0((sc.overheadFactor - 1) * 100)}% maneuvering burn.`;
+    `${sc.desc} ≈${f0(u.speedFromMs(drone().cruiseMs * sc.speedFactor))} ${u.speedUnit} realistic cruise · +${f0((sc.overheadFactor - 1) * 100)}% maneuvering burn.`;
+  $('cmp-radius-title').textContent = `Mission radius (${u.distanceUnit})`;
   const r = planMission(missionInputs());
   renderStats(r);
   renderWarnings(r.warnings);
@@ -399,6 +424,11 @@ function renderBatteryNote() {
 /* ---------- events ---------- */
 
 function bind() {
+  $('sel-units').addEventListener('change', e => {
+    state.units = e.target.value;
+    populateControls();
+    update();
+  });
   $('sel-drone').addEventListener('change', e => { state.droneId = e.target.value; populateControls(); update(); });
   $('sel-manufacturer').addEventListener('change', e => {
     state.manufacturerId = e.target.value;
@@ -420,10 +450,18 @@ function bind() {
   });
   $('sel-scenario').addEventListener('change', e => { state.scenarioId = e.target.value; update(); });
   $('sel-speed-metric').addEventListener('change', e => { state.speedMetric = e.target.value; update(); });
-  const envMap = { 'in-elev': 'elevFt', 'in-temp': 'tempF', 'in-rh': 'rhPct', 'in-wind': 'windMph', 'in-gust': 'gustMph' };
+  const envMap = { 'in-elev': 'elevFt', 'in-temp': 'tempF', 'in-rh': 'rhPct' };
   for (const [id, key] of Object.entries(envMap)) {
     $(id).addEventListener('input', e => {
       state.env[key] = +e.target.value || 0;
+      state.weatherId = 'custom';
+      $('sel-weather').value = 'custom';
+      update();
+    });
+  }
+  for (const [id, key] of [['in-wind', 'windMph'], ['in-gust', 'gustMph']]) {
+    $(id).addEventListener('input', e => {
+      state.env[key] = units().speedToMph(+e.target.value || 0);
       state.weatherId = 'custom';
       $('sel-weather').value = 'custom';
       update();
@@ -441,8 +479,8 @@ function bind() {
     update();
   });
   $('in-speed').addEventListener('input', e => {
-    state.manualMph = +e.target.value;
-    $('speed-val').textContent = `${state.manualMph} mph`;
+    state.manualMph = units().speedToMph(+e.target.value);
+    $('speed-val').textContent = `${f0(+e.target.value)} ${units().speedUnit}`;
     update();
   });
 

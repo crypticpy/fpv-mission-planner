@@ -39,6 +39,10 @@ body {
 /* ---------- masthead ---------- */
 
 .masthead {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--sp-4);
   padding: var(--sp-4) var(--sp-5) var(--sp-3);
   border-bottom: 1px solid var(--border);
   animation: rise 0.5s ease-out both;
@@ -55,6 +59,22 @@ body {
   text-transform: uppercase;
 }
 .masthead-sub { color: var(--muted); font-size: 12.5px; margin-top: 2px; }
+.unit-switch {
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.unit-switch select {
+  width: auto;
+  min-width: 164px;
+  margin: 0 0 0 8px;
+  padding: 6px 9px;
+  font-size: 12px;
+  letter-spacing: normal;
+  text-transform: none;
+}
 
 /* ---------- layout ---------- */
 
@@ -68,7 +88,9 @@ body {
 }
 @media (max-width: 900px) {
   .layout { grid-template-columns: 1fr; padding: var(--sp-3); }
-  .masthead { padding: var(--sp-3); }
+  .masthead { align-items: flex-start; padding: var(--sp-3); }
+  .unit-switch { display: flex; flex-direction: column; gap: 4px; }
+  .unit-switch select { margin-left: 0; }
 }
 
 /* ---------- control rail ---------- */

@@ -236,7 +236,10 @@ export function barChart(container, { items, height, valueFmt, maxValue }) {
  * top: battery % remaining (line + 10% area wash, turnaround marker)
  * bottom: pack voltage under load, with cutoff hairline.
  */
-export function missionProfile(container, { timeline, cutoffV, reservePct, height = 300, colorSoc, colorV }) {
+export function missionProfile(container, {
+  timeline, cutoffV, reservePct, height = 300, colorSoc, colorV,
+  distanceFromKm = km => km, distanceUnit = 'km',
+}) {
   container.replaceChildren();
   if (!timeline.length) return;
   const width = container.clientWidth || 560;
@@ -340,7 +343,7 @@ export function missionProfile(container, { timeline, cutoffV, reservePct, heigh
     showTooltip(ev.clientX, ev.clientY, [
       { color: colorSoc, value: `${best.soc.toFixed(0)}%`, label: 'battery remaining' },
       { color: colorV, value: isFinite(best.vLoad) ? `${best.vLoad.toFixed(1)}V` : '—', label: 'under load' },
-      { color: 'transparent', value: `${best.distKm.toFixed(1)} km`, label: best.phase === 'out' ? 'outbound' : 'returning' },
+      { color: 'transparent', value: `${distanceFromKm(best.distKm).toFixed(1)} ${distanceUnit}`, label: best.phase === 'out' ? 'outbound' : 'returning' },
     ], `T+${best.tMin.toFixed(1)} min`);
   });
   hit.addEventListener('pointerleave', () => { cross.setAttribute('visibility', 'hidden'); hideTooltip(); });

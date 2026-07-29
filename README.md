@@ -17,6 +17,12 @@ Then open <http://localhost:8321>. No build step, no dependencies — plain ES
 modules ([js/physics.js](js/physics.js), [js/data.js](js/data.js),
 [js/charts.js](js/charts.js), [js/app.js](js/app.js)).
 
+Use the single **Units** selector in the header to switch every displayed
+distance, speed, wind, and distance-normalized burn rate between imperial
+(`mi`, `mph`, `Wh/mi`) and metric (`km`, `km/h`, `Wh/km`). The physics model
+keeps its native SI values; all display labels, conversions, and unit-specific
+input ranges are centralized in [js/units.js](js/units.js).
+
 ## The model
 
 1. **Air density** — ISA barometric pressure at field elevation, Magnus vapor

@@ -16,6 +16,12 @@
     <h1>FPV Mission Planner</h1>
     <p class="masthead-sub">Disc-loading &amp; energy model · MOZ7 V2 / Cinelog30 V3 · calibrated against logged flights</p>
   </div>
+  <label class="unit-switch">Units
+    <select id="sel-units" aria-label="Measurement system">
+      <option value="imperial">Imperial · mi / mph</option>
+      <option value="metric">Metric · km / km/h</option>
+    </select>
+  </label>
 </header>
 
 <div class="layout">
@@ -90,8 +96,8 @@
         <label>Elevation (ft) <input id="in-elev" type="number" step="100" min="-200" max="14000"></label>
         <label>Air temp (°F) <input id="in-temp" type="number" step="1" min="-20" max="120"></label>
         <label>Humidity (%) <input id="in-rh" type="number" step="5" min="0" max="100"></label>
-        <label>Wind avg (mph) <input id="in-wind" type="number" step="1" min="0" max="50"></label>
-        <label>Gusts (mph) <input id="in-gust" type="number" step="1" min="0" max="70"></label>
+        <label><span id="wind-label">Wind avg (mph)</span> <input id="in-wind" type="number" step="1" min="0" max="50"></label>
+        <label><span id="gust-label">Gusts (mph)</span> <input id="in-gust" type="number" step="1" min="0" max="70"></label>
       </div>
     </section>
 
@@ -129,7 +135,7 @@
 
     <section class="hero-card">
       <p class="tile-label">Mission radius — how far out you can push</p>
-      <p class="hero-figure"><span id="hero-value">—</span><span class="hero-unit">mi</span></p>
+      <p class="hero-figure"><span id="hero-value">—</span><span id="hero-unit" class="hero-unit">mi</span></p>
       <p class="tile-sub" id="hero-sub"></p>
     </section>
 
@@ -174,7 +180,7 @@
       <h3>Battery shoot-out</h3>
       <p class="card-sub">Every compatible pack, same loadout and weather</p>
       <div class="cmp-grid">
-        <div><p class="panel-title">Mission radius (mi)</p><div id="chart-cmp-radius" class="chart"></div></div>
+        <div><p id="cmp-radius-title" class="panel-title">Mission radius (mi)</p><div id="chart-cmp-radius" class="chart"></div></div>
         <div><p class="panel-title">Flight time (min)</p><div id="chart-cmp-time" class="chart"></div></div>
       </div>
       <div class="table-wrap">
