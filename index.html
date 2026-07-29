@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="vendor/leaflet/leaflet.css">
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -23,6 +24,11 @@
     </select>
   </label>
 </header>
+
+<nav class="view-tabs" role="tablist" aria-label="View">
+  <button id="tab-dash" class="view-tab" role="tab" aria-selected="true" aria-controls="view-dash">Planner</button>
+  <button id="tab-map" class="view-tab" role="tab" aria-selected="false" aria-controls="view-map" tabindex="-1">Map</button>
+</nav>
 
 <div class="layout">
 
@@ -98,6 +104,7 @@
         <label>Humidity (%) <input id="in-rh" type="number" step="5" min="0" max="100"></label>
         <label><span id="wind-label">Wind avg (mph)</span> <input id="in-wind" type="number" step="1" min="0" max="50"></label>
         <label><span id="gust-label">Gusts (mph)</span> <input id="in-gust" type="number" step="1" min="0" max="70"></label>
+        <label>Wind from (°) <input id="in-winddir" type="number" step="5" min="0" max="359"></label>
       </div>
     </section>
 
@@ -130,7 +137,7 @@
     </section>
   </aside>
 
-  <main class="content">
+  <main class="content" id="view-dash" role="tabpanel" aria-labelledby="tab-dash">
     <div id="warnings" class="warnings" hidden></div>
 
     <section class="hero-card">
@@ -205,6 +212,39 @@
     <p class="footnote">Model: momentum-theory rotor power on total disc area, humid-air density (elevation · temp · humidity),
       per-chemistry discharge simulation with internal-resistance sag and cold-weather derating, wind-split cruise optimization
       per leg. Calibrated to logged flights (see README). Physics is a planning estimate — always fly with margin.</p>
+  </main>
+
+  <main class="content" id="view-map" role="tabpanel" aria-labelledby="tab-map" hidden>
+    <section class="card map-card">
+      <div class="card-head">
+        <h3>Mission footprint</h3>
+        <div class="map-actions">
+          <button id="btn-locate" class="map-btn" type="button">My location</button>
+          <button id="btn-fit" class="map-btn" type="button">Fit view</button>
+          <button id="btn-live-wx" class="map-btn" type="button">Live weather here</button>
+        </div>
+      </div>
+      <p class="card-sub">Out-and-back turnaround envelope from the launch point — click or drag the map to move it.
+        Filled: planned cruise · dashed: theoretical best range. A dogleg route can beat this ring; fly with margin.</p>
+      <p id="map-note" class="empty-note" hidden></p>
+      <div id="map-canvas" class="map-canvas"></div>
+      <p id="wx-note" class="wx-note" hidden></p>
+    </section>
+
+    <section class="tiles map-tiles">
+      <div class="tile" id="tile-upwind"><p class="tile-label">Upwind reach</p><p class="tile-value">—</p><p class="tile-sub"></p></div>
+      <div class="tile" id="tile-downwind"><p class="tile-label">Downwind reach</p><p class="tile-value">—</p><p class="tile-sub"></p></div>
+      <div class="tile" id="tile-crosswind"><p class="tile-label">Crosswind reach</p><p class="tile-value">—</p><p class="tile-sub"></p></div>
+      <div class="tile" id="tile-area"><p class="tile-label">Footprint area</p><p class="tile-value">—</p><p class="tile-sub"></p></div>
+      <div class="tile" id="tile-aloft"><p class="tile-label">Time aloft</p><p class="tile-value">—</p><p class="tile-sub"></p></div>
+    </section>
+
+    <section class="card">
+      <h3>Range vs heading</h3>
+      <p class="card-sub">Turnaround radius by outbound course over ground — where the wind gives and takes</p>
+      <div id="legend-bearing" class="viz-legend"></div>
+      <div id="chart-bearing" class="chart"></div>
+    </section>
   </main>
 </div>
 

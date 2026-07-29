@@ -7,6 +7,7 @@ import {
 import { planMission, CHEMISTRY, U } from './physics.js';
 import { lineChart, barChart, missionProfile, legend, hideTooltip } from './charts.js';
 import { unitSystem } from './units.js';
+import { setupMapView, showMapView, renderMapView } from './map.js';
 
 const $ = (id) => document.getElementById(id);
 const SERIES = ['var(--series-1)', 'var(--series-2)', 'var(--series-3)', 'var(--series-4)'];
@@ -14,6 +15,7 @@ const f0 = (x) => isFinite(x) ? x.toLocaleString('en-US', { maximumFractionDigit
 const f1 = (x) => isFinite(x) ? x.toLocaleString('en-US', { maximumFractionDigits: 1, minimumFractionDigits: 1 }) : '—';
 
 const state = {
+  view: 'dash', // 'dash' | 'map' — session-only, never persisted
   units: 'imperial',
   droneId: 'moz7v2',
   manufacturerId: 'all',
@@ -22,7 +24,7 @@ const state = {
   extraG: 0,
   weatherId: 'calm',
   scenarioId: 'longrange',
-  env: { elevFt: 800, tempF: 75, rhPct: 40, windMph: 3, gustMph: 5, windMode: 'headOut' },
+  env: { elevFt: 800, tempF: 75, rhPct: 40, windMph: 3, gustMph: 5, windFromDeg: 170, windMode: 'headOut' },
   reservePct: 20,
   cruiseMode: 'real',
   manualMph: 40,
@@ -64,6 +66,7 @@ function missionInputs(batt = battery(), envOverride = null) {
       rhPct: env.rhPct,
       windAvgMs: U.mphToMs(env.windMph),
       windGustMs: U.mphToMs(env.gustMph),
+      windFromDeg: env.windFromDeg,
       windMode: env.windMode,
     },
     reservePct: state.reservePct,
@@ -122,6 +125,7 @@ function populateControls() {
   configureNumericInput($('in-gust'), u.input.gust, u.speedFromMph(state.env.gustMph));
   $('wind-label').textContent = `Wind avg (${u.speedUnit})`;
   $('gust-label').textContent = `Gusts (${u.speedUnit})`;
+  $('in-winddir').value = state.env.windFromDeg;
   $('sel-windmode').value = state.env.windMode;
   $('in-reserve').value = state.reservePct;
   $('reserve-val').textContent = `${state.reservePct}%`;
@@ -387,6 +391,12 @@ function update() {
     `${sc.desc} ≈${f0(u.speedFromMs(drone().cruiseMs * sc.speedFactor))} ${u.speedUnit} realistic cruise · +${f0((sc.overheadFactor - 1) * 100)}% maneuvering burn.`;
   $('cmp-radius-title').textContent = `Mission radius (${u.distanceUnit})`;
   const r = planMission(missionInputs());
+  // Render only the visible view: charts measure container width and freeze at
+  // a fallback size when drawn inside a hidden container.
+  if (state.view === 'map') {
+    renderMapView(r);
+    return;
+  }
   renderStats(r);
   renderWarnings(r.warnings);
   renderPowerCurve(r);
@@ -395,6 +405,20 @@ function update() {
   renderComparison();
   renderWindSensitivity();
   renderBatteryNote();
+}
+
+function setView(view) {
+  if (state.view === view) return;
+  state.view = view;
+  const dash = view === 'dash';
+  $('view-dash').hidden = !dash;
+  $('view-map').hidden = dash;
+  $('tab-dash').setAttribute('aria-selected', dash);
+  $('tab-map').setAttribute('aria-selected', !dash);
+  $('tab-dash').tabIndex = dash ? 0 : -1;
+  $('tab-map').tabIndex = dash ? -1 : 0;
+  if (!dash) showMapView(); // init-if-needed + invalidateSize, now that it's visible
+  update();
 }
 
 function renderBatteryNote() {
@@ -424,6 +448,15 @@ function renderBatteryNote() {
 /* ---------- events ---------- */
 
 function bind() {
+  $('tab-dash').addEventListener('click', () => setView('dash'));
+  $('tab-map').addEventListener('click', () => setView('map'));
+  document.querySelector('.view-tabs').addEventListener('keydown', e => {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    e.preventDefault();
+    const next = state.view === 'dash' ? 'map' : 'dash';
+    setView(next);
+    $(next === 'dash' ? 'tab-dash' : 'tab-map').focus();
+  });
   $('sel-units').addEventListener('change', e => {
     state.units = e.target.value;
     populateControls();
@@ -443,14 +476,14 @@ function bind() {
     state.weatherId = e.target.value;
     const w = WEATHER.find(x => x.id === state.weatherId);
     if (w) {
-      state.env = { ...state.env, elevFt: w.elevFt, tempF: w.tempF, rhPct: w.rhPct, windMph: w.windMph, gustMph: w.gustMph };
+      state.env = { ...state.env, elevFt: w.elevFt, tempF: w.tempF, rhPct: w.rhPct, windMph: w.windMph, gustMph: w.gustMph, windFromDeg: w.windFromDeg };
       populateControls();
     }
     update();
   });
   $('sel-scenario').addEventListener('change', e => { state.scenarioId = e.target.value; update(); });
   $('sel-speed-metric').addEventListener('change', e => { state.speedMetric = e.target.value; update(); });
-  const envMap = { 'in-elev': 'elevFt', 'in-temp': 'tempF', 'in-rh': 'rhPct' };
+  const envMap = { 'in-elev': 'elevFt', 'in-temp': 'tempF', 'in-rh': 'rhPct', 'in-winddir': 'windFromDeg' };
   for (const [id, key] of Object.entries(envMap)) {
     $(id).addEventListener('input', e => {
       state.env[key] = +e.target.value || 0;
@@ -540,6 +573,17 @@ function bind() {
   document.addEventListener('scroll', hideTooltip, { passive: true });
 }
 
+setupMapView({
+  missionInputs,
+  units,
+  requestRender: update,
+  applyEnv: patch => {
+    state.env = { ...state.env, ...patch };
+    state.weatherId = 'custom';
+    populateControls();
+    update();
+  },
+});
 populateControls();
 bind();
 update();

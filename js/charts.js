@@ -113,7 +113,7 @@ function drawAxes(svg, xTicks, yTicks, xs, ys, opts = {}) {
  * series: [{ name, color, pts: [{x, y}] }]
  */
 export function lineChart(container, { series, height = 240, xLabel, yLabel, xFmt, yFmt,
-                                       markers = [], yMin = 0, tipTitle }) {
+                                       markers = [], yMin = 0, tipTitle, xTicks: xTicksIn }) {
   const { svg, iw, ih } = frame(container, height);
   const allPts = series.flatMap(s => s.pts);
   if (!allPts.length) return;
@@ -126,7 +126,7 @@ export function lineChart(container, { series, height = 240, xLabel, yLabel, xFm
     while (yTicks[yTicks.length - 1] < yMaxV) yTicks.push(+(yTicks[yTicks.length - 1] + step).toFixed(10));
   }
   const yTop = yTicks[yTicks.length - 1];
-  const xTicks = niceTicks(xMin, xMax, 6);
+  const xTicks = xTicksIn || niceTicks(xMin, xMax, 6);
   const xs = x => M.left + (x - xMin) / (xMax - xMin || 1) * iw;
   const ys = y => M.top + ih - (y - yMin) / (yTop - yMin || 1) * ih;
   drawAxes(svg, xTicks, yTicks, xs, ys, { iw, xFmt, yFmt, xLabel, yLabel });

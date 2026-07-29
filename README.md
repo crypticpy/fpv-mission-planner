@@ -15,7 +15,9 @@ python3 -m http.server 8321
 
 Then open <http://localhost:8321>. No build step, no dependencies — plain ES
 modules ([js/physics.js](js/physics.js), [js/data.js](js/data.js),
-[js/charts.js](js/charts.js), [js/app.js](js/app.js)).
+[js/charts.js](js/charts.js), [js/app.js](js/app.js),
+[js/map.js](js/map.js)). The only third-party code is Leaflet 1.9.4, vendored
+as an ES module in `vendor/leaflet/` so the app still needs no CDN or bundler.
 
 Use the single **Units** selector in the header to switch every displayed
 distance, speed, wind, and distance-normalized burn rate between imperial
@@ -68,6 +70,36 @@ so its recipes use the published weight of twelve cells plus a 55 g construction
 allowance and the currently displayed $195 base price. Storefront Wh figures for
 the NAV packs are typos (72/36 Wh); the real numbers are 108/216 Wh and that's
 what the model uses.
+
+## Map view
+
+The **Map** tab draws the mission on real imagery. Click or drag to place the
+launch point (persisted in localStorage), and the planner sweeps the wind model
+across every outbound course to draw a **wind-shaped footprint**: the filled
+polygon is the out-and-back turnaround envelope at your planned cruise, the
+dashed ring is the theoretical best-range ceiling. Each weather preset carries a
+`windFromDeg` (the meteorological "wind from" bearing, degrees clockwise from
+true north) that orients the footprint; the dashboard's hero numbers still use
+the relative wind-mode selector, and the "dashboard planning case" marker on the
+range-vs-heading chart shows exactly where that case sits on the curve.
+
+Read the footprint honestly: it is the **turnaround envelope** — fly out on a
+course, turn around, come home — not general reachability. Because both legs
+pay for the same wind, upwind and downwind reach are equal and the crosswind
+axis is slightly longer; a dogleg route can beat the ring. Bearings the aircraft
+can't make headway on collapse to the launch point.
+
+**Live weather here** fills the weather rail from
+[Open-Meteo](https://open-meteo.com/) (free, no key) for the launch point. It
+uses **80 m wind**, not the usual 10 m surface wind — FPV cruise happens at
+30–120 m AGL, and surface wind reads roughly half of what you'll actually fight
+up there. Gusts are only published at 10 m, so treat the gust figure as a floor.
+Elevation comes from Open-Meteo's 90 m digital elevation model.
+
+Base layers: Esri World Imagery (satellite — Source: Esri, Vantor, Earthstar
+Geographics, and the GIS User Community) and OpenStreetMap streets
+(© OpenStreetMap contributors). Tiles load from the providers' free endpoints;
+the footprint still renders if tiles fail in the field.
 
 ## Camera payloads
 

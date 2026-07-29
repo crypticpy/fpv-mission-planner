@@ -417,36 +417,39 @@ export const PAYLOADS = [
 
 // Weather presets — the environment only (place + season). Route orientation
 // relative to the wind is a mission choice and lives in the Mission controls.
+// windFromDeg is the meteorological direction the wind blows FROM, degrees
+// clockwise from true north — it orients the map footprint, not the dashboard.
 export const WEATHER = [
   {
     id: 'calm', name: 'Calm evening baseline',
-    elevFt: 800, tempF: 75, rhPct: 40, windMph: 3, gustMph: 5,
+    elevFt: 800, tempF: 75, rhPct: 40, windMph: 3, gustMph: 5, windFromDeg: 170,
   },
   // Austin home-field seasonal presets — Camp Mabry climate normals, typical
-  // afternoon flying conditions, ~550 ft field elevation.
+  // afternoon flying conditions, ~550 ft field elevation. Prevailing winds are
+  // southerly off the Gulf except the winter norther.
   {
     id: 'atxspring', name: 'Austin spring (windy season)',
-    elevFt: 550, tempF: 82, rhPct: 62, windMph: 11, gustMph: 21,
+    elevFt: 550, tempF: 82, rhPct: 62, windMph: 11, gustMph: 21, windFromDeg: 170,
   },
   {
     id: 'atxsummer', name: 'Austin summer scorcher',
-    elevFt: 550, tempF: 98, rhPct: 44, windMph: 8, gustMph: 14,
+    elevFt: 550, tempF: 98, rhPct: 44, windMph: 8, gustMph: 14, windFromDeg: 175,
   },
   {
     id: 'atxfall', name: 'Austin fall',
-    elevFt: 550, tempF: 82, rhPct: 52, windMph: 7, gustMph: 12,
+    elevFt: 550, tempF: 82, rhPct: 52, windMph: 7, gustMph: 12, windFromDeg: 165,
   },
   {
     id: 'atxwinter', name: 'Austin winter norther',
-    elevFt: 550, tempF: 58, rhPct: 60, windMph: 10, gustMph: 18,
+    elevFt: 550, tempF: 58, rhPct: 60, windMph: 10, gustMph: 18, windFromDeg: 350,
   },
   {
     id: 'comtn', name: 'Colorado mountains (10,000 ft)',
-    elevFt: 10000, tempF: 45, rhPct: 30, windMph: 15, gustMph: 25,
+    elevFt: 10000, tempF: 45, rhPct: 30, windMph: 15, gustMph: 25, windFromDeg: 270,
   },
   {
     id: 'bigbend', name: 'Big Bend desert',
-    elevFt: 4500, tempF: 88, rhPct: 25, windMph: 12, gustMph: 18,
+    elevFt: 4500, tempF: 88, rhPct: 25, windMph: 12, gustMph: 18, windFromDeg: 155,
   },
 ];
 
@@ -478,6 +481,26 @@ export const SCENARIOS = [
 
 const LS_KEY = 'fpv-custom-batteries';
 const MFR_LS_KEY = 'fpv-custom-manufacturers';
+const MAP_LS_KEY = 'fpv-map';
+
+export function loadMapState() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(MAP_LS_KEY) || 'null');
+    if (!raw || !isFinite(raw.lat) || !isFinite(raw.lng)) return null;
+    return {
+      lat: Math.max(-85, Math.min(85, +raw.lat)),
+      lng: Math.max(-180, Math.min(180, +raw.lng)),
+      zoom: isFinite(raw.zoom) ? Math.max(3, Math.min(21, Math.round(+raw.zoom))) : 12,
+      baseLayer: raw.baseLayer === 'streets' ? 'streets' : 'satellite',
+    };
+  } catch { return null; }
+}
+
+export function saveMapState(s) {
+  // Fires on every pan/zoom via Leaflet events — never let quota/private-mode
+  // storage errors escape into the map's event dispatch.
+  try { localStorage.setItem(MAP_LS_KEY, JSON.stringify(s)); } catch { /* view state only */ }
+}
 
 export function loadCustomManufacturers() {
   try {
