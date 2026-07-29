@@ -21,6 +21,7 @@ import {
 } from './weather.js';
 import { setupThemes } from './themes.js';
 import { $, setTile } from './render/dom.js';
+import { buildForm, readForm } from './forms.js';
 
 const SERIES = ['var(--series-1)', 'var(--series-2)', 'var(--series-3)', 'var(--series-4)'];
 const f0 = (x) => x != null && isFinite(x) ? x.toLocaleString('en-US', { maximumFractionDigits: 0 }) : '—';
@@ -1042,6 +1043,51 @@ function clearSwapNotice() {
   el.hidden = true;
 }
 
+/* ---------- authoring forms ---------- */
+
+// What the pilot types is not what the record stores: the form asks for mAh
+// where a battery keeps Ah, and names weight, resistance, current and price
+// the short way. These lists are the view; the submit handlers below own the
+// mapping from these keys onto a record.
+const BATTERY_FORM = [
+  { key: 'name', label: 'Name', type: 'text', required: true, placeholder: 'Auline 6S 4000' },
+  { key: 'manufacturer', label: 'Manufacturer', type: 'select', id: 'custom-manufacturer' },
+  { grid: [
+    { key: 'cellMaker', label: 'Cell maker', type: 'text', placeholder: 'EVE' },
+    { key: 'cellModel', label: 'Cell model', type: 'text', placeholder: '50PL' },
+  ] },
+  { grid: [
+    { key: 'chem', label: 'Chemistry', type: 'select', options: [
+      { value: 'liion', label: 'Li-Ion' },
+      { value: 'lipo', label: 'LiPo' },
+      { value: 'lihv', label: 'LiHV' },
+    ] },
+    { key: 's', label: 'Cells', type: 'number', unit: 'S', required: true, min: 1, max: 8, value: 6 },
+    { key: 'p', label: 'Parallel', type: 'number', unit: 'P', required: true, min: 1, max: 8, value: 1 },
+    { key: 'mah', label: 'Capacity', type: 'number', unit: 'mAh', required: true, min: 100, max: 30000 },
+    { key: 'mass', label: 'Weight', type: 'number', unit: 'g', required: true, min: 10, max: 3000 },
+    { key: 'ir', label: 'Pack internal resistance', type: 'number', unit: 'mΩ', min: 1, max: 500, placeholder: '25' },
+    { key: 'amps', label: 'Max continuous current', type: 'number', unit: 'A', min: 1, max: 300, placeholder: '35' },
+    { key: 'connector', label: 'Connector', type: 'text', placeholder: 'XT60' },
+    { key: 'price', label: 'Price', type: 'number', unit: 'USD', min: 0, max: 5000, step: 0.01 },
+  ] },
+];
+
+const MANUFACTURER_FORM = [
+  { key: 'name', label: 'Name', type: 'text', required: true, placeholder: 'Custom pack builder' },
+  { key: 'url', label: 'Website', type: 'url', placeholder: 'https://example.com' },
+];
+
+// Runs before the first populateControls(), which then keeps the manufacturer
+// select in step with the registry as packs and builders come and go.
+function buildAuthoringForms() {
+  buildForm($('custom-form'), BATTERY_FORM, {
+    submitLabel: 'Save battery',
+    options: { manufacturer: allManufacturers().map(m => ({ value: m.id, label: m.name })) },
+  });
+  buildForm($('manufacturer-form'), MANUFACTURER_FORM, { submitLabel: 'Save manufacturer' });
+}
+
 function bind() {
   $('tab-dash').addEventListener('click', () => setView('dash'));
   $('tab-map').addEventListener('click', () => setView('map'));
@@ -1149,15 +1195,13 @@ function bind() {
 
   $('manufacturer-form').addEventListener('submit', e => {
     e.preventDefault();
-    const fd = new FormData(e.target);
-    const name = (fd.get('name') || '').toString().trim();
-    if (!name) return;
-    const id = 'manufacturer-' + name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
-    const rawUrl = (fd.get('url') || '').toString().trim();
+    const v = readForm(e.target, MANUFACTURER_FORM);
+    if (!v.name) return;
+    const id = 'manufacturer-' + v.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
     saveCustomManufacturer({
       id,
-      name,
-      url: /^https?:\/\//i.test(rawUrl) ? rawUrl : null,
+      name: v.name,
+      url: v.url && /^https?:\/\//i.test(v.url) ? v.url : null,
     });
     e.target.reset();
     populateControls();
@@ -1166,26 +1210,27 @@ function bind() {
 
   $('custom-form').addEventListener('submit', e => {
     e.preventDefault();
-    const fd = new FormData(e.target);
-    const name = (fd.get('name') || '').toString().trim();
-    if (!name) return;
-    const manufacturerId = fd.get('manufacturer') || 'custom';
-    const id = `custom-${manufacturerId}-${name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+    const v = readForm(e.target, BATTERY_FORM);
+    if (!v.name) return;
+    const manufacturerId = v.manufacturer || 'custom';
+    const id = `custom-${manufacturerId}-${v.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+    const s = v.s || 0;
+    const p = v.p || 1;
     saveCustomBattery({
       id,
-      name, short: name.slice(0, 14),
-      chem: fd.get('chem'), s: +fd.get('s'), p: +fd.get('p') || 1,
-      capAh: (+fd.get('mah') || 0) / 1000,
-      massG: +fd.get('mass') || 0,
-      irPackMilliOhm: +fd.get('ir') || 25,
-      maxContA: +fd.get('amps') || null,
-      connector: (fd.get('connector') || drone().connector).toString().trim(),
+      name: v.name, short: v.name.slice(0, 14),
+      chem: v.chem, s, p,
+      capAh: (v.mah || 0) / 1000,
+      massG: v.mass || 0,
+      irPackMilliOhm: v.ir || 25,
+      maxContA: v.amps || null,
+      connector: v.connector || drone().connector,
       fits: [state.droneId],
       manufacturerId,
-      cellMaker: (fd.get('cellMaker') || '').toString().trim() || null,
-      cellModel: (fd.get('cellModel') || '').toString().trim() || null,
-      config: `${+fd.get('s')}S${+fd.get('p') || 1}P`,
-      priceUsd: +fd.get('price') || null,
+      cellMaker: v.cellMaker,
+      cellModel: v.cellModel,
+      config: `${s}S${p}P`,
+      priceUsd: v.price || null,
       custom: true,
     });
     state.manufacturerId = manufacturerId;
@@ -1665,6 +1710,7 @@ setupThemes(() => {
 });
 setupShell({ setView });
 const bootView = restoreSession();
+buildAuthoringForms();
 populateControls();
 bind();
 if (bootView === 'map') setView('map'); // renders as a side effect

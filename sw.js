@@ -21,6 +21,7 @@ const PRECACHE_URLS = [
   'js/app.js',
   'js/charts.js',
   'js/data.js',
+  'js/forms.js',
   'js/map.js',
   'js/physics.js',
   'js/registry.js',
