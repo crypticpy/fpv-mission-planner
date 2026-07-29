@@ -73,6 +73,34 @@ export const BATTERIES = [
     priceUsd: 150,
   },
   {
+    id: 'ovonic2200',
+    name: 'Ovonic 6S 2200mAh 50C LiPo',
+    short: 'Ovonic 2200',
+    chem: 'lipo', s: 6, p: 1,
+    capAh: 2.2,
+    massG: 330,             // estimated: Amazon's "100g" spec is bogus; comparable 6S 2200 packs run 320–362g
+    irPackMilliOhm: 50,     // estimated: ~7–10 mΩ/cell for a budget 50C 2200 cell, ×6
+    maxContA: 40,           // label 110A; budget-LiPo derating (~18C true continuous)
+    connector: 'XT60',
+    fits: ['moz7v2'],
+    estimated: ['massG', 'irPackMilliOhm', 'maxContA'],
+    priceUsd: 31,
+  },
+  {
+    id: 'cnhl2200',
+    name: 'CNHL G+Plus 2200mAh 6S 70C LiPo',
+    short: 'CNHL 2200',
+    chem: 'lipo', s: 6, p: 1,
+    capAh: 2.2,
+    massG: 396,             // Amazon and ChinaHobbyLine spec pages agree
+    irPackMilliOhm: 25,     // estimated: ~3–5 mΩ/cell scaled from sibling G+Plus load test
+    maxContA: 65,           // label 154A; sibling G+Plus pack load-tested at ~43% of its claim
+    connector: 'XT60',
+    fits: ['moz7v2'],
+    estimated: ['irPackMilliOhm', 'maxContA'],
+    priceUsd: 40,
+  },
+  {
     id: 'gnb1100',
     name: 'GNB LiHV 4S 1100mAh 60C',
     short: 'GNB 1100',
@@ -131,6 +159,24 @@ export const SCENARIOS = [
   {
     id: 'txriver', name: 'Texas river follow',
     elevFt: 500, tempF: 95, rhPct: 55, windMph: 8, gustMph: 13, windMode: 'cross',
+  },
+  // Austin home-field seasonal presets — Camp Mabry climate normals, typical
+  // afternoon flying conditions, ~550 ft field elevation.
+  {
+    id: 'atxspring', name: 'Austin spring (windy season)',
+    elevFt: 550, tempF: 82, rhPct: 62, windMph: 11, gustMph: 21, windMode: 'cross',
+  },
+  {
+    id: 'atxsummer', name: 'Austin summer scorcher',
+    elevFt: 550, tempF: 98, rhPct: 44, windMph: 8, gustMph: 14, windMode: 'headOut',
+  },
+  {
+    id: 'atxfall', name: 'Austin fall',
+    elevFt: 550, tempF: 82, rhPct: 52, windMph: 7, gustMph: 12, windMode: 'headOut',
+  },
+  {
+    id: 'atxwinter', name: 'Austin winter norther',
+    elevFt: 550, tempF: 58, rhPct: 60, windMph: 10, gustMph: 18, windMode: 'headOut',
   },
   {
     id: 'comtn', name: 'Colorado mountain mission',
