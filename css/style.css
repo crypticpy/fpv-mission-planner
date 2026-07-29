@@ -726,7 +726,7 @@ body {
   .rail, .sheet-scrim { transition: none; }
 }
 
-/* [wave2:forecast] styles */
+/* ---------- hourly forecast strip ---------- */
 .forecast-strip {
   margin-top: var(--sp-3);
   padding-top: var(--sp-2);
@@ -753,7 +753,7 @@ body {
 .forecast-clock { font-variant-numeric: tabular-nums; }
 .forecast-late { color: var(--status-warning); }
 
-/* [wave2:spots] styles */
+/* ---------- saved spots ---------- */
 
 .spots-card { padding-bottom: var(--sp-3); }
 .spots-empty { color: var(--muted); font-size: 12.5px; padding: var(--sp-1) 0; }
@@ -807,7 +807,7 @@ body {
 }
 .spot-dot:hover { opacity: 1; }
 
-/* [wave2:session] styles */
+/* ---------- session planner ---------- */
 .sesh-head, .sesh-row {
   display: grid;
   grid-template-columns: 1fr 56px 64px 64px;
@@ -834,3 +834,10 @@ body {
 .sesh-sub { color: var(--ink); font-weight: 600; }
 .sesh-totals { margin-top: var(--sp-2); font-size: 13px; color: var(--ink-2); }
 .sesh-totals.sesh-empty { color: var(--muted); }
+
+/* ---------- progressive disclosure (Beginner / Full) ---------- */
+
+/* Beginner mode is declarative: everything on the hide list carries .full-only,
+   and the body attribute decides. Placed last so it wins over the layout rules
+   that set display on the same elements. */
+body[data-detail="beginner"] .full-only { display: none; }

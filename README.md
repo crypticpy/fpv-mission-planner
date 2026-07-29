@@ -174,6 +174,28 @@ Geographics, and the GIS User Community) and OpenStreetMap streets
 (© OpenStreetMap contributors). Tiles load from the providers' free endpoints;
 the footprint still renders if tiles fail in the field.
 
+## Planning ahead
+
+The same free Open-Meteo request also carries a **3-day hourly forecast** and
+sun times. In live mode a **"Plan for" scrubber** appears in the weather rail:
+drag it to any hour in the next three days and the entire plan — physics,
+verdict, timers, footprint — recomputes for that hour's forecast wind and
+temperature, with a banner making clear you're planning on a forecast, not
+current conditions. Each day shows **sunset and golden hour** (the last hour of
+light), and a clock plan lays the flight against them: *launch 7:41 PM → turn
+7:49 → land 7:56 · sunset 8:21*, with a warning when the landing runs out of
+light.
+
+**Saved spots** (Map tab) turn the single launch pin into a named list: each
+spot keeps its location, cached elevation, notes, and a snapshot of the loadout
+you saved it with. *Fly here* re-aims the pin, restores that rig, and refetches
+live weather — so "which of my spots is flyable Saturday" is two clicks and a
+scrub.
+
+The **session planner** (Planner tab) totals airtime across the packs in your
+bag — set a count next to each pack and it sums flight time plus swap overhead
+into a realistic field-session length.
+
 ## Camera payloads
 
 The camera selector includes published ready-to-record weights for the complete

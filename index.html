@@ -24,9 +24,15 @@
 <header class="masthead">
   <div>
     <h1>FPV Mission Planner</h1>
-    <p class="masthead-sub">Disc-loading &amp; energy model · MOZ7 V2 / Cinelog30 V3 · calibrated against logged flights</p>
+    <p class="masthead-sub">Energy, thrust &amp; wind model · MOZ7 V2 / Cinelog30 V3 · calibrated against logged flights</p>
   </div>
   <div class="header-controls">
+    <label class="header-select">Detail
+      <select id="sel-detail" aria-label="How much detail to show">
+        <option value="full">Full — every chart</option>
+        <option value="beginner">Beginner — just the plan</option>
+      </select>
+    </label>
     <label class="header-select">Theme
       <select id="sel-theme" aria-label="Color theme"></select>
     </label>
@@ -59,18 +65,18 @@
         <select id="sel-battery"></select>
       </label>
       <p id="swap-notice" class="swap-notice" role="status" hidden></p>
-      <label class="check-row">
+      <label class="check-row full-only">
         <input id="in-parallel" type="checkbox">
         <span>Run two identical packs in parallel</span>
       </label>
-      <p id="parallel-summary" class="parallel-summary" hidden></p>
+      <p id="parallel-summary" class="parallel-summary full-only" hidden></p>
       <label>Camera payload
         <select id="sel-payload"></select>
       </label>
       <label>Extra weight (g)
         <input id="in-extra" type="number" min="0" max="500" step="5" value="0">
       </label>
-      <details class="custom-batt">
+      <details class="custom-batt full-only">
         <summary>Add a battery to compare</summary>
         <form id="custom-form">
           <label>Name <input name="name" required placeholder="Auline 6S 4000"></label>
@@ -93,8 +99,8 @@
             <label>Parallel (P) <input name="p" type="number" min="1" max="8" value="1" required></label>
             <label>Capacity (mAh) <input name="mah" type="number" min="100" max="30000" required></label>
             <label>Weight (g) <input name="mass" type="number" min="10" max="3000" required></label>
-            <label>Pack IR (mΩ) <input name="ir" type="number" min="1" max="500" placeholder="25"></label>
-            <label>Max cont (A) <input name="amps" type="number" min="1" max="300" placeholder="35"></label>
+            <label>Pack internal resistance (mΩ) <input name="ir" type="number" min="1" max="500" placeholder="25"></label>
+            <label>Max continuous current (A) <input name="amps" type="number" min="1" max="300" placeholder="35"></label>
             <label>Connector <input name="connector" placeholder="XT60"></label>
             <label>Price (USD) <input name="price" type="number" min="0" max="5000" step="0.01"></label>
           </div>
@@ -102,7 +108,7 @@
         </form>
         <div id="custom-list"></div>
       </details>
-      <details class="custom-batt">
+      <details class="custom-batt full-only">
         <summary>Add a battery manufacturer</summary>
         <form id="manufacturer-form">
           <label>Name <input name="name" required placeholder="Custom pack builder"></label>
@@ -134,7 +140,6 @@
         <label>Wind from (°) <input id="in-winddir" type="number" step="5" min="0" max="359"></label>
       </div>
       <p id="wind-note" class="rail-note wind-note"></p>
-      <!-- [wave2:forecast] scrubber + sun times UI -->
       <div id="forecast-strip" class="forecast-strip" hidden>
         <p id="forecast-banner" class="forecast-banner" hidden></p>
         <label>Plan for <span id="forecast-when" class="range-val"></span>
@@ -149,7 +154,7 @@
 
     <section class="rail-group">
       <h2>Mission</h2>
-      <label>Scenario
+      <label>How are you flying?
         <select id="sel-scenario"></select>
       </label>
       <p id="scenario-desc" class="rail-note"></p>
@@ -160,17 +165,20 @@
           <option value="cross">Crosswind both ways</option>
         </select>
       </label>
-      <label>Landing reserve <span id="reserve-val" class="range-val"></span>
+      <label>Battery left when you land <span id="reserve-val" class="range-val"></span>
         <input id="in-reserve" type="range" min="10" max="40" step="5">
       </label>
+      <p class="rail-note">Landing below about 20% wears LiPo packs fast.</p>
       <label>Cruise speed
+        <!-- Options are rebuilt in populateControls(): beginner mode keeps only
+             the realistic cruise. -->
         <select id="sel-cruise">
-          <option value="real">Realistic — how you'd fly it</option>
+          <option value="real">Realistic — how you’d fly it</option>
           <option value="range">Theoretical best range</option>
           <option value="manual">Manual</option>
         </select>
       </label>
-      <label id="speed-row" hidden>Airspeed <span id="speed-val" class="range-val"></span>
+      <label id="speed-row" class="full-only" hidden>Airspeed <span id="speed-val" class="range-val"></span>
         <input id="in-speed" type="range" min="10" max="65" step="1">
       </label>
     </section>
@@ -201,20 +209,20 @@
       <div class="tile" id="tile-time"><p class="tile-label">Flight timer</p><p class="tile-value">—</p><p class="tile-sub"></p></div>
       <div class="tile" id="tile-energy"><p class="tile-label">Usable energy</p><p class="tile-value">—</p><p class="tile-sub"></p></div>
       <div class="tile" id="tile-cruise"><p class="tile-label">Cruise</p><p class="tile-value">—</p><p class="tile-sub"></p></div>
-      <div class="tile" id="tile-hover"><p class="tile-label">Hover endurance</p><p class="tile-value">—</p><p class="tile-sub"></p></div>
-      <div class="tile" id="tile-auw"><p class="tile-label">All-up weight</p><p class="tile-value">—</p><p class="tile-sub"></p></div>
-      <div class="tile" id="tile-disc"><p class="tile-label">Disc loading</p><p class="tile-value">—</p><p class="tile-sub"></p></div>
+      <div class="tile" id="tile-hover"><p class="tile-label">If you just hovered</p><p class="tile-value">—</p><p class="tile-sub"></p></div>
+      <div class="tile" id="tile-auw"><p class="tile-label">Total weight with battery</p><p class="tile-value">—</p><p class="tile-sub"></p></div>
+      <div class="tile full-only" id="tile-disc"><p class="tile-label">Disc loading</p><p class="tile-value">—</p><p class="tile-sub"></p></div>
       <div class="tile" id="tile-eff"><p class="tile-label">Lift margin</p><p class="tile-value">—</p><p class="tile-sub"></p></div>
-      <div class="tile" id="tile-da"><p class="tile-label">Density altitude</p><p class="tile-value">—</p><p class="tile-sub"></p></div>
+      <div class="tile full-only" id="tile-da"><p class="tile-label">Density altitude</p><p class="tile-value">—</p><p class="tile-sub"></p></div>
     </section>
 
-    <section class="card">
+    <section class="card full-only">
       <h3>Power vs airspeed</h3>
       <p class="card-sub">Electrical draw across the speed envelope, with the endurance and cruise points marked</p>
       <div id="chart-power" class="chart"></div>
     </section>
 
-    <section class="card">
+    <section class="card full-only">
       <div class="card-head">
         <h3>Cruise speed trade-off</h3>
         <select id="sel-speed-metric" class="card-select" aria-label="Trade-off metric">
@@ -227,7 +235,7 @@
       <div id="chart-speed" class="chart"></div>
     </section>
 
-    <section class="card">
+    <section class="card full-only">
       <h3>Mission profile</h3>
       <p class="card-sub">Battery and pack voltage across the out-and-back at planned cruise</p>
       <p id="chart-profile-empty" class="empty-note" hidden>No viable mission in these conditions.</p>
@@ -241,11 +249,11 @@
         <div><p id="cmp-radius-title" class="panel-title">Mission radius (mi)</p><div id="chart-cmp-radius" class="chart"></div></div>
         <div><p class="panel-title">Flight time (mm:ss)</p><div id="chart-cmp-time" class="chart"></div></div>
       </div>
-      <div class="table-wrap">
+      <div class="table-wrap full-only">
         <table id="cmp-table">
           <thead><tr>
-            <th>Manufacturer</th><th>Pack</th><th>Cell</th><th>Config</th><th>Chem</th><th>Capacity</th><th>Energy</th><th>Battery wt.</th>
-            <th>AUW</th><th>Disc load</th><th>Thrust</th><th>Status</th><th>Radius</th><th>Time</th><th>Burn out → home</th><th>Price</th>
+            <th>Manufacturer</th><th>Pack</th><th>Cell</th><th>Config</th><th>Chemistry</th><th>Capacity</th><th>Energy</th><th>Battery weight</th>
+            <th>Total weight</th><th>Disc load</th><th>Thrust</th><th>Status</th><th>Radius</th><th>Time</th><th>Burn out → home</th><th>Price</th>
           </tr></thead>
           <tbody></tbody>
         </table>
@@ -291,7 +299,6 @@
       <div id="map-canvas" class="map-canvas"></div>
       <p id="wx-note" class="wx-note" hidden></p>
     </section>
-    <!-- [wave2:spots] saved spots UI -->
     <section class="card spots-card">
       <div class="card-head"><h3>Saved spots</h3></div>
       <p class="card-sub">Your launch points, kept — with the elevation and rig you flew there. Fly here moves the pin;

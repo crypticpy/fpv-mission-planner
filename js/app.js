@@ -59,7 +59,10 @@ const state = {
   cruiseMode: 'real',
   manualMph: 40,
   speedMetric: 'radius',
+  detail: 'full', // 'full' | 'beginner' — how much of the physics is on screen
 };
+
+const beginner = () => state.detail === 'beginner';
 
 /* ---------- session persistence ---------- */
 
@@ -73,6 +76,10 @@ function saveSession() {
  * Restore the control surface, all-or-nothing: any unknown id or out-of-range
  * number discards the whole blob, because a half-restored loadout reads as a
  * plan for a rig the pilot never selected. Returns the saved view, if valid.
+ *
+ * `detail` is the one exception: it is a view preference, not part of the plan,
+ * so it falls back to 'full' on its own rather than voiding a blob written
+ * before the toggle existed.
  */
 function restoreSession() {
   let s = null;
@@ -103,6 +110,7 @@ function restoreSession() {
     parallelPacks: s.parallelPacks, payloadId: s.payloadId, extraG: s.extraG,
     weatherId: s.weatherId, scenarioId: s.scenarioId, reservePct: s.reservePct,
     cruiseMode: s.cruiseMode, manualMph: s.manualMph, speedMetric: s.speedMetric,
+    detail: ['full', 'beginner'].includes(s.detail) ? s.detail : 'full',
     env: {
       elevFt: env.elevFt, tempF: env.tempF, rhPct: env.rhPct, windMph: env.windMph,
       gustMph: env.gustMph, windFromDeg: env.windFromDeg, windMode: env.windMode,
@@ -186,8 +194,17 @@ function configureNumericInput(input, config, value) {
   input.value = Math.round(value / config.step) * config.step;
 }
 
+// The cruise modes that ask the pilot to think in airspeed rather than in flying
+// style. Beginner mode drops both and plans the realistic cruise.
+const EXPERT_CRUISE_MODES = ['range', 'manual'];
+
 function populateControls() {
   const u = units();
+  // Beginner mode can never sit on an expert cruise mode: the control that would
+  // change it back is not on screen.
+  if (beginner() && EXPERT_CRUISE_MODES.includes(state.cruiseMode)) state.cruiseMode = 'real';
+  document.body.dataset.detail = state.detail;
+  $('sel-detail').value = state.detail;
   $('sel-units').value = state.units;
   fillSelect($('sel-drone'), DRONES.map(d => ({ value: d.id, label: d.name })), state.droneId);
   const manufacturerIds = new Set(droneBatteries().map(b => b.manufacturerId || 'custom'));
@@ -215,7 +232,13 @@ function populateControls() {
     ...WEATHER.map(w => ({ value: w.id, label: w.name })),
     { value: 'custom', label: 'Custom weather' },
   ], state.weatherId);
-  fillSelect($('sel-scenario'), SCENARIOS.map(s => ({ value: s.id, label: s.name })), state.scenarioId);
+  // This dropdown can halve the plan, so the speed it implies is on the option
+  // itself — before the pilot picks it, not after. Rebuilt on every drone and
+  // unit change, since both move the number.
+  fillSelect($('sel-scenario'), SCENARIOS.map(s => ({
+    value: s.id,
+    label: `${s.name} · ~${f0(u.speedFromMs(drone().cruiseMs * s.speedFactor))} ${u.speedUnit}`,
+  })), state.scenarioId);
   $('in-elev').value = state.env.elevFt;
   $('in-temp').value = state.env.tempF;
   $('in-rh').value = state.env.rhPct;
@@ -230,7 +253,13 @@ function populateControls() {
   $('sel-windmode').value = state.env.windMode;
   $('in-reserve').value = state.reservePct;
   $('reserve-val').textContent = `${state.reservePct}%`;
-  $('sel-cruise').value = state.cruiseMode;
+  fillSelect($('sel-cruise'), [
+    { value: 'real', label: 'Realistic — how you’d fly it' },
+    ...(beginner() ? [] : [
+      { value: 'range', label: 'Theoretical best range' },
+      { value: 'manual', label: 'Manual' },
+    ]),
+  ], state.cruiseMode);
   configureNumericInput($('in-speed'), u.input.manualSpeed, u.speedFromMph(state.manualMph));
   $('speed-val').textContent = `${f0(u.speedFromMph(state.manualMph))} ${u.speedUnit}`;
   $('speed-row').hidden = state.cruiseMode !== 'manual';
@@ -507,7 +536,7 @@ function renderStats(r) {
     : land - r.energy.reservePct < 0.5 ? `about ${f0(land)}% left, your landing reserve`
     : `about ${f0(land)}% left — your ${f0(r.energy.reservePct)}% reserve plus the bottom the pack can’t use`;
   $('hero-sub').textContent = noLift
-    ? `${f0(r.massKg * 1000)} g AUW exceeds ${f0(r.flight.maxHoverMassG)} g estimated continuous lift`
+    ? `${f0(r.massKg * 1000)} g all-up weight exceeds ${f0(r.flight.maxHoverMassG)} g estimated continuous lift`
     : stranded
       ? 'Zero radius — you could not fly home from any distance out. See the note above.'
       : `${f1(u.distanceFromKm(r.radiusKm))} ${u.distanceUnit} out — start home at ${mmss(times?.outMin)} on the timer, land at ${mmss(r.timeMin)} with ${landing}`;
@@ -523,14 +552,27 @@ function renderStats(r) {
   setTile('tile-disc', `${r.discLoadingGcm2.toFixed(2)} g/cm²`, `${d.numRotors}× ${d.propDiaIn}″ props`);
   setTile('tile-eff', `${r.flight.thrustToWeight.toFixed(2)}:1`,
     `${flightLabel(r.flight)} · ${r.flight.limitingComponent} limited · estimated`);
-  setTile('tile-da', `${f0(U.mToFt(r.densityAltM))} ft`, `density altitude · ρ ${r.rho.toFixed(3)} kg/m³`);
+  setTile('tile-da', `${f0(U.mToFt(r.densityAltM))} ft`,
+    `the altitude this air feels like · air density ${r.rho.toFixed(3)} kg/m³`);
+  // Density altitude is a full-only tile, but thin air changes the whole plan —
+  // promote it back into beginner view on the same threshold the warnings use.
+  $('tile-da').classList.toggle('full-only', !(r.densityAltM > 2500));
   const out = r.legs.out, back = r.legs.back;
   setTile('tile-cruise',
     out && back ? `${f0(u.speedFromMs(out.v))} / ${f0(u.speedFromMs(back.v))} ${u.speedUnit}` : '—',
-    out && back ? `airspeed out / back · ${f0(u.speedFromMs(out.vg))} / ${f0(u.speedFromMs(back.vg))} ${u.speedUnit} gs`
+    out && back ? `airspeed out / back · ${f0(u.speedFromMs(out.vg))} / ${f0(u.speedFromMs(back.vg))} ${u.speedUnit} over the ground`
       : noLift ? 'mission invalid · insufficient lift' : 'wind or propulsion exceeds capability');
+  // Pilots buy packs in mAh and charge them in mAh, so the Wh figure carries its
+  // mAh twin. Converted at the pack's nominal voltage (packWh / capacity), which
+  // is the same basis the Wh numbers are quoted on.
+  const packMah = loadoutBattery().capAh * 1000;
+  const nomV = packMah > 0 ? r.energy.packWh / (packMah / 1000) : 0;
+  const usableMah = nomV > 0 ? r.energy.usableWh / nomV * 1000 : null;
   setTile('tile-energy', `${f1(r.energy.usableWh)} Wh`,
-    `usable of ${f1(r.energy.packWh)} Wh nominal${r.overheadF > 1 ? ` · burn ×${r.overheadF.toFixed(2)}` : ''}`);
+    (usableMah != null
+      ? `${f0(usableMah)} of ${f0(packMah)} mAh usable · ${f1(r.energy.packWh)} Wh in the pack`
+      : `usable of ${f1(r.energy.packWh)} Wh nominal`)
+    + (r.overheadF > 1 ? ` · burn ×${r.overheadF.toFixed(2)}` : ''));
 }
 
 function renderPowerCurve(r) {
@@ -668,7 +710,8 @@ function renderComparison() {
     valueFmt: v => mmss(v),
   });
 
-  // table view
+  // table view — hidden in beginner mode, so don't build 16 columns per pack
+  if (beginner()) return;
   const tbody = $('cmp-table').querySelector('tbody');
   tbody.replaceChildren();
   for (const { b, effective, r } of runs) {
@@ -760,7 +803,7 @@ function liveStatusText() {
     + `surface ~${f0(u.speedFromMph(surfaceMph(p.windMph)))} / aloft ${f0(u.speedFromMph(p.windMph))} ${u.speedUnit} `
     + `from ${p.windFromDeg}° (${compass(p.windFromDeg)}) · `
     + `gusts ${f0(u.speedFromMph(Math.max(liveData.gust10Mph, p.windMph)))} ${u.speedUnit} · `
-    + `${p.tempF}°F · ${p.rhPct}% RH · fetched ${liveData.at}`;
+    + `${p.tempF}°F · ${p.rhPct}% humidity · fetched ${liveData.at}`;
 }
 
 /**
@@ -851,8 +894,10 @@ function update() {
   saveSession();
   packCaches = new Map();
   const sc = scenario();
+  // The speed now rides on the option itself, so this line carries what the
+  // dropdown can't: how much extra the stick work costs.
   $('scenario-desc').textContent =
-    `${sc.desc} ≈${f0(u.speedFromMs(drone().cruiseMs * sc.speedFactor))} ${u.speedUnit} realistic cruise · +${f0((sc.overheadFactor - 1) * 100)}% maneuvering burn.`;
+    `${sc.desc} Burns about ${f0((sc.overheadFactor - 1) * 100)}% more than steady cruise.`;
   $('cmp-radius-title').textContent = `Mission radius (${u.distanceUnit})`;
   const r = planMission(missionInputs());
   const stranded = zeroRadiusNote(r);
@@ -867,8 +912,8 @@ function update() {
   // on screen whichever tab is open.
   renderVerdict(r, stranded);
   renderWarnings(r.warnings);
-  renderForecastStrip(r); // [wave2:forecast] render hook
-  // [wave2:spots] render hook — the roster lives on the Map tab, and its
+  renderForecastStrip(r);
+  // The saved-spots roster lives on the Map tab, and its
   // distance-from-pin metas go stale whenever the pin moves.
   if (state.view === 'map') renderSpots();
   // Render only the visible view: charts measure container width and freeze at
@@ -878,9 +923,14 @@ function update() {
     return;
   }
   renderStats(r);
-  renderPowerCurve(r);
-  renderSpeedTradeoff(r);
-  renderProfile(r);
+  // Same reason the map view skips these: a chart drawn into a display:none
+  // container measures nothing and freezes at a fallback size. Beginner mode
+  // hides these three cards, so skip the sweeps behind them entirely.
+  if (!beginner()) {
+    renderPowerCurve(r);
+    renderSpeedTradeoff(r);
+    renderProfile(r);
+  }
   renderComparison();
   renderWindSensitivity(r);
   renderBatteryNote();
@@ -976,6 +1026,13 @@ function bind() {
     const next = state.view === 'dash' ? 'map' : 'dash';
     setView(next);
     $(next === 'dash' ? 'tab-dash' : 'tab-map').focus();
+  });
+  $('sel-detail').addEventListener('change', e => {
+    state.detail = ['full', 'beginner'].includes(e.target.value) ? e.target.value : 'full';
+    // populateControls() stamps the body attribute the CSS reads, rebuilds the
+    // cruise options, and resets an expert cruise mode that just went off screen.
+    populateControls();
+    update();
   });
   $('sel-units').addEventListener('change', e => {
     state.units = e.target.value;
@@ -1113,15 +1170,12 @@ function bind() {
     update();
   });
 
-  // [wave2:forecast] bindings
   $('in-forecast-hour').addEventListener('input', e => {
     fcIdx = +e.target.value;
     applyForecastHour();
   });
-  // [wave2:spots] bindings
   bindSpots();
-  // [wave2:session] bindings
-  // Row count inputs bind their own listener when built in renderSessionPlanner();
+  // Session-planner row count inputs bind their own listener when built in renderSessionPlanner();
   // no static bindings needed here since the rows don't exist until first render.
 
   let resizeTimer;
@@ -1141,8 +1195,6 @@ function bind() {
   });
   document.addEventListener('scroll', hideTooltip, { passive: true });
 }
-
-/* [wave2:forecast] module code */
 
 /* ---------- hourly forecast scrubber + sun times ---------- */
 
@@ -1314,7 +1366,7 @@ function renderForecastStrip(r) {
   renderClockPlan(r, isNow ? new Date() : hr.time, golden);
 }
 
-/* [wave2:spots] module code — saved launch spots.
+/* ---------- saved launch spots ----------
    The Map tab's roster of named launch points. A spot carries the elevation
    cached when it was saved plus a snapshot of the rig flown there; flying to one
    restores as much of that as still exists, and says so when it doesn't. */
@@ -1482,7 +1534,7 @@ function bindSpots() {
 }
 
 
-/* [wave2:session] module code */
+/* ---------- session planner ---------- */
 
 // Session planner: how many of each compatible pack the pilot is bringing to
 // the field today. Ephemeral by design — not part of `state`, never saved to
