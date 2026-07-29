@@ -49,6 +49,10 @@ export const MANUFACTURERS = [
   { id: 'ovonic', name: 'Ovonic', kind: 'brand', url: 'https://www.ampow.com/' },
   { id: 'cnhl', name: 'CNHL', kind: 'brand', url: 'https://chinahobbyline.com/' },
   { id: 'gnb', name: 'GNB / Gaoneng', kind: 'brand', url: 'https://www.gaoneng.shop/' },
+  { id: 'geprc', name: 'GEPRC', kind: 'brand', url: 'https://geprc.com/' },
+  { id: 'flywoo', name: 'Flywoo', kind: 'brand', url: 'https://flywoo.net/' },
+  { id: 'rdq', name: 'RDQ', kind: 'brand', url: 'https://www.racedayquads.com/' },
+  { id: 'tattu', name: 'Tattu', kind: 'brand', url: 'https://genstattu.com/' },
   { id: 'custom', name: 'Ungrouped custom', kind: 'custom-builder' },
   {
     id: 'diy500amp',
@@ -313,6 +317,95 @@ export const BATTERIES = [
     config: '6S2P',
     estimated: ['massG', 'irPackMilliOhm', 'maxContA', 'priceUsd'],
     priceUsd: 195,
+  },
+  {
+    id: 'gnb550',
+    name: 'GNB LiHV 4S 550mAh 120C',
+    short: 'GNB 550',
+    chem: 'lihv', s: 4, p: 1,
+    capAh: 0.55,
+    massG: 53,              // MyFPVStore listing: 53 g ±3 g
+    irPackMilliOhm: 24,     // estimated: small high-rate 4S LiHV planning value
+    maxContA: 35,           // label 66 A; derated for repeatable pack life
+    connector: 'XT30',
+    fits: ['cinelog30v3'],
+    manufacturerId: 'gnb',
+    cellMaker: 'GNB',
+    cellModel: '120C LiHV pouch',
+    config: '4S1P',
+    estimated: ['irPackMilliOhm', 'maxContA'],
+  },
+  {
+    id: 'rdq650',
+    name: 'RDQ Series LiHV 4S 650mAh 60C',
+    short: 'RDQ 650',
+    chem: 'lihv', s: 4, p: 1,
+    capAh: 0.65,
+    massG: 60.6,            // RDQ product page
+    irPackMilliOhm: 22,     // estimated: small-format 4S LiHV class
+    maxContA: 35,           // label 39 A; modest derating for repeatable use
+    connector: 'XT30',
+    fits: ['cinelog30v3'],
+    manufacturerId: 'rdq',
+    cellMaker: 'RDQ',
+    cellModel: '60C LiHV pouch',
+    config: '4S1P',
+    estimated: ['irPackMilliOhm', 'maxContA'],
+    priceUsd: 22.49,
+  },
+  {
+    id: 'geprc720',
+    name: 'GEPRC LiHV 4S 720mAh 100C',
+    short: 'GEPRC 720',
+    chem: 'lihv', s: 4, p: 1,
+    capAh: 0.72,
+    massG: 72,              // GEPRC product page
+    irPackMilliOhm: 18,     // estimated: high-rate 4S LiHV planning value
+    maxContA: 40,           // label 72 A; conservatively derated
+    connector: 'XT30',
+    fits: ['cinelog30v3'],
+    manufacturerId: 'geprc',
+    cellMaker: 'GEPRC',
+    cellModel: '100C LiHV pouch',
+    config: '4S1P',
+    estimated: ['irPackMilliOhm', 'maxContA'],
+    priceUsd: 18.99,
+  },
+  {
+    id: 'flywoo750',
+    name: 'Flywoo Explorer LiHV 4S 750mAh 80C',
+    short: 'Flywoo 750',
+    chem: 'lihv', s: 4, p: 1,
+    capAh: 0.75,
+    massG: 66.9,            // Flywoo product page
+    irPackMilliOhm: 20,     // estimated: high-density 4S LiHV planning value
+    maxContA: 40,           // label 60 A; conservatively derated
+    connector: 'XT30',
+    fits: ['cinelog30v3'],
+    manufacturerId: 'flywoo',
+    cellMaker: 'Flywoo',
+    cellModel: 'Explorer 80C LiHV pouch',
+    config: '4S1P',
+    estimated: ['irPackMilliOhm', 'maxContA'],
+    priceUsd: 18,           // $35.99 two-pack at time of research
+  },
+  {
+    id: 'tattu850',
+    name: 'Tattu R-Line 4S 850mAh 95C',
+    short: 'Tattu 850',
+    chem: 'lipo', s: 4, p: 1,
+    capAh: 0.85,
+    massG: 104,             // Tattu dealer listings agree
+    irPackMilliOhm: 14,     // estimated: premium high-rate LiPo planning value
+    maxContA: 50,           // label 80.75 A; derated below the C-rating claim
+    connector: 'XT30',
+    fits: ['cinelog30v3'],
+    manufacturerId: 'tattu',
+    cellMaker: 'Tattu',
+    cellModel: 'R-Line 95C pouch',
+    config: '4S1P',
+    estimated: ['irPackMilliOhm', 'maxContA'],
+    priceUsd: 19.99,
   },
   {
     id: 'gnb1100',

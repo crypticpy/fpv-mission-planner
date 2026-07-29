@@ -62,6 +62,7 @@ input ranges are centralized in [js/units.js](js/units.js).
 | GNB 6S 5500/7000 70C XT60: 656/797 g | GNB product pages | capacity, mass, connector, and price |
 | DIY500AMP 6S2P: EVE 40PL/50PL, Ampace JP40/JP50P1, Tenpower 50XG, Reliance RS50, LinkData 55P/65P | DIY500AMP pack and cell pages | cell capacity, weight, current limits, and IR bounds |
 | GNB packs: 88 / 73 / 72 g confirmed; C-ratings optimistic brand-wide | Pyrodrone, WREKD, Oscar Liang | masses; derated `maxContA` |
+| Cinelog30 packs: GNB 550, RDQ 650, GEPRC 720, Flywoo 750, Tattu 850 | manufacturer/dealer product pages | capacity, mass, chemistry, connector, and current price |
 
 Fields marked `estimated:` in [js/data.js](js/data.js) had no published source
 (mostly pack IR and true continuous current) — weigh your packs and measure IR
