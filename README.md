@@ -43,6 +43,17 @@ tap-to-inspect chart tooltips regardless of size — an iPad in landscape keeps
 the desktop layout with touch-sized controls. No user-agent sniffing; it's all
 CSS media queries (width for layout, `pointer: coarse` for ergonomics).
 
+## Install it
+
+The app is an installable PWA: on a phone or laptop, use the browser's "Add to
+Home Screen" / "Install" prompt to get it as a standalone app icon, no app
+store involved. A service worker ([sw.js](sw.js)) precaches the app shell —
+HTML, CSS, JS, Leaflet, fonts, icons — so it still opens with no signal at the
+trailhead, and it keeps the last fetched weather payload so a stale-but-real
+forecast survives offline instead of nothing. Map tiles are never cached (the
+providers' usage policies, and the footprint already renders without them);
+they just won't load offline.
+
 ## The model
 
 1. **Air density** — ISA barometric pressure at field elevation, Magnus vapor
