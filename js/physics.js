@@ -144,36 +144,53 @@ export function dischargeSim(batt, tempC, pW) {
 
 const WIND_MODES = ['headOut', 'tailOut', 'cross'];
 
-function groundSpeed(vAir, windMs, legWind) {
-  if (legWind === 'head') return vAir - windMs;
-  if (legWind === 'tail') return vAir + windMs;
-  const cross = vAir * vAir - windMs * windMs; // crab into a pure crosswind
-  return cross > 0 ? Math.sqrt(cross) : 0;
+// Ground speed holding a course line against a signed along-track headwind and
+// a crosswind component. The crab that cancels the cross component spends
+// airspeed; a cross component at or beyond airspeed makes the course unholdable
+// (being blown downwind is not progress toward the waypoint — return 0, never
+// the drift speed).
+function groundSpeedVec(vAir, headMs, crossMs) {
+  if (Math.abs(crossMs) >= vAir) return 0;
+  const along = crossMs === 0 ? vAir : Math.sqrt(vAir * vAir - crossMs * crossMs);
+  return Math.max(0, along - headMs);
 }
 
-function legWinds(mode) {
-  if (mode === 'headOut') return ['head', 'tail'];
-  if (mode === 'tailOut') return ['tail', 'head'];
-  return ['cross', 'cross'];
+// Per-leg wind components — [out, back] — from a discrete relative mode…
+function legVecsFromMode(mode, windMs) {
+  if (mode === 'tailOut') return [{ head: -windMs, cross: 0 }, { head: windMs, cross: 0 }];
+  if (mode === 'cross') return [{ head: 0, cross: windMs }, { head: 0, cross: windMs }];
+  return [{ head: windMs, cross: 0 }, { head: -windMs, cross: 0 }]; // headOut
+}
+
+// …or from an absolute out-leg ground course and the bearing the wind blows
+// FROM (meteorological): courseDeg === windFromDeg is straight into the wind.
+// Snapping sub-nanoscale components keeps the cardinal cases bit-identical to
+// the discrete modes.
+function legVecsFromCourse(courseDeg, windFromDeg, windMs) {
+  const d = (courseDeg - windFromDeg) * Math.PI / 180;
+  const snap = (x) => Math.abs(x) < 1e-9 ? 0 : x;
+  const head = snap(windMs * Math.cos(d));
+  const cross = snap(windMs * Math.abs(Math.sin(d)));
+  return [{ head, cross }, { head: -head, cross }];
 }
 
 // Airspeed minimizing Wh per ground-km for one leg; scan is robust vs the flat
 // U-shape of the power curve.
-function bestRangeSpeed(cfg, windMs, legWind, vMax) {
+function bestRangeSpeed(vec, vMax, pAt) {
   let best = null;
   for (let v = 1; v <= vMax; v += 0.25) {
-    const vg = groundSpeed(v, windMs, legWind);
+    const vg = groundSpeedVec(v, vec.head, vec.cross);
     if (vg <= 0.5) continue;
-    const whPerKm = powerAtSpeed(cfg, v) / (3.6 * vg);
+    const whPerKm = pAt(v) / (3.6 * vg);
     if (!best || whPerKm < best.whPerKm) best = { v, vg, whPerKm };
   }
   return best; // null → wind unbeatable at any speed
 }
 
-function bestEnduranceSpeed(cfg, vMax) {
+function bestEnduranceSpeed(vMax, pAt) {
   let best = { v: 0, p: Infinity };
   for (let v = 0; v <= vMax; v += 0.25) {
-    const p = powerAtSpeed(cfg, v);
+    const p = pAt(v);
     if (p < best.p) best = { v, p };
   }
   return best;
@@ -183,10 +200,15 @@ function bestEnduranceSpeed(cfg, vMax) {
  * Plan an out-and-back mission.
  * inputs: {
  *   drone, battery, payloadG, extraG,
- *   env: { elevM, tempC, rhPct, windAvgMs, windGustMs, windMode },
+ *   env: { elevM, tempC, rhPct, windAvgMs, windGustMs, windMode, windFromDeg },
  *   reservePct, gustFactor,
  *   cruiseMode: 'real'|'range'|'manual', realVMs, manualVMs,
- *   overheadF   // scenario maneuvering burn, ×steady cruise power (≥1)
+ *   overheadF,  // scenario maneuvering burn, ×steady cruise power (≥1)
+ *   courseDeg,  // optional absolute out-leg course; with env.windFromDeg it
+ *               // overrides the relative windMode (map footprint sweeps)
+ *   lite,       // skip timeline/power-curve/endurance extras (sweep callers)
+ *   _pCache,    // optional Map memoizing powerAtSpeed across calls; only
+ *               // valid while mass/air/drag config is unchanged (caller owns)
  * }
  */
 export function planMission(inp) {
@@ -203,10 +225,23 @@ export function planMission(inp) {
   // Planning wind: average plus a slice of the gust spread (conservatism knob).
   const gustFactor = inp.gustFactor ?? 0.35;
   const windMs = env.windAvgMs + gustFactor * Math.max(0, env.windGustMs - env.windAvgMs);
-  const [outWind, backWind] = legWinds(WIND_MODES.includes(env.windMode) ? env.windMode : 'headOut');
+  // Leg wind components: an absolute course (map footprint) wins over the
+  // relative windMode (dashboard); both see the same gust-blended wind.
+  const [vecOut, vecBack] = inp.courseDeg != null && isFinite(env.windFromDeg)
+    ? legVecsFromCourse(inp.courseDeg, env.windFromDeg, windMs)
+    : legVecsFromMode(WIND_MODES.includes(env.windMode) ? env.windMode : 'headOut', windMs);
+
+  const pCache = inp._pCache;
+  const pAt = pCache
+    ? (v) => {
+        let p = pCache.get(v);
+        if (p === undefined) { p = powerAtSpeed(cfg, v); pCache.set(v, p); }
+        return p;
+      }
+    : (v) => powerAtSpeed(cfg, v);
 
   // Hover point.
-  const pHover = powerAtSpeed(cfg, 0);
+  const pHover = pAt(0);
   const vNomPack = battery.s > 0 ? battery.s * CHEMISTRY[battery.chem].vNom : 1;
   const iHover = pHover / vNomPack;
   const discLoadingGcm2 = (massKg * 1000) / (areaM2 * 1e4);
@@ -214,24 +249,24 @@ export function planMission(inp) {
   // Cruise speeds per leg. 'real' flies the airframe's calibrated hands-on
   // cruise speed both ways (like a pilot would); 'range' is the theoretical
   // per-leg optimum; 'manual' is a user-set airspeed.
-  const endur = bestEnduranceSpeed(cfg, vMax);
+  const endur = inp.lite ? null : bestEnduranceSpeed(vMax, pAt);
   const overheadF = Math.max(inp.overheadF ?? 1, 1);
   const fixedV = inp.cruiseMode === 'manual' ? (inp.manualVMs || 0)
     : inp.cruiseMode === 'real' ? Math.min(inp.realVMs || 0, 0.95 * vMax)
     : 0;
   let legOut, legBack;
   if (fixedV > 0) {
-    const mk = (legWind) => {
-      const vg = groundSpeed(fixedV, windMs, legWind);
+    const mk = (vec) => {
+      const vg = groundSpeedVec(fixedV, vec.head, vec.cross);
       return vg > 0.5
-        ? { v: fixedV, vg, whPerKm: powerAtSpeed(cfg, fixedV) / (3.6 * vg) }
+        ? { v: fixedV, vg, whPerKm: pAt(fixedV) / (3.6 * vg) }
         : null;
     };
-    legOut = mk(outWind);
-    legBack = mk(backWind);
+    legOut = mk(vecOut);
+    legBack = mk(vecBack);
   } else {
-    legOut = bestRangeSpeed(cfg, windMs, outWind, vMax);
-    legBack = bestRangeSpeed(cfg, windMs, backWind, vMax);
+    legOut = bestRangeSpeed(vecOut, vMax, pAt);
+    legBack = bestRangeSpeed(vecBack, vMax, pAt);
   }
   // Scenario maneuvering burn scales the whole cruise leg (it cancels out of
   // the best-range argmin, so it's applied after speed selection). legs.pOut /
@@ -241,8 +276,8 @@ export function planMission(inp) {
   if (legBack) legBack.whPerKm *= overheadF;
 
   // Usable energy at the mission's average power draw.
-  const pOutSteady = legOut ? powerAtSpeed(cfg, legOut.v) : pHover;
-  const pBackSteady = legBack ? powerAtSpeed(cfg, legBack.v) : pHover;
+  const pOutSteady = legOut ? pAt(legOut.v) : pHover;
+  const pBackSteady = legBack ? pAt(legBack.v) : pHover;
   const pOut = legOut ? pOutSteady * overheadF : pHover;
   const pBack = legBack ? pBackSteady * overheadF : pHover;
   const pAvg = (pOut + pBack) / 2;
@@ -257,13 +292,13 @@ export function planMission(inp) {
     totalKm = radiusKm * 2;
     timeMin = (radiusKm / (legOut.vg * 3.6) + radiusKm / (legBack.vg * 3.6)) * 60;
   }
-  const hoverSim = dischargeSim(battery, env.tempC, pHover);
-  const hoverTimeMin = hoverSim.deliveredWh * (1 - reserve) / pHover * 60;
+  const hoverTimeMin = inp.lite ? 0
+    : dischargeSim(battery, env.tempC, pHover).deliveredWh * (1 - reserve) / pHover * 60;
   const cruiseTimeMin = usableWh / pAvg * 60; // loiter at cruise power
 
   // Timeline for the mission-profile chart.
   const timeline = [];
-  if (legOut && legBack && radiusKm > 0) {
+  if (!inp.lite && legOut && legBack && radiusKm > 0) {
     const outMin = radiusKm / (legOut.vg * 3.6) * 60;
     const backMin = radiusKm / (legBack.vg * 3.6) * 60;
     const whPerPct = sim.deliveredWh > 0 ? sim.deliveredWh / (100 - sim.stopSoc) : 1;
@@ -302,15 +337,15 @@ export function planMission(inp) {
   return {
     rho, densityAltM, massKg, discLoadingGcm2, areaM2,
     hover: { pW: pHover, iA: iHover, gPerW: (massKg * 1000) / pHover },
-    endurance: { vMs: endur.v, pW: endur.p },
-    wind: { planningMs: windMs, outWind, backWind },
+    endurance: endur ? { vMs: endur.v, pW: endur.p } : null,
+    wind: { planningMs: windMs, out: vecOut, back: vecBack },
     legs: { out: legOut, back: legBack, pOut: pOutSteady, pBack: pBackSteady },
     overheadF,
     energy: { packWh: battery.capAh * battery.s * CHEMISTRY[battery.chem].vNom,
               deliveredWh: sim.deliveredWh, usableWh, reservePct: reserve * 100,
               capF: sim.capF, sagLimited: sim.sagLimited },
     radiusKm, totalKm, timeMin, hoverTimeMin, cruiseTimeMin,
-    curve: powerCurve(cfg, vMax),
+    curve: inp.lite ? [] : powerCurve(cfg, vMax),
     cfg, timeline, warnings,
   };
 }
