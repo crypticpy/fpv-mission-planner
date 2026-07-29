@@ -25,6 +25,15 @@ distance, speed, wind, and distance-normalized burn rate between imperial
 keeps its native SI values; all display labels, conversions, and unit-specific
 input ranges are centralized in [js/units.js](js/units.js).
 
+### On a phone or tablet
+
+The layout switches automatically below tablet-landscape width: the view tabs
+become a bottom dock (Planner · Map · Loadout), and the control rail opens as a
+bottom sheet from the Loadout button. Touch devices get bigger tap targets and
+tap-to-inspect chart tooltips regardless of size — an iPad in landscape keeps
+the desktop layout with touch-sized controls. No user-agent sniffing; it's all
+CSS media queries (width for layout, `pointer: coarse` for ergonomics).
+
 ## The model
 
 1. **Air density** — ISA barometric pressure at field elevation, Magnus vapor

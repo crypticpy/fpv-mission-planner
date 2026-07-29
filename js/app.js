@@ -7,7 +7,8 @@ import {
 import { planMission, CHEMISTRY, U } from './physics.js';
 import { lineChart, barChart, missionProfile, legend, hideTooltip } from './charts.js';
 import { unitSystem } from './units.js';
-import { setupMapView, showMapView, renderMapView, pauseMapView } from './map.js';
+import { setupMapView, showMapView, renderMapView, pauseMapView, resizeMapView } from './map.js';
+import { setupShell, syncView } from './shell.js';
 import { fetchLiveEnv, launchPoint } from './weather.js';
 import { setupThemes } from './themes.js';
 
@@ -482,6 +483,7 @@ function setView(view) {
   $('tab-map').setAttribute('aria-selected', !dash);
   $('tab-dash').tabIndex = dash ? 0 : -1;
   $('tab-map').tabIndex = dash ? -1 : 0;
+  syncView(view);
   if (dash) pauseMapView();
   else showMapView(); // init-if-needed + invalidateSize, now that it's visible
   update();
@@ -634,9 +636,19 @@ function bind() {
   });
 
   let resizeTimer;
+  let lastWidth = window.innerWidth;
   window.addEventListener('resize', () => {
     clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(update, 150);
+    resizeTimer = setTimeout(() => {
+      // Mobile URL-bar collapse and the keyboard fire resize with unchanged
+      // width — those only need a map reflow, not a full footprint re-render.
+      if (window.innerWidth === lastWidth) {
+        if (state.view === 'map') resizeMapView();
+        return;
+      }
+      lastWidth = window.innerWidth;
+      update();
+    }, 150);
   });
   document.addEventListener('scroll', hideTooltip, { passive: true });
 }
@@ -652,6 +664,7 @@ setupThemes(() => {
   hideTooltip();
   update();
 });
+setupShell({ setView });
 populateControls();
 bind();
 goLive(); // live weather is the boot default; renders immediately, patches when the fetch lands

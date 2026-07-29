@@ -39,6 +39,11 @@ export function pauseMapView() {
   stopParticles();
 }
 
+/** Cheap reflow for height-only resizes (mobile URL bar, keyboard) — no re-render. */
+export function resizeMapView() {
+  if (map) map.invalidateSize({ pan: false });
+}
+
 function initMap() {
   const saved = loadMapState();
   launch = saved ? { lat: saved.lat, lng: saved.lng } : { ...AUSTIN };

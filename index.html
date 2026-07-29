@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0b0e11">
 <title>FPV Mission Planner</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -38,7 +38,7 @@
 
 <div class="layout">
 
-  <aside class="rail">
+  <aside class="rail" id="rail" tabindex="-1" aria-label="Loadout controls">
     <section class="rail-group">
       <h2>Aircraft</h2>
       <label>Drone
@@ -257,6 +257,13 @@
     </section>
   </main>
 </div>
+
+<div id="sheet-scrim" class="sheet-scrim"></div>
+<nav class="dock" aria-label="App navigation">
+  <button id="dock-planner" class="dock-btn" type="button" aria-current="true">Planner</button>
+  <button id="dock-map" class="dock-btn" type="button">Map</button>
+  <button id="dock-loadout" class="dock-btn" type="button" aria-expanded="false" aria-controls="rail">Loadout</button>
+</nav>
 
 <script type="module" src="js/app.js"></script>
 </body>

@@ -68,6 +68,15 @@ export function hideTooltip() {
   if (tooltipEl) tooltipEl.style.display = 'none';
 }
 
+/* Touch never fires a bare pointermove — pointerdown makes tap-to-inspect work.
+   pointercancel fires when the browser claims the gesture for scrolling. */
+function bindHit(hit, show, hide) {
+  hit.addEventListener('pointerdown', show);
+  hit.addEventListener('pointermove', show);
+  hit.addEventListener('pointerleave', hide);
+  hit.addEventListener('pointercancel', hide);
+}
+
 const M = { top: 14, right: 18, bottom: 34, left: 52 };
 
 function frame(container, height) {
@@ -168,7 +177,7 @@ export function lineChart(container, { series, height = 240, xLabel, yLabel, xFm
       return best;
     });
   };
-  hit.addEventListener('pointermove', ev => {
+  bindHit(hit, ev => {
     const rect = svg.getBoundingClientRect();
     const scale = rect.width / svg.viewBox.baseVal.width;
     const px = (ev.clientX - rect.left) / scale;
@@ -184,8 +193,7 @@ export function lineChart(container, { series, height = 240, xLabel, yLabel, xFm
     showTooltip(ev.clientX, ev.clientY,
       series.map((s, i) => ({ color: s.color, value: yFmt ? yFmt(pts[i].y) : pts[i].y.toFixed(1), label: s.name })),
       (tipTitle || xLabel || 'x') + ': ' + (xFmt ? xFmt(pts[0].x) : pts[0].x.toFixed(1)));
-  });
-  hit.addEventListener('pointerleave', () => {
+  }, () => {
     cross.setAttribute('visibility', 'hidden');
     dots.forEach(d => d.setAttribute('visibility', 'hidden'));
     hideTooltip();
@@ -200,7 +208,7 @@ export function barChart(container, { items, height, valueFmt, maxValue }) {
   const h = height || items.length * rowH + M.top + 8;
   container.replaceChildren();
   const width = container.clientWidth || 560;
-  const labelW = 132;
+  const labelW = Math.max(72, Math.min(132, width * 0.34));
   const svg = svgEl('svg', { viewBox: `0 0 ${width} ${h}`, width: '100%', height: h });
   container.appendChild(svg);
   const iw = width - labelW - 76;
@@ -221,12 +229,11 @@ export function barChart(container, { items, height, valueFmt, maxValue }) {
     val.textContent = valueFmt ? valueFmt(it.value) : it.value.toFixed(1);
     svg.appendChild(val);
     const hit = svgEl('rect', { x: 0, y: y - (rowH - barH) / 2, width, height: rowH, fill: 'transparent' });
-    hit.addEventListener('pointermove', ev => {
+    bindHit(hit, ev => {
       bar.classList.add('is-hover');
       showTooltip(ev.clientX, ev.clientY,
         [{ color: it.color, value: valueFmt ? valueFmt(it.value) : it.value, label: it.note || it.label }], it.label);
-    });
-    hit.addEventListener('pointerleave', () => { bar.classList.remove('is-hover'); hideTooltip(); });
+    }, () => { bar.classList.remove('is-hover'); hideTooltip(); });
     svg.appendChild(hit);
   });
 }
@@ -330,7 +337,7 @@ export function missionProfile(container, {
   svg.appendChild(cross);
   const hit = svgEl('rect', { x: M.left, y: M.top, width: iw, height: baseY - M.top, fill: 'transparent' });
   svg.appendChild(hit);
-  hit.addEventListener('pointermove', ev => {
+  bindHit(hit, ev => {
     const rect = svg.getBoundingClientRect();
     const scale = rect.width / width;
     const px = (ev.clientX - rect.left) / scale;
@@ -345,8 +352,7 @@ export function missionProfile(container, {
       { color: colorV, value: isFinite(best.vLoad) ? `${best.vLoad.toFixed(1)}V` : '—', label: 'under load' },
       { color: 'transparent', value: `${distanceFromKm(best.distKm).toFixed(1)} ${distanceUnit}`, label: best.phase === 'out' ? 'outbound' : 'returning' },
     ], `T+${best.tMin.toFixed(1)} min`);
-  });
-  hit.addEventListener('pointerleave', () => { cross.setAttribute('visibility', 'hidden'); hideTooltip(); });
+  }, () => { cross.setAttribute('visibility', 'hidden'); hideTooltip(); });
 }
 
 /** Legend row — line keys for line charts. */

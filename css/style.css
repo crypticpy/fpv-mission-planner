@@ -453,3 +453,165 @@ td.num { font-variant-numeric: tabular-nums; }
   color: var(--ink-2);
   border-color: var(--baseline);
 }
+
+/* ---------- mobile shell & touch ---------- */
+
+:root { --dock-h: 58px; }
+
+/* viewport-fit=cover lets content extend under a notch in landscape;
+   these compute to 0 everywhere else. Fixed elements (dock, sheet) ignore
+   body padding and carry their own insets below. */
+body {
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
+.dock, .sheet-scrim { display: none; }
+
+/* Charts scrub horizontally but must not trap vertical page scroll;
+   the table pans horizontally without triggering browser back-swipe. */
+.chart { touch-action: pan-y; }
+.table-wrap { overscroll-behavior-x: contain; }
+
+/* Touch ergonomics — any coarse-pointer device, independent of layout width
+   (an iPad in landscape keeps the desktop layout but still gets these). */
+@media (pointer: coarse) {
+  html { -webkit-tap-highlight-color: transparent; }
+  select, input[type="number"], input[type="text"], input[type="url"], input:not([type]) {
+    font-size: 16px; /* <16px triggers iOS Safari focus-zoom on text inputs */
+    min-height: 44px;
+    padding: 10px 11px;
+  }
+  button, select, summary { touch-action: manipulation; }
+  button { min-height: 44px; }
+  .header-select select, .card-select { font-size: 14px; }
+  input[type="range"] { height: 40px; }
+  .custom-batt summary { padding: 12px 0; margin: 0; }
+  .leaflet-touch .leaflet-bar a { width: 40px; height: 40px; line-height: 40px; }
+}
+
+/* App shell — phones and tablet portrait (same boundary as the layout stack) */
+@media (max-width: 900px) {
+  html { scrollbar-gutter: stable; }
+
+  .view-tabs { display: none; }
+
+  .masthead { flex-direction: column; align-items: stretch; gap: var(--sp-2); }
+  .header-controls { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-2); }
+  .header-select select { min-width: 0; width: 100%; }
+
+  .layout { padding-bottom: calc(var(--dock-h) + env(safe-area-inset-bottom) + var(--sp-3)); }
+
+  .tiles { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+
+  .map-canvas { height: 62vh; height: 62dvh; min-height: 300px; }
+  .map-card .card-sub { display: none; }
+  .map-card .card-head { flex-wrap: wrap; }
+  .map-actions { width: 100%; }
+  .map-actions .map-btn { flex: 1 1 0; }
+
+  .dock {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    position: fixed;
+    left: 0; right: 0; bottom: 0;
+    z-index: 1120; /* above the sheet (1110); Leaflet controls sit at 1000 in the root context */
+    height: calc(var(--dock-h) + env(safe-area-inset-bottom));
+    padding: 6px calc(var(--sp-2) + env(safe-area-inset-right))
+      calc(6px + env(safe-area-inset-bottom))
+      calc(var(--sp-2) + env(safe-area-inset-left));
+    background: var(--surface-1);
+    border-top: 1px solid var(--border);
+  }
+  .dock-btn {
+    position: relative;
+    background: none;
+    border: none;
+    border-radius: 8px;
+    color: var(--muted);
+    font: inherit;
+    font-family: var(--font-display);
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    cursor: pointer;
+  }
+  .dock-btn[aria-current="true"], .dock-btn[aria-expanded="true"] { color: var(--ink); }
+  .dock-btn[aria-current="true"]::after, .dock-btn[aria-expanded="true"]::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    bottom: 3px;
+    width: 22px; height: 2px;
+    border-radius: 2px;
+    background: var(--accent);
+  }
+
+  .sheet-scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 1100;
+    background: var(--overlay-scrim);
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.26s ease, visibility 0s linear 0.26s;
+  }
+  body.sheet-open .sheet-scrim { opacity: 1; visibility: visible; transition-delay: 0s; }
+
+  /* The rail IS the bottom sheet — same DOM, different posture.
+     position: fixed beats the earlier 900px `position: static` by source order. */
+  .rail:focus { outline: none; } /* programmatic focus target; the sheet itself is the indicator */
+  .rail {
+    position: fixed;
+    left: 0; right: 0;
+    top: auto; /* neutralize the desktop sticky rule's top — else the sheet hangs from the screen top */
+    bottom: calc(var(--dock-h) + env(safe-area-inset-bottom));
+    z-index: 1110;
+    max-height: 72vh; /* sheet + dock still leave a tappable scrim band above */
+    max-height: 72dvh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-bottom: none;
+    border-radius: 14px 14px 0 0;
+    padding: var(--sp-2) calc(var(--sp-3) + env(safe-area-inset-right))
+      var(--sp-3) calc(var(--sp-3) + env(safe-area-inset-left));
+    gap: 0;
+    transform: translateY(100%);
+    visibility: hidden; /* out of the tab order while closed, zero JS */
+    transition: transform 0.26s cubic-bezier(0.32, 0.72, 0, 1), visibility 0s linear 0.26s;
+  }
+  body.sheet-open .rail { transform: none; visibility: visible; transition-delay: 0s; }
+  .rail::before {
+    content: "";
+    flex: none;
+    width: 38px; height: 4px;
+    border-radius: 999px;
+    background: var(--baseline);
+    margin: 2px auto 6px;
+  }
+  .rail .rail-group {
+    background: none;
+    border: none;
+    border-radius: 0;
+    border-top: 1px solid var(--border);
+    padding: var(--sp-3) 0;
+  }
+  .rail .rail-group:first-of-type { border-top: none; padding-top: var(--sp-1); }
+
+  /* iOS-reliable scroll lock; JS stores scrollY in body.style.top */
+  body.sheet-open {
+    position: fixed;
+    left: 0; right: 0;
+    width: 100%;
+    overflow: hidden;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rail, .sheet-scrim { transition: none; }
+}
