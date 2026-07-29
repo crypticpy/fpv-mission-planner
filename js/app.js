@@ -227,6 +227,46 @@ function renderPowerCurve(r) {
   });
 }
 
+function renderSpeedTradeoff(r) {
+  const d = drone();
+  const base = missionInputs();
+  const pts = [];
+  let best = null;
+  for (let v = 2; v <= d.maxSpeedMs * 0.95; v += 0.5) {
+    const rr = planMission({ ...base, cruiseMode: 'manual', manualVMs: v });
+    const p = { x: v * 3.6, y: U.kmToMi(rr.radiusKm) };
+    pts.push(p);
+    if (!best || p.y > best.y) best = p;
+  }
+  const nearestY = (xKmh) => pts.reduce((a, b) => Math.abs(b.x - xKmh) < Math.abs(a.x - xKmh) ? b : a).y;
+  const markers = [];
+  const viable = best && best.y > 0;
+  if (viable) markers.push({ x: best.x, y: best.y, color: 'var(--series-3)', label: 'best range' });
+  const plannedKmh = r.legs.out ? r.legs.out.v * 3.6 : null;
+  const atOptimum = viable && plannedKmh !== null && Math.abs(plannedKmh - best.x) < 2;
+  if (viable && plannedKmh !== null && !atOptimum) {
+    markers.push({ x: plannedKmh, y: nearestY(plannedKmh), color: 'var(--series-2)', label: 'planned',
+      labelBelow: Math.abs(best.x - plannedKmh) < 0.12 * (pts.at(-1).x - pts[0].x) });
+  }
+  lineChart($('chart-speed'), {
+    series: [{ name: 'mission radius', color: 'var(--series-1)', pts }],
+    markers, height: 250,
+    xLabel: 'cruise airspeed (km/h)', yLabel: 'mi',
+    xFmt: v => f0(v), yFmt: v => f1(v), tipTitle: 'cruise',
+  });
+  const note = $('speed-note');
+  if (viable && plannedKmh !== null) {
+    const py = nearestY(plannedKmh);
+    const cost = best.y - py;
+    note.textContent =
+      `Best range: ${f0(best.x)} km/h (${f0(best.x / 1.609)} mph) → ${f1(best.y)} mi · ` +
+      `planned: ${f0(plannedKmh)} km/h (${f0(plannedKmh / 1.609)} mph) → ${f1(py)} mi` +
+      (atOptimum || cost <= 0.05 ? ' · already at the optimum' : ` · pushing costs ${f1(cost)} mi of radius`);
+  } else {
+    note.textContent = 'No cruise speed produces a viable out-and-back in this wind.';
+  }
+}
+
 function renderProfile(r) {
   const empty = $('chart-profile-empty');
   empty.hidden = r.timeline.length > 0;
@@ -320,6 +360,7 @@ function update() {
   renderStats(r);
   renderWarnings(r.warnings);
   renderPowerCurve(r);
+  renderSpeedTradeoff(r);
   renderProfile(r);
   renderComparison();
   renderWindSensitivity();
