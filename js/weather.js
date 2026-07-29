@@ -117,27 +117,46 @@ function gustFloor(gust, sustained) {
 }
 
 /**
- * Weather patch (windMph, windFromDeg, gustMph, tempF, rhPct) for the
- * forecast hour nearest `when`. Pure. Returns null when forecast has no
- * usable hours. `when` may be a Date or anything `new Date()` accepts.
+ * Index into forecast.hours of the hour nearest `when`, or -1 when there is
+ * no usable hour. Pure. A scrubber needs the index (to position its slider and
+ * read the hour's own fields like precipPct), not just the env patch, so the
+ * search lives here and envAtHour reads through it.
+ *
+ * Ties resolve to the earlier hour. `when` may be a Date or anything
+ * `new Date()` accepts. Same wall-clock caveat as shapeForecast: `when` must be
+ * built in the same frame as hours[].time, never a UTC instant from elsewhere.
  */
-export function envAtHour(forecast, when) {
+export function nearestHourIndex(forecast, when) {
   const hours = forecast && forecast.hours;
-  if (!Array.isArray(hours) || hours.length === 0) return null;
+  if (!Array.isArray(hours) || hours.length === 0) return -1;
   const target = (when instanceof Date ? when : new Date(when)).getTime();
-  if (!Number.isFinite(target)) return null;
-  let best = null;
+  if (!Number.isFinite(target)) return -1;
+  let best = -1;
   let bestDelta = Infinity;
-  for (const hr of hours) {
-    const t = hr.time instanceof Date ? hr.time.getTime() : new Date(hr.time).getTime();
+  for (let i = 0; i < hours.length; i++) {
+    const hr = hours[i];
+    const t = hr && hr.time instanceof Date ? hr.time.getTime() : new Date(hr && hr.time).getTime();
     if (!Number.isFinite(t)) continue;
     const delta = Math.abs(t - target);
     if (delta < bestDelta) {
       bestDelta = delta;
-      best = hr;
+      best = i;
     }
   }
-  if (!best) return null;
+  return best;
+}
+
+/**
+ * Weather patch (windMph, windFromDeg, gustMph, tempF, rhPct) for the
+ * forecast hour nearest `when`. Pure. Returns null when forecast has no
+ * usable hours. `when` may be a Date or anything `new Date()` accepts.
+ * Individual fields may be null where Open-Meteo reported a gap — callers
+ * merging this into a live env must drop those rather than write a null.
+ */
+export function envAtHour(forecast, when) {
+  const i = nearestHourIndex(forecast, when);
+  if (i < 0) return null;
+  const best = forecast.hours[i];
   return {
     windMph: best.windMph,
     windFromDeg: best.windFromDeg,

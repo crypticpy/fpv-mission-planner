@@ -22,6 +22,7 @@ let footReal = null, footBest = null, footCase = null;
 let windControl = null;
 let launch = null;       // { lat, lng } of the launch point
 let justDragged = false; // swallow the synthetic click Leaflet fires after a drag
+let justSpotClick = false; // same guard for a saved-spot marker hit
 let needsFit = false;    // fit map to footprint on next render
 let tileErrorShown = false;
 
@@ -79,10 +80,11 @@ function initMap() {
     setTimeout(() => { justDragged = false; }, 0);
     moveLaunch(marker.getLatLng());
   });
-  map.on('click', e => { if (!justDragged) moveLaunch(e.latlng); });
+  map.on('click', e => { if (!justDragged && !justSpotClick) moveLaunch(e.latlng); });
   map.on('moveend zoomend baselayerchange', persist);
   satLayer.on('tileerror', onTileError);
   osmLayer.on('tileerror', onTileError);
+  drawSpotMarkers(); // saved spots may have been handed over before the map existed
 
   $('btn-locate').addEventListener('click', locate);
   $('btn-fit').addEventListener('click', () => { needsFit = true; deps.requestRender(); });
@@ -112,6 +114,50 @@ function moveLaunch(latlng, { notify = true } = {}) {
    there is nothing to sync — initMap reads the saved point. */
 export function setLaunchPoint(latlng) {
   if (map) moveLaunch(latlng, { notify: false });
+}
+
+/* ---------- saved spots ---------- */
+
+let spotMarkers = [];
+let spotSpec = null;      // { spots, onSelect } — replayed if the map isn't up yet
+let spotSignature = null; // rebuild the markers only when the roster actually moved
+
+/**
+ * Show the saved-spot roster as small secondary pins. Safe to call on every
+ * render pass and before the map exists; clicking one calls onSelect(spot).
+ */
+export function renderSpotMarkers(spots, onSelect) {
+  const list = Array.isArray(spots) ? spots : [];
+  const sig = list.map(s => `${s.id}@${s.lat},${s.lng}`).join('|');
+  const moved = sig !== spotSignature;
+  spotSpec = { spots: list, onSelect };
+  spotSignature = sig;
+  if (map && moved) drawSpotMarkers();
+}
+
+function drawSpotMarkers() {
+  for (const m of spotMarkers) m.remove();
+  spotMarkers = [];
+  if (!spotSpec) return;
+  for (const s of spotSpec.spots) {
+    const icon = L.divIcon({
+      // 12 px dot + 2 px border, and Leaflet's containers are content-box —
+      // the anchor has to be half the rendered box or the dot sits off its point.
+      className: 'spot-marker', html: '<div class="spot-dot"></div>',
+      iconSize: [16, 16], iconAnchor: [8, 8],
+    });
+    const m = L.marker([s.lat, s.lng], {
+      icon, title: `${s.name} — fly here`, zIndexOffset: -200, // never over the launch pin
+    }).addTo(map);
+    m.on('click', () => {
+      // Leaflet can still surface a map click behind a marker hit; the guard
+      // keeps that from re-dropping the launch pin a pixel off the spot.
+      justSpotClick = true;
+      setTimeout(() => { justSpotClick = false; }, 0);
+      spotSpec.onSelect?.(s);
+    });
+    spotMarkers.push(m);
+  }
 }
 
 function locate() {
@@ -145,6 +191,15 @@ function wxNote(msg) {
 
 function wrapLng(lng) {
   return ((lng % 360) + 540) % 360 - 180;
+}
+
+/** Great-circle distance between two { lat, lng } points, in km. */
+export function distanceKm(a, b) {
+  const dLat = (b.lat - a.lat) * Math.PI / 180;
+  const dLng = (b.lng - a.lng) * Math.PI / 180;
+  const la1 = a.lat * Math.PI / 180, la2 = b.lat * Math.PI / 180;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(la1) * Math.cos(la2) * Math.sin(dLng / 2) ** 2;
+  return 2 * EARTH_R_KM * Math.asin(Math.min(1, Math.sqrt(h)));
 }
 
 // Spherical destination point from launch along a bearing.

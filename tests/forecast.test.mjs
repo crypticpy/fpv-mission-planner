@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { shapeForecast, envAtHour, goldenHour } from '../js/weather.js';
+import { shapeForecast, envAtHour, goldenHour, nearestHourIndex } from '../js/weather.js';
 
 // Small hand-built Open-Meteo-shaped fixture, in the already-imperial units
 // the real request asks for (temperature_unit=fahrenheit, wind_speed_unit=mph).
@@ -111,6 +111,26 @@ test('envAtHour returns null for empty, missing, or invalid input', () => {
   assert.equal(envAtHour(null, '2026-07-29T12:00'), null);
   const forecast = shapeForecast(apiFixture);
   assert.equal(envAtHour(forecast, 'not-a-date'), null);
+});
+
+test('nearestHourIndex positions the scrubber on the nearest hour', () => {
+  const forecast = shapeForecast(apiFixture);
+  assert.equal(nearestHourIndex(forecast, '2026-07-29T12:00'), 0);
+  assert.equal(nearestHourIndex(forecast, '2026-07-29T12:30'), 0); // tie -> earlier hour
+  assert.equal(nearestHourIndex(forecast, '2026-07-29T12:31'), 1);
+  assert.equal(nearestHourIndex(forecast, '2026-07-29T14:00'), 2);
+  // Outside the span in either direction, clamp to the nearest end.
+  assert.equal(nearestHourIndex(forecast, '2026-07-28T03:00'), 0);
+  assert.equal(nearestHourIndex(forecast, '2026-07-29T23:00'), 2);
+});
+
+test('nearestHourIndex returns -1 for empty, missing, or invalid input', () => {
+  assert.equal(nearestHourIndex({ hours: [] }, '2026-07-29T12:00'), -1);
+  assert.equal(nearestHourIndex({}, '2026-07-29T12:00'), -1);
+  assert.equal(nearestHourIndex(null, '2026-07-29T12:00'), -1);
+  assert.equal(nearestHourIndex(shapeForecast(apiFixture), 'not-a-date'), -1);
+  // Every hour unparseable is the same as having none.
+  assert.equal(nearestHourIndex({ hours: [{ time: 'nope' }] }, '2026-07-29T12:00'), -1);
 });
 
 test('goldenHour is sunset minus 60 minutes', () => {

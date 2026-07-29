@@ -7,6 +7,7 @@ export const DRONES = [
   {
     id: 'moz7v2',
     name: 'GEPRC MOZ7 V2 O4 Pro',
+    short: 'MOZ7 V2',        // compact label for one-line summaries
     tag: '7.5" long range · 6S · XT60',
     dryMassG: 843,          // Oscar Liang measured (claim is 750g — optimistic)
     propDiaIn: 7.5,         // HQ 7.5×3.7×3 stock props
@@ -38,6 +39,7 @@ export const DRONES = [
   {
     id: 'cinelog30v3',
     name: 'GEPRC Cinelog30 V3 O4 Pro',
+    short: 'Cinelog30 V3',   // compact label for one-line summaries
     tag: '3" ducted cinewhoop · 4S · XT30',
     dryMassG: 192,          // Oscar Liang measured (claim 187g)
     propDiaIn: 2.99,        // HQProp DT76MMX3 V2 (76 mm)
@@ -600,6 +602,7 @@ export const SCENARIOS = [
 const LS_KEY = 'fpv-custom-batteries';
 const MFR_LS_KEY = 'fpv-custom-manufacturers';
 const MAP_LS_KEY = 'fpv-map';
+const SPOTS_LS_KEY = 'fpv-spots';
 
 export function loadMapState() {
   try {
@@ -671,4 +674,82 @@ export function deleteCustomBattery(id) {
 
 export function allBatteries() {
   return [...BATTERIES, ...loadCustomBatteries()];
+}
+
+/* ---------- saved spots ---------- */
+// Named launch points, so moving the pin stops being destructive. elevFt is the
+// elevation cached at save time (the field it was measured at, not a lookup);
+// loadout is a snapshot of the rig flown there, or null when it wasn't recorded.
+
+/**
+ * Shape-only loadout check — whether the ids still exist in the catalog is the
+ * caller's business, because the answer changes as custom packs come and go.
+ */
+function normalizeSpotLoadout(l) {
+  if (!l || typeof l !== 'object') return null;
+  if (typeof l.droneId !== 'string' || !l.droneId) return null;
+  if (typeof l.batteryId !== 'string' || !l.batteryId) return null;
+  if (typeof l.payloadId !== 'string' || !l.payloadId) return null;
+  const extraG = typeof l.extraG === 'number' ? l.extraG : NaN;
+  return {
+    droneId: l.droneId,
+    batteryId: l.batteryId,
+    parallelPacks: l.parallelPacks === true,
+    payloadId: l.payloadId,
+    extraG: extraG >= 0 && extraG <= 500 ? extraG : 0,
+  };
+}
+
+/**
+ * Sanitize one stored spot; returns null when the record could not be a launch
+ * point at all (no id/name, or coordinates that aren't on the globe). Unlike the
+ * session blob this is per-record rather than all-or-nothing: a spot whose
+ * loadout snapshot is malformed is still worth keeping for its location, so the
+ * loadout degrades to null instead of discarding the place.
+ */
+export function normalizeSpot(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  // Numbers only, never coerced: +null is 0, and a spot silently placed at
+  // 0°/0° with an elevation of sea level is worse than no spot at all.
+  const num = v => (typeof v === 'number' && Number.isFinite(v) ? v : NaN);
+  const id = typeof raw.id === 'string' ? raw.id.trim() : '';
+  const name = typeof raw.name === 'string' ? raw.name.trim() : '';
+  const lat = num(raw.lat), lng = num(raw.lng);
+  if (!id || !name) return null;
+  if (!(lat >= -85 && lat <= 85) || !(lng >= -180 && lng <= 180)) return null;
+  const elev = num(raw.elevFt);
+  const savedAt = num(raw.savedAt);
+  return {
+    id,
+    name: name.slice(0, 60),
+    lat, lng,
+    elevFt: elev >= -1500 && elev <= 30000 ? Math.round(elev) : null,
+    notes: typeof raw.notes === 'string' ? raw.notes.trim().slice(0, 240) : '',
+    loadout: normalizeSpotLoadout(raw.loadout),
+    savedAt: savedAt >= 0 ? savedAt : 0,
+  };
+}
+
+/** Saved spots, name-sorted — the list is read as a roster, not a track log. */
+export function loadSpots() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(SPOTS_LS_KEY) || '[]');
+    if (!Array.isArray(raw)) return [];
+    return raw.map(normalizeSpot).filter(Boolean)
+      .sort((a, b) => a.name.localeCompare(b.name));
+  } catch { return []; }
+}
+
+/** Upsert by id. Returns the stored record, or null if it wasn't a valid spot. */
+export function saveSpot(spot) {
+  const clean = normalizeSpot(spot);
+  if (!clean) return null;
+  const list = loadSpots().filter(s => s.id !== clean.id);
+  list.push(clean);
+  try { localStorage.setItem(SPOTS_LS_KEY, JSON.stringify(list)); } catch { /* storage quota / private mode */ }
+  return clean;
+}
+
+export function deleteSpot(id) {
+  try { localStorage.setItem(SPOTS_LS_KEY, JSON.stringify(loadSpots().filter(s => s.id !== id))); } catch { /* storage quota / private mode */ }
 }

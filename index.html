@@ -134,6 +134,17 @@
         <label>Wind from (°) <input id="in-winddir" type="number" step="5" min="0" max="359"></label>
       </div>
       <p id="wind-note" class="rail-note wind-note"></p>
+      <!-- [wave2:forecast] scrubber + sun times UI -->
+      <div id="forecast-strip" class="forecast-strip" hidden>
+        <p id="forecast-banner" class="forecast-banner" hidden></p>
+        <label>Plan for <span id="forecast-when" class="range-val"></span>
+          <input id="in-forecast-hour" type="range" min="0" max="0" step="1" value="0"
+                 aria-describedby="forecast-readout">
+        </label>
+        <p id="forecast-readout" class="forecast-readout" role="status"></p>
+        <p id="forecast-sun" class="forecast-sun" hidden></p>
+        <p id="forecast-clock" class="forecast-clock" hidden></p>
+      </div>
     </section>
 
     <section class="rail-group">
@@ -248,6 +259,16 @@
       <div id="chart-wind" class="chart"></div>
     </section>
 
+    <section class="card sesh-card">
+      <h3>Session planner</h3>
+      <p class="card-sub">How long can you stay out with the packs in your bag?</p>
+      <div class="sesh-head" aria-hidden="true">
+        <span>Pack</span><span>Count</span><span>Per pack</span><span>Subtotal</span>
+      </div>
+      <div id="sesh-rows" class="sesh-rows"></div>
+      <p id="sesh-totals" class="sesh-totals"></p>
+    </section>
+
     <p class="footnote" id="battery-note"></p>
     <p class="footnote">Model: momentum-theory rotor power on total disc area, humid-air density (elevation · temp · humidity),
       per-chemistry discharge simulation with internal-resistance sag and cold-weather derating, wind-split cruise optimization
@@ -269,6 +290,19 @@
       <p id="map-note" class="empty-note" hidden></p>
       <div id="map-canvas" class="map-canvas"></div>
       <p id="wx-note" class="wx-note" hidden></p>
+    </section>
+    <!-- [wave2:spots] saved spots UI -->
+    <section class="card spots-card">
+      <div class="card-head"><h3>Saved spots</h3></div>
+      <p class="card-sub">Your launch points, kept — with the elevation and rig you flew there. Fly here moves the pin;
+        each spot also sits on the map as a small amber dot you can click.</p>
+      <div id="spots-list" class="spots-list"></div>
+      <form id="spot-form" class="spot-form" autocomplete="off">
+        <input id="spot-name" name="name" type="text" maxlength="60" placeholder="Name this spot" aria-label="Spot name">
+        <input id="spot-notes" name="notes" type="text" maxlength="240" placeholder="Notes (optional)" aria-label="Spot notes">
+        <button id="btn-save-spot" class="map-btn" type="submit">Save current spot</button>
+      </form>
+      <p id="spots-note" class="wx-note" hidden></p>
     </section>
 
     <section class="tiles map-tiles">

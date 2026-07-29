@@ -4,13 +4,20 @@ import {
   allBatteries, saveCustomBattery, deleteCustomBattery,
   allManufacturers, saveCustomManufacturer, deleteCustomManufacturer,
   loadMapState, saveMapState,
+  loadSpots, saveSpot, deleteSpot,
 } from './data.js';
 import { planMission, parallelBattery, CHEMISTRY, U } from './physics.js';
 import { lineChart, barChart, missionProfile, legend, hideTooltip } from './charts.js';
 import { unitSystem } from './units.js';
-import { setupMapView, showMapView, renderMapView, pauseMapView, resizeMapView, setLaunchPoint } from './map.js';
+import {
+  setupMapView, showMapView, renderMapView, pauseMapView, resizeMapView, setLaunchPoint,
+  renderSpotMarkers, distanceKm,
+} from './map.js';
 import { setupShell, syncView } from './shell.js';
-import { fetchLiveEnv, launchPoint, isDefaultLaunch, DEFAULT_LAUNCH_NAME } from './weather.js';
+import {
+  fetchLiveEnv, launchPoint, isDefaultLaunch, DEFAULT_LAUNCH_NAME,
+  envAtHour, goldenHour, nearestHourIndex,
+} from './weather.js';
 import { setupThemes } from './themes.js';
 
 const $ = (id) => document.getElementById(id);
@@ -809,9 +816,10 @@ async function goLive(pt) {
   populateControls();
   update();
   try {
-    const { patch, gust10Mph } = await fetchLiveEnv(pt ?? launchPoint());
+    const { patch, gust10Mph, forecast } = await fetchLiveEnv(pt ?? launchPoint());
     if (seq !== liveSeq || state.weatherId !== 'live') return; // superseded meanwhile
     state.env = { ...state.env, ...patch };
+    setForecast(forecast, patch); // hourly scrubber + sun times for this launch point
     liveData = {
       patch, gust10Mph,
       at: new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }),
@@ -859,6 +867,10 @@ function update() {
   // on screen whichever tab is open.
   renderVerdict(r, stranded);
   renderWarnings(r.warnings);
+  renderForecastStrip(r); // [wave2:forecast] render hook
+  // [wave2:spots] render hook — the roster lives on the Map tab, and its
+  // distance-from-pin metas go stale whenever the pin moves.
+  if (state.view === 'map') renderSpots();
   // Render only the visible view: charts measure container width and freeze at
   // a fallback size when drawn inside a hidden container.
   if (state.view === 'map') {
@@ -872,6 +884,7 @@ function update() {
   renderComparison();
   renderWindSensitivity(r);
   renderBatteryNote();
+  renderSessionPlanner();
 }
 
 function setView(view) {
@@ -1100,6 +1113,17 @@ function bind() {
     update();
   });
 
+  // [wave2:forecast] bindings
+  $('in-forecast-hour').addEventListener('input', e => {
+    fcIdx = +e.target.value;
+    applyForecastHour();
+  });
+  // [wave2:spots] bindings
+  bindSpots();
+  // [wave2:session] bindings
+  // Row count inputs bind their own listener when built in renderSessionPlanner();
+  // no static bindings needed here since the rows don't exist until first render.
+
   let resizeTimer;
   let lastWidth = window.innerWidth;
   window.addEventListener('resize', () => {
@@ -1116,6 +1140,435 @@ function bind() {
     }, 150);
   });
   document.addEventListener('scroll', hideTooltip, { passive: true });
+}
+
+/* [wave2:forecast] module code */
+
+/* ---------- hourly forecast scrubber + sun times ---------- */
+
+// Ephemeral on purpose. Which hour the pilot is auditioning is a question being
+// asked right now ("what about Saturday at 3?"), not part of the saved loadout,
+// so it never enters `state` and never reaches the session blob.
+let fcForecast = null; // shaped forecast from the last successful live fetch
+let fcPatch = null;    // that fetch's current-conditions patch, for the Now step
+let fcIdx = null;      // selected hour index; null means "Now"
+
+/** Stash a fresh fetch's outlook. A new fetch always lands back on Now. */
+function setForecast(forecast, patch) {
+  fcForecast = forecast && forecast.hours && forecast.hours.length ? forecast : null;
+  fcPatch = patch || null;
+  fcIdx = null;
+}
+
+/**
+ * The hours the scrubber may select, or null when there is nothing to scrub.
+ * Gated on live mode: a preset or hand-entered sky is not a forecast, so the
+ * strip disappears rather than implying the preset has hours behind it. Gated on
+ * liveErr too: a failed refetch (launch point moved, no signal) must not leave
+ * the previous point's outlook on screen as if it belonged to this one.
+ */
+function forecastHours() {
+  return fcForecast && !liveErr && state.weatherId === 'live' ? fcForecast.hours : null;
+}
+
+// hours[].time and sunrise/sunset were parsed from Open-Meteo's offset-less
+// local strings, so they are wall-clock tokens in the *runtime's* zone that
+// happen to read as the launch point's clock. Formatting them with the runtime
+// locale therefore round-trips the launch point's wall clock exactly. Comparing
+// them to `new Date()` (below, for "which hour is now") additionally assumes the
+// pilot is browsing from the launch point's timezone — true for any spot they
+// can drive to, and the only wrong-by-an-offset case is planning another zone.
+const hourName = (d) => d.toLocaleString([], { weekday: 'short', hour: 'numeric' });
+const clockTime = (d) => d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+// "7:49 PM" → "7:49" once an earlier time in the same line established the
+// meridiem. No-op in 24-hour locales, where there is no suffix to match.
+function trimMeridiem(label, ref) {
+  const m = /\s(\S+)$/.exec(label);
+  const r = /\s(\S+)$/.exec(ref);
+  return m && r && m[1] === r[1] ? label.slice(0, m.index) : label;
+}
+
+function nowIdx(hours) {
+  const i = nearestHourIndex({ hours }, new Date());
+  return i < 0 ? 0 : i;
+}
+
+function selectedIdx(hours) {
+  if (fcIdx == null) return nowIdx(hours);
+  return Math.min(Math.max(fcIdx, 0), hours.length - 1);
+}
+
+/** The forecast day covering a given hour, matched on its local calendar date. */
+function dayFor(when) {
+  const key = ymd(when);
+  const days = (fcForecast && fcForecast.days) || [];
+  return days.find(d => d.date === key) || null;
+}
+
+// Open-Meteo publishes per-field nulls for model gaps; merging one into
+// state.env would fabricate a dead calm and void the session blob's range
+// validation. Missing fields keep whatever the live fetch already set.
+function definedOnly(patch) {
+  return Object.fromEntries(Object.entries(patch).filter(([, v]) => Number.isFinite(v)));
+}
+
+function hourSummary(hr) {
+  const u = units();
+  const bits = [];
+  if (hr.windMph != null) {
+    const wind = f0(u.speedFromMph(hr.windMph));
+    bits.push(hr.gustMph != null && hr.gustMph > hr.windMph
+      ? `${wind} gusting ${f0(u.speedFromMph(hr.gustMph))} ${u.speedUnit}`
+      : `${wind} ${u.speedUnit}`);
+  }
+  if (hr.windFromDeg != null) bits.push(`from ${compass(hr.windFromDeg)}`);
+  if (hr.tempF != null) bits.push(`${hr.tempF}°F`);
+  if (hr.precipPct != null) bits.push(`${hr.precipPct}% rain`);
+  return bits.length ? bits.join(', ') : 'no forecast data for this hour';
+}
+
+/**
+ * Re-plan for the scrubbed hour. Mirrors goLive's merge so the whole app —
+ * physics, verdict, footprint — recomputes against that hour's sky while
+ * staying in live mode. Back on the Now step, the fetched current conditions
+ * win over the hourly model that only approximates them.
+ */
+function applyForecastHour() {
+  const hours = forecastHours();
+  if (!hours) return;
+  const i = selectedIdx(hours);
+  const patch = (i === nowIdx(hours) && fcPatch)
+    ? fcPatch
+    : envAtHour(fcForecast, hours[i].time);
+  if (patch) state.env = { ...state.env, ...definedOnly(patch) };
+  populateControls();
+  update();
+}
+
+/**
+ * "launch → turn → land vs sunset." The turnaround and landing clock times the
+ * pilot actually flies, checked against the light they will have left. Ten
+ * minutes of margin is the warn threshold: landing in the last of the light is
+ * landing in the dark by the time the props stop.
+ */
+function renderClockPlan(r, launch, golden) {
+  const el = $('forecast-clock');
+  el.replaceChildren();
+  const times = legTimes(r);
+  if (!times || !isFinite(r.timeMin)) { el.hidden = true; return; }
+  el.hidden = false;
+  const at = (min) => new Date(launch.getTime() + min * 60000);
+  const land = at(r.timeMin);
+  const launchLbl = clockTime(launch);
+  el.append(document.createTextNode(
+    `Launch ${launchLbl} → turn ${trimMeridiem(clockTime(at(times.outMin)), launchLbl)}`
+    + ` → land ${trimMeridiem(clockTime(land), launchLbl)}`
+    + (golden ? ` · sunset ${clockTime(golden.sunset)}` : '')
+  ));
+  if (!golden) return;
+  const marginMin = (golden.sunset.getTime() - land.getTime()) / 60000;
+  if (marginMin >= 10) return;
+  const warn = document.createElement('span');
+  warn.className = 'forecast-late';
+  warn.textContent = marginMin < 0
+    ? ` — lands ${f0(-marginMin)} min after sunset. Launch earlier.`
+    : ` — only ${f0(marginMin)} min of light left at landing. Launch earlier.`;
+  el.appendChild(warn);
+}
+
+function renderForecastStrip(r) {
+  const hours = forecastHours();
+  $('forecast-strip').hidden = !hours;
+  if (!hours) return;
+  const i = selectedIdx(hours);
+  const isNow = i === nowIdx(hours);
+  const hr = hours[i];
+  const when = isNow ? 'Now' : hourName(hr.time);
+
+  const slider = $('in-forecast-hour');
+  slider.max = hours.length - 1;
+  slider.value = i;
+  slider.setAttribute('aria-valuetext', when);
+  $('forecast-when').textContent = when;
+
+  // The plan is only honest if it says which sky it planned against — the tiles
+  // and the verdict card look identical either way.
+  const banner = $('forecast-banner');
+  banner.hidden = isNow;
+  banner.textContent = isNow ? '' : `Planning for ${when} — forecast, not current conditions.`;
+
+  $('forecast-readout').textContent = isNow
+    ? `Now — flying the live conditions above.${hr.precipPct != null ? ` ${hr.precipPct}% rain this hour.` : ''}`
+    : `${when} — ${hourSummary(hr)}`;
+
+  const golden = goldenHour(dayFor(hr.time));
+  const sun = $('forecast-sun');
+  sun.hidden = !golden;
+  sun.textContent = golden
+    ? `Sunset ${clockTime(golden.sunset)} · golden hour from ${clockTime(golden.goldenStart)}`
+    : '';
+  // On the Now step the real clock beats the hour bucket: a 7:41 launch should
+  // read 7:41, not 7:00.
+  renderClockPlan(r, isNow ? new Date() : hr.time, golden);
+}
+
+/* [wave2:spots] module code — saved launch spots.
+   The Map tab's roster of named launch points. A spot carries the elevation
+   cached when it was saved plus a snapshot of the rig flown there; flying to one
+   restores as much of that as still exists, and says so when it doesn't. */
+
+function setSpotsNote(msg) {
+  const el = $('spots-note');
+  el.textContent = msg || '';
+  el.hidden = !msg;
+}
+
+/** Snapshot of the five loadout controls a spot remembers. */
+function currentLoadout() {
+  return {
+    droneId: state.droneId,
+    batteryId: state.batteryId,
+    parallelPacks: state.parallelPacks,
+    payloadId: state.payloadId,
+    extraG: state.extraG,
+  };
+}
+
+/** A snapshot is only applicable while every id in it still resolves. */
+function loadoutIsLive(l) {
+  if (!l) return false;
+  return DRONES.some(d => d.id === l.droneId)
+    && allBatteries().some(b => b.id === l.batteryId && b.fits.includes(l.droneId))
+    && PAYLOADS.some(p => p.id === l.payloadId);
+}
+
+function loadoutLabel(l) {
+  if (!l) return 'no saved rig';
+  const d = DRONES.find(x => x.id === l.droneId);
+  const b = allBatteries().find(x => x.id === l.batteryId);
+  if (!d || !b) return 'saved rig no longer exists';
+  return `${d.short || d.name} + ${b.short || b.name}${l.parallelPacks ? ' ×2' : ''}`;
+}
+
+function spotMeta(spot) {
+  const u = units();
+  const away = distanceKm(launchPoint(), { lat: spot.lat, lng: spot.lng });
+  const where = away < 0.05
+    ? 'the current pin'
+    : `${f1(u.distanceFromKm(away))} ${u.distanceUnit} from current pin`;
+  // Elevation is feet throughout the app — the physics converts, the UI doesn't.
+  const elev = spot.elevFt == null ? null : `${f0(spot.elevFt)} ft`;
+  return [where, elev, loadoutLabel(spot.loadout)].filter(Boolean).join(' · ');
+}
+
+function renderSpots() {
+  const host = $('spots-list');
+  const spots = loadSpots();
+  host.replaceChildren();
+  if (!spots.length) {
+    const empty = document.createElement('p');
+    empty.className = 'spots-empty';
+    empty.textContent = 'No saved spots yet — position the pin, name it, save it.';
+    host.appendChild(empty);
+  }
+  for (const spot of spots) {
+    const row = document.createElement('div');
+    row.className = 'spot-row';
+    const text = document.createElement('div');
+    text.className = 'spot-text';
+    const name = document.createElement('span');
+    name.className = 'spot-name';
+    name.textContent = spot.name;
+    const meta = document.createElement('span');
+    meta.className = 'spot-meta';
+    meta.textContent = spotMeta(spot);
+    text.append(name, meta);
+    if (spot.notes) {
+      const notes = document.createElement('span');
+      notes.className = 'spot-notes';
+      notes.textContent = spot.notes;
+      text.appendChild(notes);
+    }
+    const actions = document.createElement('div');
+    actions.className = 'spot-actions';
+    const fly = document.createElement('button');
+    fly.type = 'button';
+    fly.className = 'map-btn';
+    fly.textContent = 'Fly here';
+    fly.addEventListener('click', () => flyToSpot(spot));
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'link-btn';
+    del.textContent = 'delete';
+    del.addEventListener('click', () => {
+      deleteSpot(spot.id);
+      setSpotsNote(`Deleted “${spot.name}”.`);
+      renderSpots();
+    });
+    actions.append(fly, del);
+    row.append(text, actions);
+    host.appendChild(row);
+  }
+  renderSpotMarkers(spots, flyToSpot);
+}
+
+/**
+ * Fly here: the launch point always moves. Cached elevation applies unless live
+ * weather owns the environment (it will fetch the real one for the new point),
+ * and the loadout applies only if every id in the snapshot still resolves —
+ * a half-restored rig is a plan for an aircraft the pilot never picked.
+ */
+function flyToSpot(spot) {
+  const pt = { lat: spot.lat, lng: spot.lng };
+  const live = state.weatherId === 'live';
+  const saved = loadMapState();
+  // Persist first: weather.js reads the launch point from storage, and the map
+  // may not be initialized yet when a spot is chosen.
+  saveMapState({ ...pt, zoom: saved?.zoom ?? 13, baseLayer: saved?.baseLayer ?? 'satellite' });
+
+  const notes = [`Flying ${spot.name}.`];
+  if (spot.elevFt != null && !live) state.env.elevFt = spot.elevFt;
+
+  if (spot.loadout && loadoutIsLive(spot.loadout)) {
+    const l = spot.loadout;
+    const batt = allBatteries().find(b => b.id === l.batteryId);
+    Object.assign(state, {
+      droneId: l.droneId, batteryId: l.batteryId, parallelPacks: l.parallelPacks,
+      payloadId: l.payloadId, extraG: l.extraG,
+    });
+    // A stale manufacturer filter would hide the restored pack and update()
+    // would silently swap it out from under the plan.
+    if (state.manufacturerId !== 'all' && batt.manufacturerId !== state.manufacturerId) {
+      state.manufacturerId = 'all';
+    }
+    notes.push(`Loadout: ${loadoutLabel(l)}.`);
+  } else if (spot.loadout) {
+    notes.push('Saved loadout no longer exists — kept your current rig.');
+  }
+  if (spot.elevFt != null && live) notes.push('Live weather will set the elevation for this point.');
+  setSpotsNote(notes.join(' '));
+
+  // The pin move renders through requestRender and deliberately skips map.js's
+  // onLaunchMove, so live weather is refetched exactly once, here.
+  setLaunchPoint(pt);
+  populateControls();
+  if (live) goLive(pt);
+}
+
+function bindSpots() {
+  $('spot-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const name = $('spot-name').value.trim();
+    if (!name) { setSpotsNote('Name the spot first — that’s how you’ll find it later.'); return; }
+    const pt = launchPoint();
+    const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+    const stored = saveSpot({
+      id: `spot-${slug || Date.now().toString(36)}`,
+      name,
+      lat: pt.lat, lng: pt.lng,
+      elevFt: state.env.elevFt,
+      notes: $('spot-notes').value,
+      loadout: currentLoadout(),
+      savedAt: Date.now(),
+    });
+    if (!stored) { setSpotsNote('Could not save this spot — the launch point looks invalid.'); return; }
+    $('spot-name').value = '';
+    $('spot-notes').value = '';
+    setSpotsNote(`Saved “${stored.name}” — ${loadoutLabel(stored.loadout)}.`);
+    renderSpots();
+  });
+}
+
+
+/* [wave2:session] module code */
+
+// Session planner: how many of each compatible pack the pilot is bringing to
+// the field today. Ephemeral by design — not part of `state`, never saved to
+// localStorage, so it never fights the persisted loadout on reload.
+const sessionCounts = new Map(); // batteryId -> pack count (0-8)
+let sessionSeeded = false; // seed the selected pack to 1 exactly once, ever
+
+// Same per-pack plan every compatible battery gets in the shoot-out: reuses
+// packCache(b) (already warmed by renderComparison this same update() pass)
+// via the identical lite/_pCache options, so no new sweep is added here.
+function sessionRowsData() {
+  return compatibleBatteries().map(b => {
+    const count = sessionCounts.get(b.id) || 0;
+    const r = planMission({ ...missionInputs(b), lite: true, _pCache: packCache(b) });
+    const viable = r.flight.code !== 'no_lift';
+    return { b, count, perMin: viable ? r.timeMin : 0, viable };
+  });
+}
+
+function renderSessionTotals(rows) {
+  const totalPacks = rows.reduce((s, x) => s + x.count, 0);
+  const totalMin = rows.reduce((s, x) => s + x.perMin * x.count, 0);
+  const el = $('sesh-totals');
+  if (totalPacks === 0) {
+    el.textContent = 'Set how many of each pack you’re bringing.';
+    el.classList.add('sesh-empty');
+    return;
+  }
+  el.classList.remove('sesh-empty');
+  // Every pack swap/landing costs a couple minutes at the field; round the
+  // plan up to a friendly 5-minute figure so it reads like a field plan, not
+  // a stopwatch total.
+  const fieldMin = Math.ceil((totalMin + totalPacks * 2) / 5) * 5;
+  el.textContent = `${totalPacks} pack${totalPacks === 1 ? '' : 's'} → ${mmss(totalMin)} total airtime · plan ~${fieldMin} min at the field`;
+}
+
+/**
+ * Rebuilds the pack-count rows, unless the pilot is mid-keystroke in one of
+ * them — rebuilding would steal focus and the caret. The totals line and the
+ * row's own subtotal still update live via the input's own listener, so the
+ * skipped rebuild never reads as stale.
+ */
+function renderSessionPlanner() {
+  if (!sessionSeeded) {
+    sessionCounts.set(state.batteryId, 1);
+    sessionSeeded = true;
+  }
+  const rows = sessionRowsData();
+  const host = $('sesh-rows');
+  const typing = document.activeElement?.classList?.contains('sesh-count')
+    && host.contains(document.activeElement);
+  if (!typing) {
+    host.replaceChildren();
+    for (const { b, count, perMin, viable } of rows) {
+      const row = document.createElement('div');
+      row.className = 'sesh-row';
+      row.classList.toggle('sesh-invalid', !viable);
+      const name = document.createElement('span');
+      name.className = 'sesh-name';
+      name.textContent = b.short || b.name;
+      const input = document.createElement('input');
+      input.type = 'number';
+      input.className = 'sesh-count';
+      input.min = '0';
+      input.max = '8';
+      input.step = '1';
+      input.value = String(count);
+      input.setAttribute('aria-label', `${b.name} pack count`);
+      const per = document.createElement('span');
+      per.className = 'sesh-per';
+      per.textContent = viable ? mmss(perMin) : '—';
+      const sub = document.createElement('span');
+      sub.className = 'sesh-sub';
+      sub.textContent = count > 0 && viable ? mmss(perMin * count) : '—';
+      input.addEventListener('input', () => {
+        // Browsers don't enforce max on typed values (same clamp as in-extra).
+        const v = Math.min(8, Math.max(0, Math.round(+input.value) || 0));
+        sessionCounts.set(b.id, v);
+        sub.textContent = v > 0 && viable ? mmss(perMin * v) : '—';
+        renderSessionTotals(sessionRowsData());
+      });
+      row.append(name, input, per, sub);
+      host.appendChild(row);
+    }
+  }
+  renderSessionTotals(rows);
 }
 
 setupMapView({
