@@ -5,6 +5,7 @@ import {
   allManufacturers, saveCustomManufacturer, deleteCustomManufacturer,
   loadSpots, saveSpot, deleteSpot,
 } from './data.js';
+import { compatible, compatibleBatteries as dronePacks } from './registry.js';
 import { get as storeGet, set as storeSet, loadMapState, saveMapState } from './store.js';
 import { planMission, parallelBattery, CHEMISTRY, U } from './physics.js';
 import { lineChart, barChart, missionProfile, legend, hideTooltip } from './charts.js';
@@ -84,8 +85,9 @@ function restoreSession() {
   if (!s || typeof s !== 'object' || !s.env || typeof s.env !== 'object') return null;
   const env = s.env;
   const num = (v, lo, hi) => Number.isFinite(v) && v >= lo && v <= hi;
-  const batt = allBatteries().find(b => b.id === s.batteryId && b.fits.includes(s.droneId));
-  const ok = DRONES.some(d => d.id === s.droneId)
+  const savedDrone = DRONES.find(d => d.id === s.droneId);
+  const batt = allBatteries().find(b => b.id === s.batteryId && compatible(savedDrone, b));
+  const ok = savedDrone
     && batt
     && (s.manufacturerId === 'all'
       || (batt.manufacturerId === s.manufacturerId && allManufacturers().some(m => m.id === s.manufacturerId)))
@@ -118,7 +120,7 @@ function restoreSession() {
 
 function drone() { return DRONES.find(d => d.id === state.droneId); }
 function droneBatteries() {
-  return allBatteries().filter(b => b.fits.includes(state.droneId));
+  return dronePacks(drone());
 }
 function compatibleBatteries() {
   const batts = droneBatteries();
@@ -137,6 +139,10 @@ function payload() { return PAYLOADS.find(p => p.id === state.payloadId) || PAYL
 function scenario() { return SCENARIOS.find(s => s.id === state.scenarioId) || SCENARIOS[0]; }
 function units() { return unitSystem(state.units); }
 function loadoutBattery(batt = battery()) {
+  // Nothing in the registry fits this rig. Hand back null rather than a shell
+  // object, so missionInputs() passes a falsy battery and planMission answers
+  // with its handled `no_battery` code instead of doing arithmetic on holes.
+  if (!batt) return null;
   if (!state.parallelPacks) return { ...batt, packCount: 1, extraCdA: 0 };
   const d = drone();
   return parallelBattery(batt, 2, {
@@ -219,8 +225,8 @@ function populateControls() {
   $('in-parallel').checked = state.parallelPacks;
   const configuredBatt = loadoutBattery();
   const parallelSummary = $('parallel-summary');
-  parallelSummary.hidden = !state.parallelPacks;
-  parallelSummary.textContent = state.parallelPacks
+  parallelSummary.hidden = !state.parallelPacks || !configuredBatt;
+  parallelSummary.textContent = state.parallelPacks && configuredBatt
     ? `${configuredBatt.config} effective · ${f0(configuredBatt.capAh * 1000)} mAh · ${f0(configuredBatt.massG)} g batteries + harness`
     : '';
   fillSelect($('custom-manufacturer'), allManufacturers().map(m => ({ value: m.id, label: m.name })), 'custom');
@@ -497,6 +503,26 @@ function renderVerdict(r, stranded) {
   fix.textContent = v.fix || '';
   fix.hidden = !v.fix;
   $('verdict-margins').textContent = v.margins;
+}
+
+/**
+ * The one state with no plan behind it: nothing in the battery registry fits
+ * the selected rig, so there is no mission to render. Unreachable with the
+ * built-in catalog — every drone we ship has packs — and the net that catches
+ * a user-defined airframe whose connector or cell count matches nothing yet.
+ */
+function renderNoBattery() {
+  const d = drone();
+  const host = $('verdict');
+  host.className = 'verdict verdict-nogo';
+  $('verdict-badge').textContent = 'NO PACK';
+  $('verdict-why').textContent =
+    `No battery in your list fits the ${d?.short || d?.name || 'selected drone'}, so there is nothing to plan.`;
+  const fix = $('verdict-fix');
+  fix.textContent = 'Add a pack with a matching connector and cell count, or widen what this rig accepts.';
+  fix.hidden = false;
+  $('verdict-margins').textContent = '';
+  renderWarnings([]);
 }
 
 function flightLabel(flight) {
@@ -893,6 +919,12 @@ function update() {
     `${sc.desc} Burns about ${f0((sc.overheadFactor - 1) * 100)}% more than steady cruise.`;
   $('cmp-radius-title').textContent = `Mission radius (${u.distanceUnit})`;
   const r = planMission(missionInputs());
+  // Handled, not thrown: with no pack there is no plan, and every render below
+  // this line reads one. Say it in the verdict card and stop here.
+  if (r.code === 'no_battery') {
+    renderNoBattery();
+    return;
+  }
   const stranded = zeroRadiusNote(r);
   if (stranded) {
     // physics.js emits one generic line for this case; swap in the version that
@@ -1384,8 +1416,9 @@ function currentLoadout() {
 /** A snapshot is only applicable while every id in it still resolves. */
 function loadoutIsLive(l) {
   if (!l) return false;
-  return DRONES.some(d => d.id === l.droneId)
-    && allBatteries().some(b => b.id === l.batteryId && b.fits.includes(l.droneId))
+  const d = DRONES.find(x => x.id === l.droneId);
+  return !!d
+    && allBatteries().some(b => b.id === l.batteryId && compatible(d, b))
     && PAYLOADS.some(p => p.id === l.payloadId);
 }
 

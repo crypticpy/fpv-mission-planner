@@ -313,6 +313,10 @@ function bestEnduranceSpeed(vMax, pAt) {
  */
 export function planMission(inp) {
   const { drone, battery, env } = inp;
+  // No pack selected at all — a rig nothing in the registry fits. A handled
+  // code, because the caller can say so in a sentence; the alternative was a
+  // raw TypeError three lines down.
+  if (!battery) return { code: 'no_battery', warnings: [] };
   const warnings = [];
   const { rho, densityAltM } = airDensity(env.elevM, env.tempC, env.rhPct);
 

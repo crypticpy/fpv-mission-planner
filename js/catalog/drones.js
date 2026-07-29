@@ -15,6 +15,10 @@ export const DRONES = [
     ducted: false,
     s: 6,
     connector: 'XT60',
+    // What packs will physically go on the rig. maxPackMassG is a mounting
+    // limit only (null = unbounded — no published strap/frame figure exists);
+    // whether it can lift the pack is liftEnvelope's answer, not this block's.
+    power: { connectors: ['XT60'], sMin: 6, sMax: 6, maxPackMassG: null },
     etaProp: 0.55,          // calibrated: ~16 min / 15+ km on 6S 6000mAh Li-Ion in wind
     cdA: 0.042,             // m², clean airframe
     avionicsW: 10,          // O4 Pro + H743 FC + GPS + RX
@@ -47,6 +51,7 @@ export const DRONES = [
     ducted: true,
     s: 4,
     connector: 'XT30',
+    power: { connectors: ['XT30'], sMin: 4, sMax: 4, maxPackMassG: null },
     etaProp: 0.37,          // calibrated: 8:10 claim on 720mAh, 7–7.5 min real on 850
     cdA: 0.018,             // m², ducts are draggy for the size
     avionicsW: 9,           // O4 Pro + F722 AIO

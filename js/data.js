@@ -1,6 +1,8 @@
-// data.js — domain module: re-exports the hardware/scenario catalogs, plus
-// custom-item persistence and saved-spots. Catalog literals live in
-// js/catalog/* (see those files for sourcing notes).
+// data.js — domain module: re-exports the hardware/scenario catalogs and the
+// hardware registry, plus saved-spots. Catalog literals live in js/catalog/*
+// (see those files for sourcing notes); the built-in + custom merge and the
+// compatibility predicate live in js/registry.js and are re-exported here so
+// existing import sites keep one address for domain data.
 
 import { get as storeGet, set as storeSet } from './store.js';
 import { DRONES } from './catalog/drones.js';
@@ -12,54 +14,11 @@ import { SCENARIOS } from './catalog/scenarios.js';
 
 export { DRONES, MANUFACTURERS, BATTERIES, PAYLOADS, WEATHER, SCENARIOS };
 
-export function loadCustomManufacturers() {
-  const raw = storeGet('custom-manufacturers', []);
-  return Array.isArray(raw)
-    ? raw.filter(m => m && m.id && m.name).map(m => ({
-        ...m, custom: true, kind: 'custom-builder',
-        url: typeof m.url === 'string' && /^https?:\/\//i.test(m.url) ? m.url : null,
-      }))
-    : [];
-}
-
-export function saveCustomManufacturer(manufacturer) {
-  const list = loadCustomManufacturers().filter(m => m.id !== manufacturer.id);
-  list.push({ ...manufacturer, custom: true, kind: 'custom-builder' });
-  storeSet('custom-manufacturers', list);
-}
-
-export function deleteCustomManufacturer(id) {
-  storeSet('custom-manufacturers', loadCustomManufacturers().filter(m => m.id !== id));
-}
-
-export function allManufacturers() {
-  return [...MANUFACTURERS, ...loadCustomManufacturers()];
-}
-
-export function loadCustomBatteries() {
-  const raw = storeGet('custom-batteries', []);
-  return Array.isArray(raw) ? raw.filter(b => b && b.id && b.capAh > 0 && b.massG > 0
-    && b.s >= 1 && Array.isArray(b.fits) && ['liion', 'lipo', 'lihv'].includes(b.chem))
-    .map(b => ({
-      ...b,
-      manufacturerId: b.manufacturerId || 'custom',
-      config: b.config || `${b.s}S${b.p || 1}P`,
-    })) : [];
-}
-
-export function saveCustomBattery(batt) {
-  const list = loadCustomBatteries().filter(b => b.id !== batt.id);
-  list.push(batt);
-  storeSet('custom-batteries', list);
-}
-
-export function deleteCustomBattery(id) {
-  storeSet('custom-batteries', loadCustomBatteries().filter(b => b.id !== id));
-}
-
-export function allBatteries() {
-  return [...BATTERIES, ...loadCustomBatteries()];
-}
+export {
+  loadCustomManufacturers, saveCustomManufacturer, deleteCustomManufacturer, allManufacturers,
+  loadCustomBatteries, saveCustomBattery, deleteCustomBattery, allBatteries,
+  compatible, compatibleBatteries, dronePower,
+} from './registry.js';
 
 /* ---------- saved spots ---------- */
 // Named launch points, so moving the pin stops being destructive. elevFt is the
