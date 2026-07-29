@@ -3,13 +3,14 @@ import {
   DRONES, PAYLOADS, WEATHER, SCENARIOS,
   allBatteries, saveCustomBattery, deleteCustomBattery,
   allManufacturers, saveCustomManufacturer, deleteCustomManufacturer,
+  loadMapState, saveMapState,
 } from './data.js';
 import { planMission, parallelBattery, CHEMISTRY, U } from './physics.js';
 import { lineChart, barChart, missionProfile, legend, hideTooltip } from './charts.js';
 import { unitSystem } from './units.js';
-import { setupMapView, showMapView, renderMapView, pauseMapView, resizeMapView } from './map.js';
+import { setupMapView, showMapView, renderMapView, pauseMapView, resizeMapView, setLaunchPoint } from './map.js';
 import { setupShell, syncView } from './shell.js';
-import { fetchLiveEnv, launchPoint } from './weather.js';
+import { fetchLiveEnv, launchPoint, isDefaultLaunch, DEFAULT_LAUNCH_NAME } from './weather.js';
 import { setupThemes } from './themes.js';
 
 const $ = (id) => document.getElementById(id);
@@ -18,7 +19,7 @@ const f0 = (x) => x != null && isFinite(x) ? x.toLocaleString('en-US', { maximum
 const f1 = (x) => x != null && isFinite(x) ? x.toLocaleString('en-US', { maximumFractionDigits: 1, minimumFractionDigits: 1 }) : '—';
 
 const state = {
-  view: 'dash', // 'dash' | 'map' — session-only, never persisted
+  view: 'dash', // 'dash' | 'map'
   units: 'imperial',
   droneId: 'moz7v2',
   manufacturerId: 'all',
@@ -34,6 +35,56 @@ const state = {
   manualMph: 40,
   speedMetric: 'radius',
 };
+
+/* ---------- session persistence ---------- */
+
+const SESSION_KEY = 'fpv-session';
+
+function saveSession() {
+  try { localStorage.setItem(SESSION_KEY, JSON.stringify(state)); } catch { /* quota / private mode */ }
+}
+
+/**
+ * Restore the control surface, all-or-nothing: any unknown id or out-of-range
+ * number discards the whole blob, because a half-restored loadout reads as a
+ * plan for a rig the pilot never selected. Returns the saved view, if valid.
+ */
+function restoreSession() {
+  let s = null;
+  try { s = JSON.parse(localStorage.getItem(SESSION_KEY) || 'null'); } catch { return null; }
+  if (!s || typeof s !== 'object' || !s.env || typeof s.env !== 'object') return null;
+  const env = s.env;
+  const num = (v, lo, hi) => Number.isFinite(v) && v >= lo && v <= hi;
+  const batt = allBatteries().find(b => b.id === s.batteryId && b.fits.includes(s.droneId));
+  const ok = DRONES.some(d => d.id === s.droneId)
+    && batt
+    && (s.manufacturerId === 'all'
+      || (batt.manufacturerId === s.manufacturerId && allManufacturers().some(m => m.id === s.manufacturerId)))
+    && PAYLOADS.some(p => p.id === s.payloadId)
+    && SCENARIOS.some(x => x.id === s.scenarioId)
+    && (s.weatherId === 'live' || s.weatherId === 'custom' || WEATHER.some(w => w.id === s.weatherId))
+    && ['imperial', 'metric'].includes(s.units)
+    && ['dash', 'map'].includes(s.view)
+    && ['real', 'range', 'manual'].includes(s.cruiseMode)
+    && ['radius', 'time'].includes(s.speedMetric)
+    && ['headOut', 'tailOut', 'cross'].includes(env.windMode)
+    && typeof s.parallelPacks === 'boolean'
+    && num(s.extraG, 0, 500) && num(s.reservePct, 10, 40) && num(s.manualMph, 5, 120)
+    && num(env.elevFt, -1500, 30000) && num(env.tempF, -60, 140) && num(env.rhPct, 0, 100)
+    && num(env.windMph, 0, 120) && num(env.gustMph, 0, 160) && num(env.windFromDeg, 0, 359);
+  if (!ok) return null;
+  Object.assign(state, {
+    units: s.units, droneId: s.droneId, manufacturerId: s.manufacturerId, batteryId: s.batteryId,
+    parallelPacks: s.parallelPacks, payloadId: s.payloadId, extraG: s.extraG,
+    weatherId: s.weatherId, scenarioId: s.scenarioId, reservePct: s.reservePct,
+    cruiseMode: s.cruiseMode, manualMph: s.manualMph, speedMetric: s.speedMetric,
+    env: {
+      elevFt: env.elevFt, tempF: env.tempF, rhPct: env.rhPct, windMph: env.windMph,
+      gustMph: env.gustMph, windFromDeg: env.windFromDeg, windMode: env.windMode,
+    },
+  });
+  return s.view;
+}
 
 function drone() { return DRONES.find(d => d.id === state.droneId); }
 function droneBatteries() {
@@ -211,6 +262,17 @@ function setTile(id, value, sub) {
   if (sub !== undefined) $(id).querySelector('.tile-sub').textContent = sub;
 }
 
+// powerAtSpeed memo for the sweep renders, rebuilt every update pass. A cache
+// is only valid while mass/air/drag are fixed, so it keys on the pack — the one
+// thing the sweeps vary that moves all-up weight.
+let packCaches = new Map();
+function packCache(b) {
+  const key = b?.id ?? '';
+  let c = packCaches.get(key);
+  if (!c) { c = new Map(); packCaches.set(key, c); }
+  return c;
+}
+
 function renderWarnings(warnings) {
   const host = $('warnings');
   host.replaceChildren();
@@ -230,6 +292,37 @@ function renderWarnings(warnings) {
     host.appendChild(el);
   }
   host.hidden = warnings.length === 0;
+}
+
+/**
+ * The zero-radius state reads as a broken app: dashes everywhere while Lift
+ * still says VIABLE. Name the lever that actually moves, in the pilot's units.
+ * Null unless the craft flies but no out-and-back closes.
+ */
+function zeroRadiusNote(r) {
+  if (!r.flight.viable || (r.legs.out && r.legs.back)) return null;
+  const u = units();
+  const spd = (ms) => f1(u.speedFromMs(ms));
+  const ceiling = `${spd(r.speedLimitMs)} ${u.speedUnit}`;
+  const wind = `${spd(r.wind.planningMs)} ${u.speedUnit} ${state.env.windMode === 'cross' ? 'crosswind' : 'headwind'}`;
+  // Only worth suggesting a faster cruise while the wind is inside the envelope.
+  const outrunnable = r.speedLimitMs > r.wind.planningMs;
+  const noWayOut = `even this loadout’s ${ceiling} top speed can’t beat it — wait for calmer wind, or fly a lighter setup.`;
+  if (state.cruiseMode === 'range') {
+    return `A ${wind} is at or past this loadout’s ${ceiling} usable top speed — no cruise speed gets you home. `
+      + 'Wait for calmer wind, or fly a lighter setup.';
+  }
+  const manual = state.cruiseMode === 'manual';
+  const planMs = manual ? U.mphToMs(state.manualMph)
+    : Math.min(drone().cruiseMs * scenario().speedFactor, 0.95 * r.speedLimitMs);
+  if (manual && planMs > r.speedLimitMs) {
+    return `A ${spd(planMs)} ${u.speedUnit} manual airspeed is past what this loadout holds (${ceiling}) `
+      + '— dial the airspeed back, or drop weight.';
+  }
+  const fix = !outrunnable ? noWayOut
+    : manual ? `push the airspeed above ${spd(r.wind.planningMs)} ${u.speedUnit}.`
+    : `pick a faster flying style, or set cruise speed to Manual and push above ${spd(r.wind.planningMs)} ${u.speedUnit}.`;
+  return `At ${spd(planMs)} ${u.speedUnit} you can’t make headway home against a ${wind} — ${fix}`;
 }
 
 function flightLabel(flight) {
@@ -253,9 +346,12 @@ function renderStats(r) {
   hero.classList.toggle('flight-invalid-card', noLift);
   $('hero-value').textContent = noLift ? 'WILL NOT FLY' : f1(u.distanceFromKm(r.radiusKm));
   $('hero-unit').textContent = noLift ? '' : u.distanceUnit;
+  const stranded = !noLift && !(r.legs.out && r.legs.back);
   $('hero-sub').textContent = noLift
     ? `${f0(r.massKg * 1000)} g AUW exceeds ${f0(r.flight.maxHoverMassG)} g estimated continuous lift`
-    : `${f1(u.distanceFromKm(r.radiusKm))} ${u.distanceUnit} out — turn around here and land with ${f0(r.energy.reservePct)}% reserve`;
+    : stranded
+      ? 'Zero radius — you could not fly home from any distance out. See the note above.'
+      : `${f1(u.distanceFromKm(r.radiusKm))} ${u.distanceUnit} out — turn around here and land with ${f0(r.energy.reservePct)}% reserve`;
   setTile('tile-time', noLift ? '—' : `${f1(r.timeMin)} min`,
     noLift ? 'mission invalid · insufficient lift' : `${f1(u.distanceFromKm(r.totalKm))} ${u.distanceUnit} round trip`);
   setTile('tile-hover', noLift ? '—' : `${f1(r.hoverTimeMin)} min`,
@@ -307,12 +403,13 @@ function renderSpeedTradeoff(r) {
   const u = units();
   const d = drone();
   const base = missionInputs();
+  const cache = packCache(battery());
   const time = state.speedMetric === 'time';
   const unit = time ? 'min' : u.distanceUnit;
   const pts = [];
   let best = null;
   for (let v = 2; v <= d.maxSpeedMs * 0.95; v += 0.5) {
-    const rr = planMission({ ...base, cruiseMode: 'manual', manualVMs: v });
+    const rr = planMission({ ...base, cruiseMode: 'manual', manualVMs: v, lite: true, _pCache: cache });
     const p = { x: u.speedFromMs(v), y: time ? rr.timeMin : u.distanceFromKm(rr.radiusKm) };
     pts.push(p);
     if (!best || p.y > best.y) best = p;
@@ -371,12 +468,28 @@ function renderProfile(r) {
   setChartFlightState('chart-profile', r.flight);
 }
 
+// Out-leg → home-leg burn. The home leg is the one that strands you, so it
+// carries the emphasis; an average would hide it entirely.
+function burnCell(r, u) {
+  if (!r.legs.out || !r.legs.back) return '—';
+  const outBurn = u.burnFromWhPerKm(r.legs.out.whPerKm);
+  const backBurn = u.burnFromWhPerKm(r.legs.back.whPerKm);
+  const frag = document.createDocumentFragment();
+  const homeWorse = backBurn >= outBurn;
+  const out = document.createElement(homeWorse ? 'span' : 'strong');
+  out.textContent = f1(outBurn);
+  const back = document.createElement(homeWorse ? 'strong' : 'span');
+  back.textContent = f1(backBurn);
+  frag.append(out, ' → ', back, ` ${u.burnUnit}`);
+  return frag;
+}
+
 function renderComparison() {
   const u = units();
   const batts = compatibleBatteries();
   const runs = batts.map(b => {
     const effective = loadoutBattery(b);
-    return { b, effective, r: planMission(missionInputs(b)) };
+    return { b, effective, r: planMission({ ...missionInputs(b), lite: true, _pCache: packCache(b) }) };
   });
   barChart($('chart-cmp-radius'), {
     items: runs.map(({ b, r }, i) => ({
@@ -414,12 +527,13 @@ function renderComparison() {
       flightLabel(r.flight),
       `${f1(u.distanceFromKm(r.radiusKm))} ${u.distanceUnit}`,
       `${f1(r.timeMin)} min`,
-      r.legs.out && r.legs.back ? `${f1(u.burnFromWhPerKm((r.legs.out.whPerKm + r.legs.back.whPerKm) / 2))} ${u.burnUnit}` : '—',
+      burnCell(r, u),
       effective.priceUsd ? `$${effective.priceUsd}` : '—',
     ];
     cells.forEach((c, i) => {
       const td = document.createElement('td');
-      td.textContent = c || '—';
+      if (c instanceof Node) td.appendChild(c);
+      else td.textContent = c || '—';
       if (i >= 5) td.className = 'num';
       tr.appendChild(td);
     });
@@ -427,17 +541,24 @@ function renderComparison() {
   }
 }
 
-function renderWindSensitivity() {
+function renderWindSensitivity(r) {
   const u = units();
-  const batts = compatibleBatteries().slice(0, 4);
-  const series = batts.map((b, i) => {
+  // The pack you're flying always makes the chart; catalog order fills the rest.
+  const sel = battery();
+  const all = compatibleBatteries();
+  const others = all.filter(b => b.id !== sel?.id);
+  const batts = (sel ? [sel, ...others] : others).slice(0, 4);
+  const series = batts.map((b) => {
+    const cache = packCache(b);
     const pts = [];
     for (let w = 0; w <= 30; w += 2) {
       const env = { ...state.env, windMph: w, gustMph: w * 1.5 }; // gusts scale with the sweep
-      const r = planMission(missionInputs(b, env));
-      pts.push({ x: u.speedFromMph(w), y: u.distanceFromKm(r.radiusKm) });
+      const rr = planMission({ ...missionInputs(b, env), lite: true, _pCache: cache });
+      pts.push({ x: u.speedFromMph(w), y: u.distanceFromKm(rr.radiusKm) });
     }
-    return { name: b.short || b.name, color: SERIES[i % SERIES.length], pts };
+    // Color follows the pack's catalog position so it matches the shoot-out chart
+    // even with the selected pack hoisted to the front.
+    return { name: b.short || b.name, color: SERIES[all.findIndex(x => x.id === b.id) % SERIES.length], pts };
   });
   lineChart($('chart-wind'), {
     series, height: 250,
@@ -446,8 +567,7 @@ function renderWindSensitivity() {
     tipTitle: 'wind',
   });
   legend($('legend-wind'), series);
-  const current = planMission(missionInputs());
-  setChartFlightState('chart-wind', current.flight);
+  setChartFlightState('chart-wind', r.flight);
 }
 
 /* ---------- live weather mode ---------- */
@@ -456,16 +576,61 @@ let liveSeq = 0;       // stale-response guard: only the latest fetch may apply
 let liveFetching = false;
 let liveData = null;   // { patch, gust10Mph, at } of the last successful fetch
 let liveErr = null;
+let geoMsg = null;     // geolocation progress/denial, shown in the same status line
+
+/** Never show live numbers without saying whose sky they came from. */
+function launchLabel() {
+  const pt = launchPoint();
+  return isDefaultLaunch(pt)
+    ? `${DEFAULT_LAUNCH_NAME} · default spot, not your location. Use “Use my location”, or move the pin on the Map tab.`
+    : `${pt.lat.toFixed(4)}, ${pt.lng.toFixed(4)}`;
+}
 
 function liveStatusText() {
-  if (state.weatherId !== 'live') return '';
-  if (liveErr) return `Live weather unavailable (${liveErr}) — using last values, or pick a preset.`;
-  if (liveFetching || !liveData) return 'Fetching live weather at the launch point…';
+  if (state.weatherId !== 'live') return geoMsg || '';
+  const where = `${liveErr ? 'Launch point' : 'Live'} — ${launchLabel()}`;
+  if (geoMsg) return `${where}\n${geoMsg}`;
+  if (liveErr) return `${where}\nLive weather unavailable (${liveErr}) — using last values, or pick a preset.`;
+  if (liveFetching || !liveData) return `${where}\nFetching live weather at the launch point…`;
   const u = units();
   const p = liveData.patch;
-  return `${f0(u.speedFromMph(p.windMph))} ${u.speedUnit} from ${p.windFromDeg}° (80 m) · `
+  return `${where}\n`
+    + `${f0(u.speedFromMph(p.windMph))} ${u.speedUnit} from ${p.windFromDeg}° (80 m) · `
     + `gusts ${f0(u.speedFromMph(Math.max(liveData.gust10Mph, p.windMph)))} ${u.speedUnit} · `
     + `${p.tempF}°F · ${p.rhPct}% RH · fetched ${liveData.at}`;
+}
+
+/**
+ * Move the launch point to the device's position and refetch. The map reads the
+ * saved point when it initializes, so a pin placed here survives the tab switch.
+ */
+function useMyLocation() {
+  if (!navigator.geolocation) {
+    geoMsg = 'This browser won’t share a location — move the pin on the Map tab instead.';
+    updateLiveUI();
+    return;
+  }
+  geoMsg = 'Getting your location…';
+  updateLiveUI();
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      const saved = loadMapState();
+      const pt = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+      saveMapState({ ...pt, zoom: saved?.zoom ?? 13, baseLayer: saved?.baseLayer ?? 'satellite' });
+      setLaunchPoint(pt); // sync the on-screen pin if the map is already up
+      geoMsg = null;
+      goLive(pt);
+    },
+    (err) => {
+      geoMsg = err.code === err.TIMEOUT
+        ? 'Location timed out — try again, or drop the pin yourself on the Map tab.'
+        : err.code === err.POSITION_UNAVAILABLE
+          ? 'Location unavailable — drop the pin yourself on the Map tab.'
+          : 'Location denied — the launch point is unchanged. Drop the pin yourself on the Map tab.';
+      updateLiveUI();
+    },
+    { enableHighAccuracy: true, timeout: 8000 },
+  );
 }
 
 function updateLiveUI() {
@@ -484,6 +649,7 @@ async function goLive(pt) {
   state.weatherId = 'live';
   liveFetching = true;
   liveErr = null;
+  geoMsg = null; // a stale denial/timeout note must not outlive the next fetch
   populateControls();
   update();
   try {
@@ -518,11 +684,22 @@ function update() {
     state.batteryId = batts[0]?.id;
     fillSelect($('sel-battery'), batts.map(b => ({ value: b.id, label: `${b.name} · ${b.massG} g` })), state.batteryId);
   }
+  saveSession();
+  packCaches = new Map();
   const sc = scenario();
   $('scenario-desc').textContent =
     `${sc.desc} ≈${f0(u.speedFromMs(drone().cruiseMs * sc.speedFactor))} ${u.speedUnit} realistic cruise · +${f0((sc.overheadFactor - 1) * 100)}% maneuvering burn.`;
   $('cmp-radius-title').textContent = `Mission radius (${u.distanceUnit})`;
   const r = planMission(missionInputs());
+  const stranded = zeroRadiusNote(r);
+  if (stranded) {
+    // physics.js emits one generic line for this case; swap in the version that
+    // names the lever to move.
+    const i = r.warnings.findIndex(w => w.text.startsWith('Wind or loaded propulsion'));
+    if (i >= 0) r.warnings[i] = { level: 'critical', text: stranded };
+    else r.warnings.unshift({ level: 'critical', text: stranded });
+  }
+  renderWarnings(r.warnings); // outside both tab panels — visible on either tab
   // Render only the visible view: charts measure container width and freeze at
   // a fallback size when drawn inside a hidden container.
   if (state.view === 'map') {
@@ -530,12 +707,11 @@ function update() {
     return;
   }
   renderStats(r);
-  renderWarnings(r.warnings);
   renderPowerCurve(r);
   renderSpeedTradeoff(r);
   renderProfile(r);
   renderComparison();
-  renderWindSensitivity();
+  renderWindSensitivity(r);
   renderBatteryNote();
 }
 
@@ -555,6 +731,21 @@ function setView(view) {
   update();
 }
 
+const ESTIMATED_LABELS = {
+  massG: 'pack weight',
+  capAh: 'capacity',
+  irPackMilliOhm: 'pack internal resistance',
+  maxContA: 'continuous current limit',
+  priceUsd: 'price',
+  connector: 'connector',
+};
+
+function estimatedPhrase(keys) {
+  const names = keys.map(k => ESTIMATED_LABELS[k] || k);
+  const list = names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names[0];
+  return list.charAt(0).toUpperCase() + list.slice(1);
+}
+
 function renderBatteryNote() {
   const host = $('battery-note');
   host.replaceChildren();
@@ -571,7 +762,7 @@ function renderBatteryNote() {
   }
   if (b.estimated?.length) {
     host.append(document.createTextNode(
-      `${b.estimated.join(', ')} ${b.estimated.length === 1 ? 'is' : 'are'} estimated; replace with the finished pack’s measured values when available.`
+      `${estimatedPhrase(b.estimated)} ${b.estimated.length === 1 ? 'is' : 'are'} estimated; replace with the finished pack’s measured values when available.`
     ));
   }
   if (m?.url) {
@@ -586,6 +777,23 @@ function renderBatteryNote() {
 }
 
 /* ---------- events ---------- */
+
+let swapTimer = 0;
+
+function showSwapNotice(msg) {
+  const el = $('swap-notice');
+  el.textContent = msg;
+  el.hidden = false;
+  clearTimeout(swapTimer);
+  swapTimer = setTimeout(clearSwapNotice, 12000);
+}
+
+function clearSwapNotice() {
+  clearTimeout(swapTimer);
+  const el = $('swap-notice');
+  el.textContent = '';
+  el.hidden = true;
+}
 
 function bind() {
   $('tab-dash').addEventListener('click', () => setView('dash'));
@@ -602,22 +810,43 @@ function bind() {
     populateControls();
     update();
   });
-  $('sel-drone').addEventListener('change', e => { state.droneId = e.target.value; populateControls(); update(); });
+  $('sel-drone').addEventListener('change', e => {
+    const prev = allBatteries().find(b => b.id === state.batteryId);
+    state.droneId = e.target.value;
+    populateControls();
+    const now = battery();
+    if (prev && now && now.id !== prev.id) {
+      showSwapNotice(`${prev.name} doesn’t fit the ${drone().name} — switched to ${now.name}.`);
+    } else {
+      clearSwapNotice();
+    }
+    update();
+  });
   $('sel-manufacturer').addEventListener('change', e => {
     state.manufacturerId = e.target.value;
     state.batteryId = compatibleBatteries()[0]?.id;
     populateControls();
     update();
   });
-  $('sel-battery').addEventListener('change', e => { state.batteryId = e.target.value; update(); });
+  $('sel-battery').addEventListener('change', e => {
+    state.batteryId = e.target.value;
+    clearSwapNotice();
+    update();
+  });
   $('in-parallel').addEventListener('change', e => {
     state.parallelPacks = e.target.checked;
     populateControls();
     update();
   });
   $('sel-payload').addEventListener('change', e => { state.payloadId = e.target.value; update(); });
-  $('in-extra').addEventListener('input', e => { state.extraG = +e.target.value || 0; update(); });
+  $('in-extra').addEventListener('input', e => {
+    // Clamp to the input's own range: browsers don't enforce max on typed values,
+    // and an out-of-range save would void the whole session restore.
+    state.extraG = Math.min(500, Math.max(0, +e.target.value || 0));
+    update();
+  });
   $('btn-live').addEventListener('click', () => goLive());
+  $('btn-geo').addEventListener('click', useMyLocation);
   $('sel-weather').addEventListener('change', e => {
     if (e.target.value === 'live') { goLive(); return; }
     state.weatherId = e.target.value;
@@ -742,6 +971,11 @@ setupThemes(() => {
   update();
 });
 setupShell({ setView });
+const bootView = restoreSession();
 populateControls();
 bind();
-goLive(); // live weather is the boot default; renders immediately, patches when the fetch lands
+if (bootView === 'map') setView('map'); // renders as a side effect
+// Live is the boot default (renders immediately, patches when the fetch lands),
+// but a saved preset or hand-entered weather must not be overwritten by it.
+if (state.weatherId === 'live') goLive();
+else if (bootView !== 'map') update();

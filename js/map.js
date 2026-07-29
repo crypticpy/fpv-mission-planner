@@ -98,13 +98,20 @@ function persist() {
   });
 }
 
-function moveLaunch(latlng) {
+function moveLaunch(latlng, { notify = true } = {}) {
   launch = { lat: latlng.lat, lng: wrapLng(latlng.lng) };
   marker.setLatLng(launch);
   needsFit = true;
   persist();
   deps.requestRender();
-  deps.onLaunchMove?.({ ...launch }); // live weather refetches for the new spot
+  if (notify) deps.onLaunchMove?.({ ...launch }); // live weather refetches for the new spot
+}
+
+/* The weather rail moves the launch point too; it handles its own refetch, so
+   this skips the onLaunchMove notification. Before the map first initializes
+   there is nothing to sync — initMap reads the saved point. */
+export function setLaunchPoint(latlng) {
+  if (map) moveLaunch(latlng, { notify: false });
 }
 
 function locate() {

@@ -144,6 +144,16 @@ body {
   padding-left: 2px;
 }
 .rail-note { color: var(--muted); font-size: 11.5px; margin: -4px 0 var(--sp-2); }
+.swap-notice {
+  color: var(--ink-2);
+  font-size: 11.5px;
+  line-height: 1.4;
+  margin: -2px 0 var(--sp-2);
+  padding: 6px 8px;
+  border-left: 3px solid var(--status-warning);
+  border-radius: 4px;
+  background: var(--surface-2);
+}
 .speed-note { color: var(--ink-2); font-size: 13px; margin-bottom: var(--sp-1); }
 .card-head { display: flex; justify-content: space-between; align-items: center; gap: var(--sp-2); }
 .card-select { width: auto; margin-top: 0; padding: 4px 8px; font-size: 12px; }
@@ -200,6 +210,9 @@ input[type="range"] { width: 100%; margin-top: 6px; accent-color: var(--series-1
 
 /* ---------- content ---------- */
 
+/* Holds the warnings banner plus both tab panels, so the banner survives a tab
+   switch. Static flow, so the fixed mobile dock never covers it. */
+.stage { display: flex; flex-direction: column; gap: var(--sp-3); min-width: 0; }
 .content { display: flex; flex-direction: column; gap: var(--sp-3); min-width: 0; }
 
 .warnings { display: flex; flex-direction: column; gap: 6px; }
@@ -452,7 +465,10 @@ tr.row-invalid td:nth-child(12) { color: var(--status-critical); font-weight: 60
 @media (prefers-reduced-motion: reduce) {
   .live-btn.active .live-dot { animation: none; }
 }
-.live-status { color: var(--muted); font-size: 11.5px; line-height: 1.45; }
+.live-btn + .live-btn { margin-top: 6px; }
+.live-pin { flex: none; font-size: 11px; color: var(--muted); }
+/* pre-line: the location line and the conditions line are one text node. */
+.live-status { color: var(--muted); font-size: 11.5px; line-height: 1.45; margin-top: 6px; white-space: pre-line; }
 
 .launch-dot {
   width: 18px;

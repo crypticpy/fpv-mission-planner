@@ -3,11 +3,22 @@
 import { loadMapState } from './data.js';
 
 export const DEFAULT_LAUNCH = { lat: 30.2672, lng: -97.7431 }; // Austin
+export const DEFAULT_LAUNCH_NAME = 'Austin, TX';
 
 /** Best-known launch point without requiring the map to be initialized. */
 export function launchPoint() {
   const saved = loadMapState();
   return saved ? { lat: saved.lat, lng: saved.lng } : { ...DEFAULT_LAUNCH };
+}
+
+/**
+ * True while the launch point is still the built-in default — the UI must say
+ * so rather than presenting someone else's wind as the pilot's own. Compared
+ * by value, since panning the map persists the unmoved default coordinates.
+ */
+export function isDefaultLaunch(pt = launchPoint()) {
+  return Math.abs(pt.lat - DEFAULT_LAUNCH.lat) < 1e-4
+    && Math.abs(pt.lng - DEFAULT_LAUNCH.lng) < 1e-4;
 }
 
 /**
