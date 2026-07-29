@@ -63,6 +63,23 @@ allowance and the currently displayed $195 base price. Storefront Wh figures for
 the NAV packs are typos (72/36 Wh); the real numbers are 108/216 Wh and that's
 what the model uses.
 
+## Camera payloads
+
+The camera selector includes published ready-to-record weights for the complete
+DJI Osmo Action line (124, 56, 145, 145, 146, and 149 g for Action 1–6) and
+GoPro HERO7–HERO13 Black (116, 126, 158, 153, 154, 154, and 159 g). It also
+includes the FPV-focused HERO10 Black Bones with its lens cover (60 g), HERO11
+Black Mini (133 g), HERO (86 g), LIT HERO (93 g), MAX (154 g), MAX2 (195 g),
+and the currently shipping MISSION 1 and MISSION 1 PRO (207 g each).
+
+Weights come from DJI product specifications and GoPro product/specification
+pages and comparison charts. The modular DJI Action 2 entry is its self-contained
+camera unit without an add-on battery/display module. MISSION 1 PRO ILS is not
+included yet because GoPro lists it as coming September 2026 and its flight-ready
+weight will depend on the selected Micro Four Thirds lens. Camera `cdA` values
+are envelope-based planning estimates because neither manufacturer publishes
+aerodynamic drag data.
+
 ## Adding batteries
 
 Two ways:
