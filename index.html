@@ -14,7 +14,7 @@
 <script type="module">
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('sw.js').catch(() => {});
+      navigator.serviceWorker.register('sw.js').catch(() => { /* no SW = no offline shell; the app itself is unaffected */ });
     });
   }
 </script>

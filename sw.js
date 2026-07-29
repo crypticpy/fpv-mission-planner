@@ -73,15 +73,19 @@ self.addEventListener('fetch', (event) => {
   }
 
   // Weather API: network-first, cache fallback (keeps the last live payload).
+  // Only OK responses overwrite the cached payload — a 429/500 must not
+  // clobber the last-good weather the offline fallback exists to serve.
   if (url.hostname === 'api.open-meteo.com') {
     event.respondWith(
       fetch(request)
         .then((response) => {
-          const copy = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
+          if (response.ok) {
+            const copy = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
+          }
           return response;
         })
-        .catch(() => caches.match(request))
+        .catch(() => caches.match(request).then((cached) => cached || Response.error()))
     );
     return;
   }

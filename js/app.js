@@ -200,9 +200,10 @@ const EXPERT_CRUISE_MODES = ['range', 'manual'];
 
 function populateControls() {
   const u = units();
-  // Beginner mode can never sit on an expert cruise mode: the control that would
-  // change it back is not on screen.
+  // Beginner mode can never sit on an expert control that is off screen: the
+  // thing that would change it back is hidden. Same rule for both.
   if (beginner() && EXPERT_CRUISE_MODES.includes(state.cruiseMode)) state.cruiseMode = 'real';
+  if (beginner() && state.parallelPacks) state.parallelPacks = false;
   document.body.dataset.detail = state.detail;
   $('sel-detail').value = state.detail;
   $('sel-units').value = state.units;
@@ -1516,8 +1517,11 @@ function bindSpots() {
     if (!name) { setSpotsNote('Name the spot first — that’s how you’ll find it later.'); return; }
     const pt = launchPoint();
     const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+    const id = `spot-${slug || Date.now().toString(36)}`;
+    // Same name = same id: saveSpot upserts, so tell the pilot which happened.
+    const replacing = loadSpots().some(s => s.id === id);
     const stored = saveSpot({
-      id: `spot-${slug || Date.now().toString(36)}`,
+      id,
       name,
       lat: pt.lat, lng: pt.lng,
       elevFt: state.env.elevFt,
@@ -1528,7 +1532,7 @@ function bindSpots() {
     if (!stored) { setSpotsNote('Could not save this spot — the launch point looks invalid.'); return; }
     $('spot-name').value = '';
     $('spot-notes').value = '';
-    setSpotsNote(`Saved “${stored.name}” — ${loadoutLabel(stored.loadout)}.`);
+    setSpotsNote(`${replacing ? 'Updated' : 'Saved'} “${stored.name}” — ${loadoutLabel(stored.loadout)}.`);
     renderSpots();
   });
 }
