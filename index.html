@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FPV Mission Planner</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<header class="masthead">
+  <div>
+    <h1>FPV Mission Planner</h1>
+    <p class="masthead-sub">Disc-loading &amp; energy model · MOZ7 V2 / Cinelog30 V3 · calibrated against logged flights</p>
+  </div>
+</header>
+
+<div class="layout">
+
+  <aside class="rail">
+    <section class="rail-group">
+      <h2>Aircraft</h2>
+      <label>Drone
+        <select id="sel-drone"></select>
+      </label>
+      <label>Battery
+        <select id="sel-battery"></select>
+      </label>
+      <label>Camera payload
+        <select id="sel-payload"></select>
+      </label>
+      <label>Extra weight (g)
+        <input id="in-extra" type="number" min="0" max="500" step="5" value="0">
+      </label>
+      <details class="custom-batt">
+        <summary>Add a battery to compare</summary>
+        <form id="custom-form">
+          <label>Name <input name="name" required placeholder="Auline 6S 4000"></label>
+          <div class="form-grid">
+            <label>Chemistry
+              <select name="chem">
+                <option value="liion">Li-Ion</option>
+                <option value="lipo">LiPo</option>
+                <option value="lihv">LiHV</option>
+              </select>
+            </label>
+            <label>Cells (S) <input name="s" type="number" min="1" max="8" value="6" required></label>
+            <label>Capacity (mAh) <input name="mah" type="number" min="100" max="30000" required></label>
+            <label>Weight (g) <input name="mass" type="number" min="10" max="3000" required></label>
+            <label>Pack IR (mΩ) <input name="ir" type="number" min="1" max="500" placeholder="25"></label>
+            <label>Max cont (A) <input name="amps" type="number" min="1" max="300" placeholder="35"></label>
+          </div>
+          <button type="submit">Save battery</button>
+        </form>
+        <div id="custom-list"></div>
+      </details>
+    </section>
+
+    <section class="rail-group">
+      <h2>Conditions</h2>
+      <label>Scenario
+        <select id="sel-scenario"></select>
+      </label>
+      <div class="form-grid">
+        <label>Elevation (ft) <input id="in-elev" type="number" step="100" min="-200" max="14000"></label>
+        <label>Air temp (°F) <input id="in-temp" type="number" step="1" min="-20" max="120"></label>
+        <label>Humidity (%) <input id="in-rh" type="number" step="5" min="0" max="100"></label>
+        <label>Wind avg (mph) <input id="in-wind" type="number" step="1" min="0" max="50"></label>
+        <label>Gusts (mph) <input id="in-gust" type="number" step="1" min="0" max="70"></label>
+      </div>
+      <label>Outbound leg
+        <select id="sel-windmode">
+          <option value="headOut">Into the wind (tailwind home)</option>
+          <option value="tailOut">Downwind out (headwind home)</option>
+          <option value="cross">Crosswind both ways</option>
+        </select>
+      </label>
+    </section>
+
+    <section class="rail-group">
+      <h2>Mission</h2>
+      <label>Landing reserve <span id="reserve-val" class="range-val"></span>
+        <input id="in-reserve" type="range" min="10" max="40" step="5">
+      </label>
+      <label>Cruise speed
+        <select id="sel-cruise">
+          <option value="auto">Auto — best range</option>
+          <option value="manual">Manual</option>
+        </select>
+      </label>
+      <label id="speed-row" hidden>Airspeed <span id="speed-val" class="range-val"></span>
+        <input id="in-speed" type="range" min="10" max="65" step="1">
+      </label>
+    </section>
+  </aside>
+
+  <main class="content">
+    <div id="warnings" class="warnings" hidden></div>
+
+    <section class="hero-card">
+      <p class="tile-label">Mission radius — how far out you can push</p>
+      <p class="hero-figure"><span id="hero-value">—</span><span class="hero-unit">mi</span></p>
+      <p class="tile-sub" id="hero-sub"></p>
+    </section>
+
+    <section class="tiles">
+      <div class="tile" id="tile-time"><p class="tile-label">Flight time</p><p class="tile-value">—</p><p class="tile-sub"></p></div>
+      <div class="tile" id="tile-energy"><p class="tile-label">Usable energy</p><p class="tile-value">—</p><p class="tile-sub"></p></div>
+      <div class="tile" id="tile-cruise"><p class="tile-label">Cruise</p><p class="tile-value">—</p><p class="tile-sub"></p></div>
+      <div class="tile" id="tile-hover"><p class="tile-label">Hover endurance</p><p class="tile-value">—</p><p class="tile-sub"></p></div>
+      <div class="tile" id="tile-auw"><p class="tile-label">All-up weight</p><p class="tile-value">—</p><p class="tile-sub"></p></div>
+      <div class="tile" id="tile-disc"><p class="tile-label">Disc loading</p><p class="tile-value">—</p><p class="tile-sub"></p></div>
+      <div class="tile" id="tile-eff"><p class="tile-label">Efficiency</p><p class="tile-value">—</p><p class="tile-sub"></p></div>
+      <div class="tile" id="tile-da"><p class="tile-label">Density altitude</p><p class="tile-value">—</p><p class="tile-sub"></p></div>
+    </section>
+
+    <section class="card">
+      <h3>Power vs airspeed</h3>
+      <p class="card-sub">Electrical draw across the speed envelope, with the endurance and cruise points marked</p>
+      <div id="chart-power" class="chart"></div>
+    </section>
+
+    <section class="card">
+      <h3>Mission profile</h3>
+      <p class="card-sub">Battery and pack voltage across the out-and-back at planned cruise</p>
+      <p id="chart-profile-empty" class="empty-note" hidden>No viable mission in these conditions.</p>
+      <div id="chart-profile" class="chart"></div>
+    </section>
+
+    <section class="card">
+      <h3>Battery shoot-out</h3>
+      <p class="card-sub">Every compatible pack, same loadout and weather</p>
+      <div class="cmp-grid">
+        <div><p class="panel-title">Mission radius (mi)</p><div id="chart-cmp-radius" class="chart"></div></div>
+        <div><p class="panel-title">Flight time (min)</p><div id="chart-cmp-time" class="chart"></div></div>
+      </div>
+      <div class="table-wrap">
+        <table id="cmp-table">
+          <thead><tr>
+            <th>Pack</th><th>Chem</th><th>Capacity</th><th>Energy</th><th>Weight</th>
+            <th>Radius</th><th>Time</th><th>Burn</th><th>Price</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card">
+      <h3>Wind sensitivity</h3>
+      <p class="card-sub">Mission radius as average wind rises (gusts scaled at 1.5×), current loadout &amp; direction</p>
+      <div id="legend-wind" class="viz-legend"></div>
+      <div id="chart-wind" class="chart"></div>
+    </section>
+
+    <p class="footnote" id="battery-note"></p>
+    <p class="footnote">Model: momentum-theory rotor power on total disc area, humid-air density (elevation · temp · humidity),
+      per-chemistry discharge simulation with internal-resistance sag and cold-weather derating, wind-split cruise optimization
+      per leg. Calibrated to logged flights (see README). Physics is a planning estimate — always fly with margin.</p>
+  </main>
+</div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
