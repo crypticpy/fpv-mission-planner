@@ -7,7 +7,9 @@ import {
 import { planMission, CHEMISTRY, U } from './physics.js';
 import { lineChart, barChart, missionProfile, legend, hideTooltip } from './charts.js';
 import { unitSystem } from './units.js';
-import { setupMapView, showMapView, renderMapView } from './map.js';
+import { setupMapView, showMapView, renderMapView, pauseMapView } from './map.js';
+import { fetchLiveEnv, launchPoint } from './weather.js';
+import { setupThemes } from './themes.js';
 
 const $ = (id) => document.getElementById(id);
 const SERIES = ['var(--series-1)', 'var(--series-2)', 'var(--series-3)', 'var(--series-4)'];
@@ -22,7 +24,7 @@ const state = {
   batteryId: 'nav5000',
   payloadId: 'naked',
   extraG: 0,
-  weatherId: 'calm',
+  weatherId: 'live', // 'live' | preset id | 'custom' — live is the boot default
   scenarioId: 'longrange',
   env: { elevFt: 800, tempF: 75, rhPct: 40, windMph: 3, gustMph: 5, windFromDeg: 170, windMode: 'headOut' },
   reservePct: 20,
@@ -114,9 +116,11 @@ function populateControls() {
   fillSelect($('sel-battery'), batts.map(b => ({ value: b.id, label: `${b.name} · ${b.massG} g` })), state.batteryId);
   fillSelect($('custom-manufacturer'), allManufacturers().map(m => ({ value: m.id, label: m.name })), 'custom');
   fillSelect($('sel-payload'), PAYLOADS.map(p => ({ value: p.id, label: p.name })), state.payloadId);
-  fillSelect($('sel-weather'),
-    [...WEATHER.map(w => ({ value: w.id, label: w.name })), { value: 'custom', label: 'Custom weather' }],
-    state.weatherId);
+  fillSelect($('sel-weather'), [
+    { value: 'live', label: 'Live — current conditions' },
+    ...WEATHER.map(w => ({ value: w.id, label: w.name })),
+    { value: 'custom', label: 'Custom weather' },
+  ], state.weatherId);
   fillSelect($('sel-scenario'), SCENARIOS.map(s => ({ value: s.id, label: s.name })), state.scenarioId);
   $('in-elev').value = state.env.elevFt;
   $('in-temp').value = state.env.tempF;
@@ -379,7 +383,68 @@ function renderWindSensitivity() {
   legend($('legend-wind'), series);
 }
 
+/* ---------- live weather mode ---------- */
+
+let liveSeq = 0;       // stale-response guard: only the latest fetch may apply
+let liveFetching = false;
+let liveData = null;   // { patch, gust10Mph, at } of the last successful fetch
+let liveErr = null;
+
+function liveStatusText() {
+  if (state.weatherId !== 'live') return '';
+  if (liveErr) return `Live weather unavailable (${liveErr}) — using last values, or pick a preset.`;
+  if (liveFetching || !liveData) return 'Fetching live weather at the launch point…';
+  const u = units();
+  const p = liveData.patch;
+  return `${f0(u.speedFromMph(p.windMph))} ${u.speedUnit} from ${p.windFromDeg}° (80 m) · `
+    + `gusts ${f0(u.speedFromMph(Math.max(liveData.gust10Mph, p.windMph)))} ${u.speedUnit} · `
+    + `${p.tempF}°F · ${p.rhPct}% RH · fetched ${liveData.at}`;
+}
+
+function updateLiveUI() {
+  const active = state.weatherId === 'live';
+  const btn = $('btn-live');
+  btn.classList.toggle('active', active);
+  btn.setAttribute('aria-pressed', active);
+  const msg = liveStatusText();
+  const st = $('live-status');
+  st.textContent = msg;
+  st.hidden = !msg;
+}
+
+async function goLive(pt) {
+  const seq = ++liveSeq;
+  state.weatherId = 'live';
+  liveFetching = true;
+  liveErr = null;
+  populateControls();
+  update();
+  try {
+    const { patch, gust10Mph } = await fetchLiveEnv(pt ?? launchPoint());
+    if (seq !== liveSeq || state.weatherId !== 'live') return; // superseded meanwhile
+    state.env = { ...state.env, ...patch };
+    liveData = {
+      patch, gust10Mph,
+      at: new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }),
+    };
+  } catch (err) {
+    if (seq !== liveSeq || state.weatherId !== 'live') return;
+    liveErr = err.message;
+  } finally {
+    if (seq === liveSeq) {
+      liveFetching = false;
+      // Re-render only while still live: after a dropout the preset/custom
+      // handler already rendered, and rewriting inputs would steal the caret.
+      if (state.weatherId === 'live') {
+        populateControls();
+        update();
+      }
+    }
+  }
+}
+
 function update() {
+  updateLiveUI();
   const u = units();
   const batts = compatibleBatteries();
   if (!batts.find(b => b.id === state.batteryId)) {
@@ -417,7 +482,8 @@ function setView(view) {
   $('tab-map').setAttribute('aria-selected', !dash);
   $('tab-dash').tabIndex = dash ? 0 : -1;
   $('tab-map').tabIndex = dash ? -1 : 0;
-  if (!dash) showMapView(); // init-if-needed + invalidateSize, now that it's visible
+  if (dash) pauseMapView();
+  else showMapView(); // init-if-needed + invalidateSize, now that it's visible
   update();
 }
 
@@ -472,7 +538,9 @@ function bind() {
   $('sel-battery').addEventListener('change', e => { state.batteryId = e.target.value; update(); });
   $('sel-payload').addEventListener('change', e => { state.payloadId = e.target.value; update(); });
   $('in-extra').addEventListener('input', e => { state.extraG = +e.target.value || 0; update(); });
+  $('btn-live').addEventListener('click', () => goLive());
   $('sel-weather').addEventListener('change', e => {
+    if (e.target.value === 'live') { goLive(); return; }
     state.weatherId = e.target.value;
     const w = WEATHER.find(x => x.id === state.weatherId);
     if (w) {
@@ -577,13 +645,13 @@ setupMapView({
   missionInputs,
   units,
   requestRender: update,
-  applyEnv: patch => {
-    state.env = { ...state.env, ...patch };
-    state.weatherId = 'custom';
-    populateControls();
-    update();
-  },
+  goLive,
+  onLaunchMove: (pt) => { if (state.weatherId === 'live') goLive(pt); },
+});
+setupThemes(() => {
+  hideTooltip();
+  update();
 });
 populateControls();
 bind();
-update();
+goLive(); // live weather is the boot default; renders immediately, patches when the fetch lands

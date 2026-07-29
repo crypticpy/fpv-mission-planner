@@ -14,11 +14,11 @@ const SWEEP_STEP_DEG = 5; // half-sweep sample spacing, relative to the wind axi
 
 const $ = id => document.getElementById(id);
 
-let deps = null; // injected by app.js: { missionInputs, units, requestRender, applyEnv }
+let deps = null; // injected by app.js: { missionInputs, units, requestRender, goLive, onLaunchMove }
 let map = null;
 let marker = null;
 let satLayer = null, osmLayer = null;
-let footReal = null, footBest = null;
+let footReal = null, footBest = null, footCase = null;
 let windControl = null;
 let launch = null;       // { lat, lng } of the launch point
 let justDragged = false; // swallow the synthetic click Leaflet fires after a drag
@@ -31,6 +31,12 @@ export function setupMapView(d) { deps = d; }
 export function showMapView() {
   if (!map) initMap();
   map.invalidateSize({ pan: false });
+  startParticles();
+}
+
+/** Called on switch back to the Planner tab — stop burning frames off-screen. */
+export function pauseMapView() {
+  stopParticles();
 }
 
 function initMap() {
@@ -75,7 +81,8 @@ function initMap() {
 
   $('btn-locate').addEventListener('click', locate);
   $('btn-fit').addEventListener('click', () => { needsFit = true; deps.requestRender(); });
-  $('btn-live-wx').addEventListener('click', fetchLiveWeather);
+  $('btn-live-wx').addEventListener('click', () => deps.goLive({ ...launch }));
+  initParticles();
 }
 
 function persist() {
@@ -92,6 +99,7 @@ function moveLaunch(latlng) {
   needsFit = true;
   persist();
   deps.requestRender();
+  deps.onLaunchMove?.({ ...launch }); // live weather refetches for the new spot
 }
 
 function locate() {
@@ -243,8 +251,11 @@ export function renderMapView(rPlan) {
   const realByCourse = fullCircle(halfReal, windFrom);
   const bestByCourse = fullCircle(halfBest, windFrom);
 
+  flow = { toRad: (windFrom + 180) * Math.PI / 180, speedMs: base.env.windAvgMs };
+
   if (footReal) { footReal.remove(); footReal = null; }
   if (footBest) { footBest.remove(); footBest = null; }
+  if (footCase) { footCase.remove(); footCase = null; }
   const anyReal = realByCourse.some(r => r > 0);
   const anyBest = bestByCourse.some(r => r > 0);
   if (!anyReal && !anyBest) {
@@ -253,13 +264,18 @@ export function renderMapView(rPlan) {
     note(anyReal ? null
       : 'No reach at the planned cruise in this wind — the dashed ring is what best-range speed could still manage.');
     footBest = L.polygon(footprintLatLngs(bestByCourse), {
-      interactive: false, color: 'var(--series-3)', weight: 2,
-      dashArray: '6 5', fill: false, opacity: 0.9,
+      interactive: false, color: 'var(--ring-best)', weight: 3,
+      dashArray: '9 7', fill: false, opacity: 1,
     }).addTo(map);
     if (anyReal) {
-      footReal = L.polygon(footprintLatLngs(realByCourse), {
-        interactive: false, color: 'var(--series-1)', weight: 2,
-        fillColor: 'var(--series-1)', fillOpacity: 0.12, opacity: 0.95,
+      // Theme-aware casing keeps the planned ring readable over any base layer.
+      const realPts = footprintLatLngs(realByCourse);
+      footCase = L.polygon(realPts, {
+        interactive: false, color: 'var(--map-casing)', weight: 7, opacity: 0.62, fill: false,
+      }).addTo(map);
+      footReal = L.polygon(realPts, {
+        interactive: false, color: 'var(--ring-planned)', weight: 3.5,
+        fillColor: 'var(--ring-planned)', fillOpacity: 0.15, opacity: 1,
       }).addTo(map);
     }
   }
@@ -288,11 +304,11 @@ export function renderMapView(rPlan) {
   // Range vs heading chart, with the dashboard's relative-wind case pinned on it.
   const series = [
     {
-      name: 'Planned cruise', color: 'var(--series-1)',
+      name: 'Planned cruise', color: 'var(--ring-planned)',
       pts: Array.from({ length: 361 }, (_, c) => ({ x: c, y: u.distanceFromKm(realByCourse[c % 360]) })),
     },
     {
-      name: 'Theoretical best range', color: 'var(--series-3)',
+      name: 'Theoretical best range', color: 'var(--ring-best)',
       pts: Array.from({ length: 361 }, (_, c) => ({ x: c, y: u.distanceFromKm(bestByCourse[c % 360]) })),
     },
   ];
@@ -315,39 +331,87 @@ export function renderMapView(rPlan) {
   });
 }
 
-/* ---------- live weather (Open-Meteo, no key) ---------- */
+/* ---------- wind particles ---------- */
+// Screen-space particle drift with a trailing-wake fade (the earth.nullschool
+// technique, simplified): the wind field is uniform at the point scale this
+// tool plans at, so every particle advects along the same vector, at a speed
+// proportional to the wind. Purely decorative — pointer-events: none.
 
-async function fetchLiveWeather() {
-  const btn = $('btn-live-wx');
-  btn.disabled = true;
-  btn.textContent = 'Fetching…';
-  try {
-    // 80 m wind, not 10 m: FPV cruise happens at 30–120 m AGL, where the wind
-    // typically runs well above the surface reading. Gusts only exist at 10 m.
-    const url = `https://api.open-meteo.com/v1/forecast?latitude=${launch.lat.toFixed(4)}&longitude=${launch.lng.toFixed(4)}`
-      + '&current=temperature_2m,relative_humidity_2m,wind_speed_80m,wind_direction_80m,wind_gusts_10m'
-      + '&temperature_unit=fahrenheit&wind_speed_unit=mph';
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
-    const c = data.current;
-    if (!c || !isFinite(c.temperature_2m) || !isFinite(c.wind_speed_80m)
-      || !isFinite(c.relative_humidity_2m) || !isFinite(c.wind_direction_80m)) throw new Error('malformed response');
-    const patch = {
-      tempF: Math.round(c.temperature_2m),
-      rhPct: Math.round(c.relative_humidity_2m),
-      windMph: Math.round(c.wind_speed_80m),
-      gustMph: Math.round(Math.max(c.wind_gusts_10m || 0, c.wind_speed_80m)),
-      windFromDeg: ((Math.round(c.wind_direction_80m) % 360) + 360) % 360,
-    };
-    if (isFinite(data.elevation)) patch.elevFt = Math.round(data.elevation * 3.28084);
-    deps.applyEnv(patch);
-    wxNote(`Live at launch point: ${patch.windMph} mph from ${patch.windFromDeg}° (80 m altitude) · `
-      + `gusts ${Math.round(c.wind_gusts_10m || 0)} mph (10 m) · ${patch.tempF}°F · ${patch.rhPct}% RH.`);
-  } catch (err) {
-    wxNote(`Live weather unavailable (${err.message}) — manual values kept.`);
-  } finally {
-    btn.disabled = false;
-    btn.textContent = 'Live weather here';
+const REDUCED_MOTION = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+let windCanvas = null, windCtx = null;
+let particles = [];
+let rafId = 0;
+let flow = { toRad: 0, speedMs: 0 }; // direction the air moves TOWARD, in radians
+
+function initParticles() {
+  if (REDUCED_MOTION) return;
+  windCanvas = document.createElement('canvas');
+  windCanvas.className = 'wind-particles';
+  map.getContainer().appendChild(windCanvas);
+  windCtx = windCanvas.getContext('2d');
+}
+
+function spawnParticle(w, h) {
+  return {
+    x: Math.random() * w, y: Math.random() * h,
+    life: 40 + Math.random() * 100,           // frames until respawn elsewhere
+    jitter: 0.7 + Math.random() * 0.6,        // per-particle gustiness
+  };
+}
+
+function resizeParticleCanvas() {
+  const el = map.getContainer();
+  const dpr = window.devicePixelRatio || 1;
+  const w = el.clientWidth, h = el.clientHeight;
+  if (windCanvas.width !== Math.round(w * dpr) || windCanvas.height !== Math.round(h * dpr)) {
+    windCanvas.width = Math.round(w * dpr);
+    windCanvas.height = Math.round(h * dpr);
+    windCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const n = Math.min(360, Math.round(w * h / 3200));
+    particles = Array.from({ length: n }, () => spawnParticle(w, h));
   }
+}
+
+function particleTick() {
+  rafId = requestAnimationFrame(particleTick);
+  if (document.hidden) return;
+  const el = map.getContainer();
+  const w = el.clientWidth, h = el.clientHeight;
+  if (!w) return; // container hidden
+  resizeParticleCanvas();
+
+  // Decay existing trails toward transparent, then draw this frame's segments.
+  windCtx.globalCompositeOperation = 'destination-in';
+  windCtx.fillStyle = 'rgba(0, 0, 0, 0.93)';
+  windCtx.fillRect(0, 0, w, h);
+  windCtx.globalCompositeOperation = 'source-over';
+
+  const dirX = Math.sin(flow.toRad), dirY = -Math.cos(flow.toRad);
+  const step = (8 + flow.speedMs * 6) / 60; // px per frame — calm still drifts
+  windCtx.strokeStyle = getComputedStyle(document.documentElement)
+    .getPropertyValue('--wind-particle').trim() || 'rgba(190, 226, 255, 0.62)';
+  windCtx.lineWidth = 1.2;
+  windCtx.beginPath();
+  for (const p of particles) {
+    const nx = p.x + dirX * step * p.jitter;
+    const ny = p.y + dirY * step * p.jitter;
+    windCtx.moveTo(p.x, p.y);
+    windCtx.lineTo(nx, ny);
+    p.x = nx; p.y = ny;
+    if (--p.life <= 0 || nx < -4 || nx > w + 4 || ny < -4 || ny > h + 4) {
+      Object.assign(p, spawnParticle(w, h));
+    }
+  }
+  windCtx.stroke();
+}
+
+function startParticles() {
+  if (!windCanvas || rafId) return;
+  rafId = requestAnimationFrame(particleTick);
+}
+
+function stopParticles() {
+  if (!rafId) return;
+  cancelAnimationFrame(rafId);
+  rafId = 0;
 }

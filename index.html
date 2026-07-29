@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0b0e11">
 <title>FPV Mission Planner</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -17,12 +18,17 @@
     <h1>FPV Mission Planner</h1>
     <p class="masthead-sub">Disc-loading &amp; energy model · MOZ7 V2 / Cinelog30 V3 · calibrated against logged flights</p>
   </div>
-  <label class="unit-switch">Units
-    <select id="sel-units" aria-label="Measurement system">
-      <option value="imperial">Imperial · mi / mph</option>
-      <option value="metric">Metric · km / km/h</option>
-    </select>
-  </label>
+  <div class="header-controls">
+    <label class="header-select">Theme
+      <select id="sel-theme" aria-label="Color theme"></select>
+    </label>
+    <label class="header-select">Units
+      <select id="sel-units" aria-label="Measurement system">
+        <option value="imperial">Imperial · mi / mph</option>
+        <option value="metric">Metric · km / km/h</option>
+      </select>
+    </label>
+  </div>
 </header>
 
 <nav class="view-tabs" role="tablist" aria-label="View">
@@ -95,7 +101,11 @@
 
     <section class="rail-group">
       <h2>Weather</h2>
-      <label>Preset
+      <button id="btn-live" class="live-btn" type="button" aria-pressed="false">
+        <span class="live-dot" aria-hidden="true"></span>Live weather at launch point
+      </button>
+      <p id="live-status" class="live-status" hidden></p>
+      <label>Preset — for future planning
         <select id="sel-weather"></select>
       </label>
       <div class="form-grid">

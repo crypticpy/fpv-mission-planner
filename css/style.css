@@ -1,25 +1,21 @@
-/* FPV Mission Planner — dark ground-station theme.
-   Chart colors are the validated dark-mode palette steps (see dataviz reference). */
+/* FPV Mission Planner — theme tokens have safe Night Ops fallbacks.
+   js/themes.js owns the preset definitions and applies the complete contract. */
 
 :root {
   color-scheme: dark;
-  --page: #0d0d0d;
-  --surface-1: #1a1a19;
-  --surface-2: #222221;
-  --ink: #ffffff;
-  --ink-2: #c3c2b7;
-  --muted: #898781;
-  --grid: #2c2c2a;
-  --baseline: #383835;
-  --border: rgba(255, 255, 255, 0.10);
-  --series-1: #3987e5;
-  --series-2: #d95926;
-  --series-3: #199e70;
-  --series-4: #c98500;
-  --status-good: #0ca30c;
-  --status-warning: #fab219;
-  --status-serious: #ec835a;
-  --status-critical: #d03b3b;
+  --page: #0b0e11; --surface-1: #151a1f; --surface-2: #1d242b;
+  --ink: #f5f7f8; --ink-2: #c4cbd0; --muted: #89949c;
+  --grid: #29323a; --baseline: #3a4650; --border: rgba(229, 240, 247, 0.13);
+  --accent: #49a6ff; --on-accent: #06111a;
+  --button: #25303a; --button-hover: #303e49;
+  --series-1: #49a6ff; --series-2: #ff784f; --series-3: #38d996; --series-4: #f1bd45;
+  --ring-planned: #61b6ff; --ring-best: #48e5a3;
+  --wind-particle: rgba(190, 226, 255, 0.62);
+  --status-good: #35d07f; --status-warning: #f1bd45;
+  --status-serious: #ff875f; --status-critical: #f05252;
+  --status-good-wash: rgba(53, 208, 127, 0.12);
+  --overlay-scrim: rgba(5, 8, 11, 0.76); --map-casing: #071018;
+  --marker-border: #ffffff; --shadow: rgba(0, 0, 0, 0.52); --map-filter: invert(0.88);
   --font-display: "Space Grotesk", "IBM Plex Sans", sans-serif;
   --font-body: "IBM Plex Sans", system-ui, sans-serif;
   --sp-1: 8px; --sp-2: 12px; --sp-3: 16px; --sp-4: 24px; --sp-5: 40px;
@@ -59,14 +55,15 @@ body {
   text-transform: uppercase;
 }
 .masthead-sub { color: var(--muted); font-size: 12.5px; margin-top: 2px; }
-.unit-switch {
+.header-controls { display: flex; align-items: flex-end; gap: var(--sp-2); }
+.header-select {
   color: var(--muted);
   font-size: 11px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   white-space: nowrap;
 }
-.unit-switch select {
+.header-select select {
   width: auto;
   min-width: 164px;
   margin: 0 0 0 8px;
@@ -89,8 +86,9 @@ body {
 @media (max-width: 900px) {
   .layout { grid-template-columns: 1fr; padding: var(--sp-3); }
   .masthead { align-items: flex-start; padding: var(--sp-3); }
-  .unit-switch { display: flex; flex-direction: column; gap: 4px; }
-  .unit-switch select { margin-left: 0; }
+  .header-controls { align-items: stretch; flex-wrap: wrap; }
+  .header-select { display: flex; flex-direction: column; gap: 4px; }
+  .header-select select { margin-left: 0; }
 }
 
 /* ---------- control rail ---------- */
@@ -137,7 +135,9 @@ select, input[type="number"], input[type="text"], input[type="url"], input:not([
   font: inherit;
   font-size: 13px;
 }
-select:focus, input:focus { outline: 1.5px solid var(--series-1); outline-offset: 0; }
+select:focus, input:focus, button:focus-visible, summary:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px;
+}
 
 input[type="range"] { width: 100%; margin-top: 6px; accent-color: var(--series-1); }
 .range-val { float: right; color: var(--ink); font-weight: 600; }
@@ -153,8 +153,8 @@ input[type="range"] { width: 100%; margin-top: 6px; accent-color: var(--series-1
 .custom-batt button[type="submit"] {
   margin-top: var(--sp-2);
   width: 100%;
-  background: var(--series-1);
-  color: #fff;
+  background: var(--accent);
+  color: var(--on-accent);
   border: none;
   border-radius: 6px;
   padding: 8px;
@@ -266,7 +266,7 @@ input[type="range"] { width: 100%; margin-top: 6px; accent-color: var(--series-1
   padding: 8px 10px;
   font-size: 12px;
   pointer-events: none;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 6px 20px var(--shadow);
   max-width: 260px;
 }
 .viz-tooltip-title { color: var(--muted); font-size: 11px; margin-bottom: 4px; }
@@ -334,7 +334,7 @@ td.num { font-variant-numeric: tabular-nums; }
 .map-card { padding-bottom: var(--sp-3); }
 .map-actions { display: flex; gap: var(--sp-1); flex-wrap: wrap; }
 .map-btn {
-  background: var(--surface-2);
+  background: var(--button);
   color: var(--ink-2);
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -344,19 +344,69 @@ td.num { font-variant-numeric: tabular-nums; }
   cursor: pointer;
   white-space: nowrap;
 }
-.map-btn:hover { color: var(--ink); border-color: var(--series-1); }
+.map-btn:hover { color: var(--ink); border-color: var(--accent); background: var(--button-hover); }
 .map-btn:disabled { color: var(--muted); border-color: var(--border); cursor: default; }
 .map-tiles { grid-template-columns: repeat(5, 1fr); }
 @media (max-width: 1100px) { .map-tiles { grid-template-columns: repeat(2, 1fr); } }
 .wx-note { color: var(--muted); font-size: 11.5px; margin-top: var(--sp-1); }
+
+.wind-particles {
+  position: absolute;
+  inset: 0;
+  z-index: 450; /* sibling of .leaflet-map-pane (400): paints over all map content */
+  pointer-events: none;
+}
+
+/* ---------- live weather ---------- */
+
+.live-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  background: var(--button);
+  color: var(--ink-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 7px 10px;
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  text-align: left;
+}
+.live-btn:hover { color: var(--ink); border-color: var(--accent); background: var(--button-hover); }
+.live-btn.active {
+  color: var(--ink);
+  border-color: var(--status-good);
+  background: var(--status-good-wash);
+}
+.live-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+.live-btn.active .live-dot {
+  background: var(--status-good);
+  animation: live-pulse 2s ease-in-out infinite;
+}
+@keyframes live-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 var(--status-good); }
+  50% { box-shadow: 0 0 0 4px transparent; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .live-btn.active .live-dot { animation: none; }
+}
+.live-status { color: var(--muted); font-size: 11.5px; line-height: 1.45; }
 
 .launch-dot {
   width: 18px;
   height: 18px;
   border-radius: 50%;
   background: var(--series-1);
-  border: 3px solid #fff;
-  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.35), 0 2px 6px rgba(0, 0, 0, 0.5);
+  border: 3px solid var(--marker-border);
+  box-shadow: 0 0 0 2px var(--shadow), 0 2px 6px var(--shadow);
   cursor: grab;
 }
 .wind-control {
@@ -391,15 +441,15 @@ td.num { font-variant-numeric: tabular-nums; }
   color: var(--ink-2);
   border: 1px solid var(--border);
 }
-.leaflet-control-layers-toggle { filter: invert(0.85); }
+.leaflet-control-layers-toggle { filter: var(--map-filter); }
 .leaflet-control-attribution {
-  background: rgba(13, 13, 13, 0.72);
+  background: var(--overlay-scrim);
   color: var(--muted);
   font-size: 10px;
 }
 .leaflet-control-attribution a { color: var(--ink-2); }
 .leaflet-control-scale-line {
-  background: rgba(13, 13, 13, 0.6);
+  background: var(--overlay-scrim);
   color: var(--ink-2);
   border-color: var(--baseline);
 }

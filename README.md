@@ -89,12 +89,22 @@ pay for the same wind, upwind and downwind reach are equal and the crosswind
 axis is slightly longer; a dogleg route can beat the ring. Bearings the aircraft
 can't make headway on collapse to the launch point.
 
-**Live weather here** fills the weather rail from
-[Open-Meteo](https://open-meteo.com/) (free, no key) for the launch point. It
-uses **80 m wind**, not the usual 10 m surface wind — FPV cruise happens at
-30–120 m AGL, and surface wind reads roughly half of what you'll actually fight
-up there. Gusts are only published at 10 m, so treat the gust figure as a floor.
-Elevation comes from Open-Meteo's 90 m digital elevation model.
+**Live weather is the default.** On load the planner fetches current conditions
+at the launch point from [Open-Meteo](https://open-meteo.com/) (free, no key)
+and shows what it's using in the weather rail; picking a preset (for future
+planning) or editing any weather field drops out of live mode, and the Live
+button — or the map's "Live weather here" — brings it back. Moving the launch
+point while live refetches automatically. It uses **80 m wind**, not the usual
+10 m surface wind — FPV cruise happens at 30–120 m AGL, and surface wind reads
+roughly half of what you'll actually fight up there. Gusts are only published at
+10 m, so treat the gust figure as a floor. Elevation comes from Open-Meteo's
+90 m digital elevation model. If the fetch fails you keep the last values and
+can plan on presets.
+
+Animated **wind particles** drift across the map in the direction the air is
+moving (the footprint's `windFromDeg` + 180°), faster in stronger wind. They're
+a screen-space visualization, not a forecast field, and they disable themselves
+under `prefers-reduced-motion`.
 
 Base layers: Esri World Imagery (satellite — Source: Esri, Vantor, Earthstar
 Geographics, and the GIS User Community) and OpenStreetMap streets
