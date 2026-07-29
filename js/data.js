@@ -635,11 +635,11 @@ export function loadCustomManufacturers() {
 export function saveCustomManufacturer(manufacturer) {
   const list = loadCustomManufacturers().filter(m => m.id !== manufacturer.id);
   list.push({ ...manufacturer, custom: true, kind: 'custom-builder' });
-  localStorage.setItem(MFR_LS_KEY, JSON.stringify(list));
+  try { localStorage.setItem(MFR_LS_KEY, JSON.stringify(list)); } catch { /* storage quota / private mode */ }
 }
 
 export function deleteCustomManufacturer(id) {
-  localStorage.setItem(MFR_LS_KEY, JSON.stringify(loadCustomManufacturers().filter(m => m.id !== id)));
+  try { localStorage.setItem(MFR_LS_KEY, JSON.stringify(loadCustomManufacturers().filter(m => m.id !== id))); } catch { /* storage quota / private mode */ }
 }
 
 export function allManufacturers() {
@@ -662,11 +662,11 @@ export function loadCustomBatteries() {
 export function saveCustomBattery(batt) {
   const list = loadCustomBatteries().filter(b => b.id !== batt.id);
   list.push(batt);
-  localStorage.setItem(LS_KEY, JSON.stringify(list));
+  try { localStorage.setItem(LS_KEY, JSON.stringify(list)); } catch { /* storage quota / private mode */ }
 }
 
 export function deleteCustomBattery(id) {
-  localStorage.setItem(LS_KEY, JSON.stringify(loadCustomBatteries().filter(b => b.id !== id)));
+  try { localStorage.setItem(LS_KEY, JSON.stringify(loadCustomBatteries().filter(b => b.id !== id))); } catch { /* storage quota / private mode */ }
 }
 
 export function allBatteries() {

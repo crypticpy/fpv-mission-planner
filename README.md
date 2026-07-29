@@ -19,6 +19,15 @@ modules ([js/physics.js](js/physics.js), [js/data.js](js/data.js),
 [js/map.js](js/map.js)). The only third-party code is Leaflet 1.9.4, vendored
 as an ES module in `vendor/leaflet/` so the app still needs no CDN or bundler.
 
+### Tests
+
+```bash
+npm test
+```
+
+Or run the suite directly: `node --test 'tests/*.test.mjs'` — note the quoted
+glob; the bare directory form fails on Node 24.
+
 Use the single **Units** selector in the header to switch every displayed
 distance, speed, wind, and distance-normalized burn rate between imperial
 (`mi`, `mph`, `Wh/mi`) and metric (`km`, `km/h`, `Wh/km`). The physics model
