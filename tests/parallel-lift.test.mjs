@@ -85,6 +85,35 @@ test('lift envelope reports its limiting component and finite thrust margin', ()
   assert.equal(lift.estimated, true);
 });
 
+test('a cold, high-IR pack is classified as pack-sag limited, not motor', () => {
+  const { rho } = airDensity(U.ftToM(800), U.fToC(-20), 40);
+  const coldBatt = { ...nav5000, irPackMilliOhm: 400 };
+  const massKg = (moz7.dryMassG + coldBatt.massG) / 1000;
+  const lift = liftEnvelope({
+    drone: moz7,
+    battery: coldBatt,
+    rho,
+    areaM2: discAreaM2(moz7),
+    tempC: U.fToC(-20),
+    massKg,
+  });
+  assert.equal(lift.limitingComponent, 'pack sag');
+});
+
+test('a warm pack where sag does not bind keeps the battery-limited label', () => {
+  const { rho } = airDensity(U.ftToM(800), U.fToC(75), 40);
+  const massKg = (moz7.dryMassG + nav5000.massG) / 1000;
+  const lift = liftEnvelope({
+    drone: moz7,
+    battery: nav5000,
+    rho,
+    areaM2: discAreaM2(moz7),
+    tempC: U.fToC(75),
+    massKg,
+  });
+  assert.equal(lift.limitingComponent, 'battery');
+});
+
 test('an over-limit load is marked WILL NOT FLY and produces no mission', () => {
   const mountainEnv = {
     elevM: U.ftToM(10_000),

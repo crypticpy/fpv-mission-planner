@@ -124,8 +124,11 @@ export function liftEnvelope({ drone, battery, rho, areaM2, tempC, massKg }) {
   const payloadMarginG = maxHoverMassG - auwG;
 
   let limitingComponent = 'motor';
-  if (batteryA <= motorA && batteryA <= escA && currentLimitedW <= motorLimitedW) limitingComponent = 'battery';
-  else if (escA <= motorA && currentLimitedW <= motorLimitedW) limitingComponent = 'ESC';
+  if (currentLimitedW <= motorLimitedW) {
+    if (sagCurrentA <= batteryA && sagCurrentA <= motorA && sagCurrentA <= escA) limitingComponent = 'pack sag';
+    else if (batteryA <= motorA && batteryA <= escA) limitingComponent = 'battery';
+    else if (escA <= motorA) limitingComponent = 'ESC';
+  }
 
   let code = 'viable';
   if (thrustToWeight <= 1) code = 'no_lift';
