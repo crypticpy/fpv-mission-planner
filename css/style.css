@@ -144,6 +144,7 @@ body {
   padding-left: 2px;
 }
 .rail-note { color: var(--muted); font-size: 11.5px; margin: -4px 0 var(--sp-2); }
+.wind-note { margin: var(--sp-1) 0 0; }
 .swap-notice {
   color: var(--ink-2);
   font-size: 11.5px;
@@ -214,6 +215,45 @@ input[type="range"] { width: 100%; margin-top: 6px; accent-color: var(--series-1
    switch. Static flow, so the fixed mobile dock never covers it. */
 .stage { display: flex; flex-direction: column; gap: var(--sp-3); min-width: 0; }
 .content { display: flex; flex-direction: column; gap: var(--sp-3); min-width: 0; }
+
+/* Go/no-go card. One status color drives the badge and the rail, so a theme
+   swap moves both; status tokens are tuned against --page, which is what the
+   badge label reverses onto. */
+.verdict {
+  --verdict: var(--status-good);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--verdict);
+  border-radius: 10px;
+  padding: var(--sp-2) var(--sp-3);
+}
+.verdict-caution { --verdict: var(--status-warning); }
+.verdict-nogo { --verdict: var(--status-critical); }
+.verdict-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--sp-1) var(--sp-2); }
+.verdict-badge {
+  flex: none;
+  background: var(--verdict);
+  color: var(--page);
+  font-family: var(--font-display);
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  border-radius: 6px;
+  padding: 3px 10px;
+  white-space: nowrap;
+}
+.verdict-why { font-size: 14.5px; color: var(--ink); }
+.verdict-fix { font-size: 13px; color: var(--ink-2); }
+.verdict-margins {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  margin-top: 2px;
+}
 
 .warnings { display: flex; flex-direction: column; gap: 6px; }
 .warn {

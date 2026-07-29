@@ -5,9 +5,19 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0b0e11">
 <title>FPV Mission Planner</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <link rel="stylesheet" href="vendor/fonts/fonts.css">
 <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
 <link rel="stylesheet" href="css/style.css">
+<script type="module">
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('sw.js').catch(() => {});
+    });
+  }
+</script>
 </head>
 <body>
 
@@ -123,6 +133,7 @@
         <label><span id="gust-label">Gusts (mph)</span> <input id="in-gust" type="number" step="1" min="0" max="70"></label>
         <label>Wind from (°) <input id="in-winddir" type="number" step="5" min="0" max="359"></label>
       </div>
+      <p id="wind-note" class="rail-note wind-note"></p>
     </section>
 
     <section class="rail-group">
@@ -154,9 +165,18 @@
     </section>
   </aside>
 
-  <!-- Warnings live outside both tab panels so sag/cold/gust callouts stay on
-       screen whichever tab the pilot has open at the field. -->
+  <!-- The verdict and the warnings live outside both tab panels so the go/no-go
+       answer and its callouts stay on screen whichever tab the pilot has open
+       at the field. -->
   <div class="stage">
+    <section id="verdict" class="verdict" role="status" aria-live="polite">
+      <p class="verdict-head">
+        <span id="verdict-badge" class="verdict-badge">—</span>
+        <span id="verdict-why" class="verdict-why"></span>
+      </p>
+      <p id="verdict-fix" class="verdict-fix"></p>
+      <p id="verdict-margins" class="verdict-margins"></p>
+    </section>
     <div id="warnings" class="warnings" hidden></div>
 
   <main class="content" id="view-dash" role="tabpanel" aria-labelledby="tab-dash">
@@ -167,7 +187,7 @@
     </section>
 
     <section class="tiles">
-      <div class="tile" id="tile-time"><p class="tile-label">Flight time</p><p class="tile-value">—</p><p class="tile-sub"></p></div>
+      <div class="tile" id="tile-time"><p class="tile-label">Flight timer</p><p class="tile-value">—</p><p class="tile-sub"></p></div>
       <div class="tile" id="tile-energy"><p class="tile-label">Usable energy</p><p class="tile-value">—</p><p class="tile-sub"></p></div>
       <div class="tile" id="tile-cruise"><p class="tile-label">Cruise</p><p class="tile-value">—</p><p class="tile-sub"></p></div>
       <div class="tile" id="tile-hover"><p class="tile-label">Hover endurance</p><p class="tile-value">—</p><p class="tile-sub"></p></div>
@@ -208,7 +228,7 @@
       <p class="card-sub">Every compatible pack, same loadout and weather</p>
       <div class="cmp-grid">
         <div><p id="cmp-radius-title" class="panel-title">Mission radius (mi)</p><div id="chart-cmp-radius" class="chart"></div></div>
-        <div><p class="panel-title">Flight time (min)</p><div id="chart-cmp-time" class="chart"></div></div>
+        <div><p class="panel-title">Flight time (mm:ss)</p><div id="chart-cmp-time" class="chart"></div></div>
       </div>
       <div class="table-wrap">
         <table id="cmp-table">

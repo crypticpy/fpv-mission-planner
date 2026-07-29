@@ -18,6 +18,24 @@ const SERIES = ['var(--series-1)', 'var(--series-2)', 'var(--series-3)', 'var(--
 const f0 = (x) => x != null && isFinite(x) ? x.toLocaleString('en-US', { maximumFractionDigits: 0 }) : '—';
 const f1 = (x) => x != null && isFinite(x) ? x.toLocaleString('en-US', { maximumFractionDigits: 1, minimumFractionDigits: 1 }) : '—';
 
+// Pilots fly the OSD clock, not a decimal minute. Durations render mm:ss, and
+// only grow an hours field if something absurd asks for one.
+const mmss = (min) => {
+  if (min == null || !isFinite(min) || min < 0) return '—';
+  const s = Math.round(min * 60);
+  const pad = (n) => String(n).padStart(2, '0');
+  return s >= 3600
+    ? `${Math.floor(s / 3600)}:${pad(Math.floor(s % 3600 / 60))}:${pad(s % 60)}`
+    : `${Math.floor(s / 60)}:${pad(s % 60)}`;
+};
+
+const COMPASS = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE',
+                 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
+const compass = (deg) => COMPASS[Math.round((((deg % 360) + 360) % 360) / 22.5) % 16];
+// The model plans on 80 m wind; the pilot standing at the launch point feels
+// roughly half of it. Rule of thumb, labeled as one wherever it prints.
+const surfaceMph = (aloftMph) => aloftMph / 2;
+
 const state = {
   view: 'dash', // 'dash' | 'map'
   units: 'imperial',
@@ -196,9 +214,12 @@ function populateControls() {
   $('in-rh').value = state.env.rhPct;
   configureNumericInput($('in-wind'), u.input.wind, u.speedFromMph(state.env.windMph));
   configureNumericInput($('in-gust'), u.input.gust, u.speedFromMph(state.env.gustMph));
-  $('wind-label').textContent = `Wind avg (${u.speedUnit})`;
+  $('wind-label').textContent = `Wind aloft (${u.speedUnit})`;
   $('gust-label').textContent = `Gusts (${u.speedUnit})`;
   $('in-winddir').value = state.env.windFromDeg;
+  $('wind-note').textContent =
+    `The plan flies the 80 m wind — ${f0(u.speedFromMph(state.env.windMph))} ${u.speedUnit} from ${state.env.windFromDeg}° (${compass(state.env.windFromDeg)}). `
+    + `At the launch point you’ll feel roughly half of it, about ${f0(u.speedFromMph(surfaceMph(state.env.windMph)))} ${u.speedUnit}.`;
   $('sel-windmode').value = state.env.windMode;
   $('in-reserve').value = state.reservePct;
   $('reserve-val').textContent = `${state.reservePct}%`;
@@ -325,6 +346,130 @@ function zeroRadiusNote(r) {
   return `At ${spd(planMs)} ${u.speedUnit} you can’t make headway home against a ${wind} — ${fix}`;
 }
 
+/**
+ * Out-leg and home-leg clock times at the planned cruise. planMission already
+ * solved both ground speeds; the home leg has never been shown, and it is the
+ * one that decides how early you turn.
+ */
+function legTimes(r) {
+  const { out, back } = r.legs;
+  if (!out || !back || !(r.radiusKm > 0)) return null;
+  return {
+    outMin: r.radiusKm / (out.vg * 3.6) * 60,
+    backMin: r.radiusKm / (back.vg * 3.6) * 60,
+  };
+}
+
+// Where the pack actually finishes the mission: the landing reserve plus
+// whatever sag strands below it. The profile timeline already integrates it.
+function landingSoc(r) {
+  const end = r.timeline.at(-1);
+  return end && isFinite(end.soc) ? end.soc : null;
+}
+
+/**
+ * "Can I fly this, here, now?" — the question the app is opened with. Pure
+ * synthesis over the plan: one level, the binding constraint worst-first, and
+ * the lever that moves it. Every number here is already on screen elsewhere.
+ */
+function verdict(r, stranded) {
+  const u = units();
+  const spd = (ms) => `${f0(u.speedFromMs(ms))} ${u.speedUnit}`;
+  const b = loadoutBattery();
+  const gustMs = U.mphToMs(state.env.gustMph);
+  const gustShare = r.speedLimitMs > 0 ? gustMs / r.speedLimitMs : 0;
+  const iRatio = b.maxContA ? r.hover.iA / b.maxContA : 0;
+  const tempC = U.fToC(state.env.tempF);
+  const coldPack = b.chem === 'liion' ? tempC <= 0 : tempC <= 5;
+  const times = legTimes(r);
+
+  const stop = [];
+  if (r.flight.code === 'no_lift') {
+    stop.push([
+      `${f0(r.massKg * 1000)} g is over this rig’s estimated ${f0(r.flight.maxHoverMassG)} g lift ceiling — it will not leave the ground.`,
+      'Take the camera and any extra weight off, or fly a lighter pack.',
+    ]);
+  } else if (r.flight.code === 'no_control_margin') {
+    stop.push([
+      `Only ${r.flight.thrustToWeight.toFixed(2)}:1 thrust — it may lift off, but nothing is left for a climb or a gust save.`,
+      'Strip weight off it, or put a lighter pack on, before this one flies.',
+    ]);
+  }
+  if (stranded) stop.push([stranded, null]);
+  if (iRatio > 1) {
+    stop.push([
+      `Just hovering pulls about ${f0(r.hover.iA)} A from a pack rated for ${f0(b.maxContA)} A — you are over the pack before you move.`,
+      'Fly a pack with more punch, or take weight off this one.',
+    ]);
+  }
+
+  const care = [];
+  if (gustShare > 0.45) {
+    care.push([
+      `Gusts to ${spd(gustMs)} are a big slice of this rig’s ${spd(r.speedLimitMs)} usable top speed.`,
+      'Stay closer, keep it low behind cover, and save the long lines for a calmer day.',
+    ]);
+  }
+  if (r.energy.sagLimited) {
+    care.push([
+      'The pack runs out of push before it runs out of energy — sag ends this flight early, not the capacity.',
+      'Land on the timer instead of the low-voltage beep, or grab the bigger pack.',
+    ]);
+  }
+  if (iRatio > 0.6 && iRatio <= 1) {
+    care.push([
+      `Hover alone is ${f0(iRatio * 100)}% of what this pack is rated to deliver — punch-outs will sag it hard.`,
+      'Fly it smoothly, skip the hard climbs, or move to a pack with more headroom.',
+    ]);
+  }
+  if (r.flight.code === 'marginal') {
+    care.push([
+      `${r.flight.thrustToWeight.toFixed(2)}:1 thrust is thin for gusts, climbs, and catching a bad line.`,
+      'Fly gently and low, and leave the punch-outs for a lighter setup.',
+    ]);
+  }
+  if (coldPack) {
+    care.push([
+      'The pack is cold: expect less capacity than the plan assumes and heavy sag on the first pull.',
+      'Keep packs in a pocket until launch, and cut a minute off the timer.',
+    ]);
+  }
+  if (r.densityAltM > 2500) {
+    care.push([
+      `The air up here is thin — ${f0(U.mToFt(r.densityAltM))} ft density altitude costs you both thrust and efficiency.`,
+      'Fly lighter, plan a shorter hop, and give yourself extra height on the way home.',
+    ]);
+  }
+
+  const level = stop.length ? 'nogo' : care.length ? 'caution' : 'go';
+  const label = level === 'nogo' ? 'DON’T FLY' : level === 'caution' ? 'CAUTION' : 'GO';
+  const [why, fix] = stop[0] || care[0] || [
+    `Nothing in this plan is fighting you — ${f1(u.distanceFromKm(r.radiusKm))} ${u.distanceUnit} out and back in ${mmss(r.timeMin)}, on ${r.flight.thrustToWeight.toFixed(2)}:1 of thrust.`,
+    times ? `Fly it — turn for home at ${mmss(times.outMin)} on the timer.` : 'Fly it, and keep an eye on the timer.',
+  ];
+
+  const chips = [`lift ${r.flight.thrustToWeight.toFixed(2)}:1`];
+  if (r.speedLimitMs > 0) chips.push(`gusts ${f0(gustShare * 100)}% of top speed`);
+  if (b.maxContA) chips.push(`hover ${f0(iRatio * 100)}% of pack rating`);
+  chips.push(r.energy.sagLimited ? 'sag-limited' : 'sag headroom OK');
+  const land = landingSoc(r);
+  if (land != null) chips.push(`lands ~${f0(land)}%`);
+
+  return { level, label, why, fix, margins: chips.join(' · ') };
+}
+
+function renderVerdict(r, stranded) {
+  const v = verdict(r, stranded);
+  const host = $('verdict');
+  host.className = `verdict verdict-${v.level}`;
+  $('verdict-badge').textContent = v.label;
+  $('verdict-why').textContent = v.why;
+  const fix = $('verdict-fix');
+  fix.textContent = v.fix || '';
+  fix.hidden = !v.fix;
+  $('verdict-margins').textContent = v.margins;
+}
+
 function flightLabel(flight) {
   if (flight.code === 'no_lift') return 'WILL NOT FLY';
   if (flight.code === 'no_control_margin') return 'NO CONTROL MARGIN';
@@ -347,14 +492,23 @@ function renderStats(r) {
   $('hero-value').textContent = noLift ? 'WILL NOT FLY' : f1(u.distanceFromKm(r.radiusKm));
   $('hero-unit').textContent = noLift ? '' : u.distanceUnit;
   const stranded = !noLift && !(r.legs.out && r.legs.back);
+  const times = legTimes(r);
+  const land = landingSoc(r);
+  // Reserve plus whatever sag strands under it — say which, so "35%" doesn't
+  // read as the app disagreeing with the reserve slider.
+  const landing = land == null ? `${f0(r.energy.reservePct)}% reserve`
+    : land - r.energy.reservePct < 0.5 ? `about ${f0(land)}% left, your landing reserve`
+    : `about ${f0(land)}% left — your ${f0(r.energy.reservePct)}% reserve plus the bottom the pack can’t use`;
   $('hero-sub').textContent = noLift
     ? `${f0(r.massKg * 1000)} g AUW exceeds ${f0(r.flight.maxHoverMassG)} g estimated continuous lift`
     : stranded
       ? 'Zero radius — you could not fly home from any distance out. See the note above.'
-      : `${f1(u.distanceFromKm(r.radiusKm))} ${u.distanceUnit} out — turn around here and land with ${f0(r.energy.reservePct)}% reserve`;
-  setTile('tile-time', noLift ? '—' : `${f1(r.timeMin)} min`,
-    noLift ? 'mission invalid · insufficient lift' : `${f1(u.distanceFromKm(r.totalKm))} ${u.distanceUnit} round trip`);
-  setTile('tile-hover', noLift ? '—' : `${f1(r.hoverTimeMin)} min`,
+      : `${f1(u.distanceFromKm(r.radiusKm))} ${u.distanceUnit} out — start home at ${mmss(times?.outMin)} on the timer, land at ${mmss(r.timeMin)} with ${landing}`;
+  setTile('tile-time', noLift ? '—' : mmss(r.timeMin),
+    noLift ? 'mission invalid · insufficient lift'
+      : times ? `${mmss(times.outMin)} out · ${mmss(times.backMin)} home · ${f1(u.distanceFromKm(r.totalKm))} ${u.distanceUnit} round trip`
+      : 'no out-and-back closes in this wind');
+  setTile('tile-hover', noLift ? '—' : mmss(r.hoverTimeMin),
     noLift ? `requires ${f0(r.hover.pW)} W · cannot sustain hover` : `hover · ${f0(r.hover.pW)} W · ${f1(r.hover.iA)} A`);
   setTile('tile-auw', `${f0(r.massKg * 1000)} g`,
     `${f1(r.massKg * 2.20462)} lb · lift ceiling ${f0(r.flight.maxHoverMassG)} g`);
@@ -405,7 +559,8 @@ function renderSpeedTradeoff(r) {
   const base = missionInputs();
   const cache = packCache(battery());
   const time = state.speedMetric === 'time';
-  const unit = time ? 'min' : u.distanceUnit;
+  const unit = time ? '' : ` ${u.distanceUnit}`;
+  const metric = time ? mmss : f1;
   const pts = [];
   let best = null;
   for (let v = 2; v <= d.maxSpeedMs * 0.95; v += 0.5) {
@@ -428,8 +583,8 @@ function renderSpeedTradeoff(r) {
   lineChart($('chart-speed'), {
     series: [{ name: time ? 'mission time' : 'mission radius', color: 'var(--series-1)', pts }],
     markers, height: 250,
-    xLabel: `cruise airspeed (${u.speedUnit})`, yLabel: unit,
-    xFmt: v => f0(v), yFmt: v => f1(v), tipTitle: 'cruise',
+    xLabel: `cruise airspeed (${u.speedUnit})`, yLabel: time ? 'mm:ss' : u.distanceUnit,
+    xFmt: v => f0(v), yFmt: v => metric(v), tipTitle: 'cruise',
   });
   setChartFlightState('chart-speed', r.flight);
   const note = $('speed-note');
@@ -437,10 +592,10 @@ function renderSpeedTradeoff(r) {
     const py = nearestY(plannedSpeed);
     const cost = best.y - py;
     note.textContent =
-      `${time ? 'Longest flight' : 'Best range'}: ${f0(best.x)} ${u.speedUnit} → ${f1(best.y)} ${unit} · ` +
-      `planned: ${f0(plannedSpeed)} ${u.speedUnit} → ${f1(py)} ${unit}` +
+      `${time ? 'Longest flight' : 'Best range'}: ${f0(best.x)} ${u.speedUnit} → ${metric(best.y)}${unit} · ` +
+      `planned: ${f0(plannedSpeed)} ${u.speedUnit} → ${metric(py)}${unit}` +
       (atOptimum || cost <= 0.05 ? ' · already at the optimum'
-        : ` · pushing costs ${f1(cost)} ${time ? 'min of flight time' : `${u.distanceUnit} of radius`}`);
+        : ` · pushing costs ${metric(cost)}${time ? ' of flight time' : ` ${u.distanceUnit} of radius`}`);
   } else {
     note.textContent = r.flight.code === 'no_lift'
       ? 'No cruise calculation is valid because the configured aircraft cannot sustain hover.'
@@ -503,7 +658,7 @@ function renderComparison() {
       label: `${state.parallelPacks ? '2× ' : ''}${b.short || b.name}`, value: r.timeMin,
       color: SERIES[i % SERIES.length], note: 'flight time', invalid: r.flight.code === 'no_lift',
     })),
-    valueFmt: v => `${f1(v)} min`,
+    valueFmt: v => mmss(v),
   });
 
   // table view
@@ -526,7 +681,7 @@ function renderComparison() {
       `${r.flight.thrustToWeight.toFixed(2)}:1`,
       flightLabel(r.flight),
       `${f1(u.distanceFromKm(r.radiusKm))} ${u.distanceUnit}`,
-      `${f1(r.timeMin)} min`,
+      mmss(r.timeMin),
       burnCell(r, u),
       effective.priceUsd ? `$${effective.priceUsd}` : '—',
     ];
@@ -595,7 +750,8 @@ function liveStatusText() {
   const u = units();
   const p = liveData.patch;
   return `${where}\n`
-    + `${f0(u.speedFromMph(p.windMph))} ${u.speedUnit} from ${p.windFromDeg}° (80 m) · `
+    + `surface ~${f0(u.speedFromMph(surfaceMph(p.windMph)))} / aloft ${f0(u.speedFromMph(p.windMph))} ${u.speedUnit} `
+    + `from ${p.windFromDeg}° (${compass(p.windFromDeg)}) · `
     + `gusts ${f0(u.speedFromMph(Math.max(liveData.gust10Mph, p.windMph)))} ${u.speedUnit} · `
     + `${p.tempF}°F · ${p.rhPct}% RH · fetched ${liveData.at}`;
 }
@@ -699,7 +855,10 @@ function update() {
     if (i >= 0) r.warnings[i] = { level: 'critical', text: stranded };
     else r.warnings.unshift({ level: 'critical', text: stranded });
   }
-  renderWarnings(r.warnings); // outside both tab panels — visible on either tab
+  // Both live outside the tab panels — the field answer and its callouts stay
+  // on screen whichever tab is open.
+  renderVerdict(r, stranded);
+  renderWarnings(r.warnings);
   // Render only the visible view: charts measure container width and freeze at
   // a fallback size when drawn inside a hidden container.
   if (state.view === 'map') {
