@@ -127,7 +127,7 @@ motor heating all require margin.
 | GNB packs: 88 / 73 / 72 g confirmed; C-ratings optimistic brand-wide | Pyrodrone, WREKD, Oscar Liang | masses; derated `maxContA` |
 | Cinelog30 packs: GNB 550, RDQ 650, GEPRC 720, Flywoo 750, Tattu 850 | manufacturer/dealer product pages | capacity, mass, chemistry, connector, and current price |
 
-Fields marked `estimated:` in [js/data.js](js/data.js) had no published source
+Fields marked `estimated:` in [js/catalog/batteries.js](js/catalog/batteries.js) had no published source
 (mostly pack IR and true continuous current) — weigh your packs and measure IR
 to tighten them. DIY500AMP does not publish finished weight or variant pricing,
 so its recipes use the published weight of twelve cells plus a 55 g construction
@@ -222,10 +222,14 @@ Two ways:
   manufacturer, then use "Add a battery to compare." Custom manufacturers and
   batteries persist in browser localStorage. Packs can record the cell maker,
   cell model, S/P configuration, connector, price, IR, and current limit.
-- **Permanently** — add an entry to `BATTERIES` in [js/data.js](js/data.js):
-  builder (`manufacturerId`), cell identity, chemistry, S/P count, capacity,
-  weight, pack IR (mΩ), continuous amps, and which drones it `fits`. Add a
-  corresponding entry to `MANUFACTURERS` for a new built-in builder.
+- **Permanently** — add an entry to `BATTERIES` in
+  [js/catalog/batteries.js](js/catalog/batteries.js): builder
+  (`manufacturerId`), cell identity, chemistry, S/P count, capacity, weight,
+  pack IR (mΩ), continuous amps, and optionally which drones it `fits` — a
+  pack without a `fits` pin matches any drone whose connector and cell count
+  agree. Add a corresponding entry to `MANUFACTURERS` in
+  [js/catalog/manufacturers.js](js/catalog/manufacturers.js) for a new
+  built-in builder.
 
 ## Honest limitations
 
