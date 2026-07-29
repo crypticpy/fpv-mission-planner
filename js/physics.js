@@ -184,7 +184,9 @@ function bestEnduranceSpeed(cfg, vMax) {
  * inputs: {
  *   drone, battery, payloadG, extraG,
  *   env: { elevM, tempC, rhPct, windAvgMs, windGustMs, windMode },
- *   reservePct, gustFactor, cruiseMode: 'auto'|'manual', manualVMs
+ *   reservePct, gustFactor,
+ *   cruiseMode: 'real'|'range'|'manual', realVMs, manualVMs,
+ *   overheadF   // scenario maneuvering burn, ×steady cruise power (≥1)
  * }
  */
 export function planMission(inp) {
@@ -209,14 +211,20 @@ export function planMission(inp) {
   const iHover = pHover / vNomPack;
   const discLoadingGcm2 = (massKg * 1000) / (areaM2 * 1e4);
 
-  // Cruise speeds per leg.
+  // Cruise speeds per leg. 'real' flies the airframe's calibrated hands-on
+  // cruise speed both ways (like a pilot would); 'range' is the theoretical
+  // per-leg optimum; 'manual' is a user-set airspeed.
   const endur = bestEnduranceSpeed(cfg, vMax);
+  const overheadF = Math.max(inp.overheadF ?? 1, 1);
+  const fixedV = inp.cruiseMode === 'manual' ? (inp.manualVMs || 0)
+    : inp.cruiseMode === 'real' ? Math.min(inp.realVMs || 0, 0.95 * vMax)
+    : 0;
   let legOut, legBack;
-  if (inp.cruiseMode === 'manual' && inp.manualVMs > 0) {
+  if (fixedV > 0) {
     const mk = (legWind) => {
-      const vg = groundSpeed(inp.manualVMs, windMs, legWind);
+      const vg = groundSpeed(fixedV, windMs, legWind);
       return vg > 0.5
-        ? { v: inp.manualVMs, vg, whPerKm: powerAtSpeed(cfg, inp.manualVMs) / (3.6 * vg) }
+        ? { v: fixedV, vg, whPerKm: powerAtSpeed(cfg, fixedV) / (3.6 * vg) }
         : null;
     };
     legOut = mk(outWind);
@@ -225,10 +233,18 @@ export function planMission(inp) {
     legOut = bestRangeSpeed(cfg, windMs, outWind, vMax);
     legBack = bestRangeSpeed(cfg, windMs, backWind, vMax);
   }
+  // Scenario maneuvering burn scales the whole cruise leg (it cancels out of
+  // the best-range argmin, so it's applied after speed selection). legs.pOut /
+  // legs.pBack stay steady-flight so power-curve markers sit on the curve;
+  // whPerKm and the discharge sim carry the overhead.
+  if (legOut) legOut.whPerKm *= overheadF;
+  if (legBack) legBack.whPerKm *= overheadF;
 
   // Usable energy at the mission's average power draw.
-  const pOut = legOut ? powerAtSpeed(cfg, legOut.v) : pHover;
-  const pBack = legBack ? powerAtSpeed(cfg, legBack.v) : pHover;
+  const pOutSteady = legOut ? powerAtSpeed(cfg, legOut.v) : pHover;
+  const pBackSteady = legBack ? powerAtSpeed(cfg, legBack.v) : pHover;
+  const pOut = legOut ? pOutSteady * overheadF : pHover;
+  const pBack = legBack ? pBackSteady * overheadF : pHover;
   const pAvg = (pOut + pBack) / 2;
   const sim = dischargeSim(battery, env.tempC, pAvg);
   const reserve = Math.min(Math.max(inp.reservePct ?? 20, 0), 60) / 100;
@@ -288,7 +304,8 @@ export function planMission(inp) {
     hover: { pW: pHover, iA: iHover, gPerW: (massKg * 1000) / pHover },
     endurance: { vMs: endur.v, pW: endur.p },
     wind: { planningMs: windMs, outWind, backWind },
-    legs: { out: legOut, back: legBack, pOut, pBack },
+    legs: { out: legOut, back: legBack, pOut: pOutSteady, pBack: pBackSteady },
+    overheadF,
     energy: { packWh: battery.capAh * battery.s * CHEMISTRY[battery.chem].vNom,
               deliveredWh: sim.deliveredWh, usableWh, reservePct: reserve * 100,
               capF: sim.capF, sagLimited: sim.sagLimited },

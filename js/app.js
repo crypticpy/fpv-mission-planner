@@ -1,5 +1,9 @@
 // app.js — control state, mission computation, and render orchestration.
-import { DRONES, PAYLOADS, SCENARIOS, allBatteries, saveCustomBattery, deleteCustomBattery } from './data.js';
+import {
+  DRONES, PAYLOADS, WEATHER, SCENARIOS,
+  allBatteries, saveCustomBattery, deleteCustomBattery,
+  allManufacturers, saveCustomManufacturer, deleteCustomManufacturer,
+} from './data.js';
 import { planMission, CHEMISTRY, U } from './physics.js';
 import { lineChart, barChart, missionProfile, legend, hideTooltip } from './charts.js';
 
@@ -10,25 +14,37 @@ const f1 = (x) => isFinite(x) ? x.toLocaleString('en-US', { maximumFractionDigit
 
 const state = {
   droneId: 'moz7v2',
+  manufacturerId: 'all',
   batteryId: 'nav5000',
   payloadId: 'naked',
   extraG: 0,
-  scenarioId: 'calm',
+  weatherId: 'calm',
+  scenarioId: 'longrange',
   env: { elevFt: 800, tempF: 75, rhPct: 40, windMph: 3, gustMph: 5, windMode: 'headOut' },
   reservePct: 20,
-  cruiseMode: 'auto',
+  cruiseMode: 'real',
   manualMph: 40,
 };
 
 function drone() { return DRONES.find(d => d.id === state.droneId); }
-function compatibleBatteries() {
+function droneBatteries() {
   return allBatteries().filter(b => b.fits.includes(state.droneId));
+}
+function compatibleBatteries() {
+  const batts = droneBatteries();
+  return state.manufacturerId === 'all'
+    ? batts
+    : batts.filter(b => b.manufacturerId === state.manufacturerId);
 }
 function battery() {
   const list = compatibleBatteries();
   return list.find(b => b.id === state.batteryId) || list[0];
 }
+function manufacturer(id) {
+  return allManufacturers().find(m => m.id === id);
+}
 function payload() { return PAYLOADS.find(p => p.id === state.payloadId) || PAYLOADS[0]; }
+function scenario() { return SCENARIOS.find(s => s.id === state.scenarioId) || SCENARIOS[0]; }
 
 function missionInputs(batt = battery(), envOverride = null) {
   const env = envOverride || state.env;
@@ -48,7 +64,9 @@ function missionInputs(batt = battery(), envOverride = null) {
     },
     reservePct: state.reservePct,
     cruiseMode: state.cruiseMode,
+    realVMs: drone().cruiseMs * scenario().speedFactor,
     manualVMs: U.mphToMs(state.manualMph),
+    overheadF: scenario().overheadFactor,
   };
 }
 
@@ -67,13 +85,23 @@ function fillSelect(sel, items, value) {
 
 function populateControls() {
   fillSelect($('sel-drone'), DRONES.map(d => ({ value: d.id, label: d.name })), state.droneId);
+  const manufacturerIds = new Set(droneBatteries().map(b => b.manufacturerId || 'custom'));
+  const availableManufacturers = allManufacturers().filter(m => manufacturerIds.has(m.id));
+  if (state.manufacturerId !== 'all' && !manufacturerIds.has(state.manufacturerId)) state.manufacturerId = 'all';
+  fillSelect($('sel-manufacturer'), [
+    { value: 'all', label: 'All manufacturers' },
+    ...availableManufacturers.map(m => ({ value: m.id, label: m.name })),
+  ], state.manufacturerId);
+
   const batts = compatibleBatteries();
   if (!batts.find(b => b.id === state.batteryId)) state.batteryId = batts[0]?.id;
   fillSelect($('sel-battery'), batts.map(b => ({ value: b.id, label: `${b.name} · ${b.massG} g` })), state.batteryId);
+  fillSelect($('custom-manufacturer'), allManufacturers().map(m => ({ value: m.id, label: m.name })), 'custom');
   fillSelect($('sel-payload'), PAYLOADS.map(p => ({ value: p.id, label: p.name })), state.payloadId);
-  fillSelect($('sel-scenario'),
-    [...SCENARIOS.map(s => ({ value: s.id, label: s.name })), { value: 'custom', label: 'Custom conditions' }],
-    state.scenarioId);
+  fillSelect($('sel-weather'),
+    [...WEATHER.map(w => ({ value: w.id, label: w.name })), { value: 'custom', label: 'Custom weather' }],
+    state.weatherId);
+  fillSelect($('sel-scenario'), SCENARIOS.map(s => ({ value: s.id, label: s.name })), state.scenarioId);
   $('in-elev').value = state.env.elevFt;
   $('in-temp').value = state.env.tempF;
   $('in-rh').value = state.env.rhPct;
@@ -88,6 +116,7 @@ function populateControls() {
   $('speed-row').hidden = state.cruiseMode !== 'manual';
   $('in-extra').value = state.extraG;
   renderCustomList();
+  renderManufacturerList();
 }
 
 function renderCustomList() {
@@ -97,12 +126,38 @@ function renderCustomList() {
     const row = document.createElement('div');
     row.className = 'custom-row';
     const name = document.createElement('span');
-    name.textContent = b.name;
+    name.textContent = `${manufacturer(b.manufacturerId)?.name || 'Custom'} · ${b.name}`;
     const del = document.createElement('button');
     del.type = 'button';
     del.textContent = 'remove';
     del.className = 'link-btn';
     del.addEventListener('click', () => { deleteCustomBattery(b.id); populateControls(); update(); });
+    row.append(name, del);
+    host.appendChild(row);
+  }
+}
+
+function renderManufacturerList() {
+  const host = $('manufacturer-list');
+  host.replaceChildren();
+  const customBatts = allBatteries().filter(b => b.custom);
+  for (const m of allManufacturers().filter(m => m.custom)) {
+    const row = document.createElement('div');
+    row.className = 'custom-row';
+    const name = document.createElement('span');
+    const batteryCount = customBatts.filter(b => b.manufacturerId === m.id).length;
+    name.textContent = `${m.name}${batteryCount ? ` · ${batteryCount} pack${batteryCount === 1 ? '' : 's'}` : ''}`;
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.textContent = batteryCount ? 'in use' : 'remove';
+    del.className = 'link-btn';
+    del.disabled = batteryCount > 0;
+    del.title = batteryCount ? 'Remove this manufacturer’s batteries first.' : '';
+    del.addEventListener('click', () => {
+      deleteCustomManufacturer(m.id);
+      populateControls();
+      update();
+    });
     row.append(name, del);
     host.appendChild(row);
   }
@@ -150,7 +205,8 @@ function renderStats(r) {
   setTile('tile-cruise',
     out && back ? `${f0(U.msToMph(out.v))} / ${f0(U.msToMph(back.v))} mph` : '—',
     out && back ? `airspeed out / back · ${f0(U.msToMph(out.vg))} / ${f0(U.msToMph(back.vg))} gs` : 'wind exceeds capability');
-  setTile('tile-energy', `${f1(r.energy.usableWh)} Wh`, `usable of ${f1(r.energy.packWh)} Wh nominal`);
+  setTile('tile-energy', `${f1(r.energy.usableWh)} Wh`,
+    `usable of ${f1(r.energy.packWh)} Wh nominal${r.overheadF > 1 ? ` · burn ×${r.overheadF.toFixed(2)}` : ''}`);
 }
 
 function renderPowerCurve(r) {
@@ -185,7 +241,7 @@ function renderProfile(r) {
 }
 
 function renderComparison() {
-  const batts = compatibleBatteries().slice(0, 8);
+  const batts = compatibleBatteries();
   const runs = batts.map(b => ({ b, r: planMission(missionInputs(b)) }));
   barChart($('chart-cmp-radius'), {
     items: runs.map(({ b, r }, i) => ({
@@ -208,7 +264,10 @@ function renderComparison() {
   for (const { b, r } of runs) {
     const tr = document.createElement('tr');
     const cells = [
+      manufacturer(b.manufacturerId)?.name || 'Custom',
       b.name + (b.custom ? ' ·custom' : ''),
+      [b.cellMaker, b.cellModel].filter(Boolean).join(' '),
+      b.config || `${b.s}S${b.p || 1}P`,
       CHEMISTRY[b.chem].label + ` ${b.s}S`,
       `${f0(b.capAh * 1000)} mAh`,
       `${f1(r.energy.packWh)} Wh`,
@@ -220,8 +279,8 @@ function renderComparison() {
     ];
     cells.forEach((c, i) => {
       const td = document.createElement('td');
-      td.textContent = c;
-      if (i >= 2) td.className = 'num';
+      td.textContent = c || '—';
+      if (i >= 5) td.className = 'num';
       tr.appendChild(td);
     });
     tbody.appendChild(tr);
@@ -254,6 +313,9 @@ function update() {
     state.batteryId = batts[0]?.id;
     fillSelect($('sel-battery'), batts.map(b => ({ value: b.id, label: `${b.name} · ${b.massG} g` })), state.batteryId);
   }
+  const sc = scenario();
+  $('scenario-desc').textContent =
+    `${sc.desc} ≈${f0(U.msToMph(drone().cruiseMs * sc.speedFactor))} mph realistic cruise · +${f0((sc.overheadFactor - 1) * 100)}% maneuvering burn.`;
   const r = planMission(missionInputs());
   renderStats(r);
   renderWarnings(r.warnings);
@@ -261,34 +323,62 @@ function update() {
   renderProfile(r);
   renderComparison();
   renderWindSensitivity();
+  renderBatteryNote();
+}
+
+function renderBatteryNote() {
+  const host = $('battery-note');
+  host.replaceChildren();
   const b = battery();
-  $('battery-note').textContent = b.estimated?.length
-    ? `Note: ${b.estimated.join(', ')} for this pack are estimates — weigh the pack and measure IR to tighten the model.`
-    : '';
+  const m = manufacturer(b.manufacturerId);
+  const identity = [m?.name, b.cellMaker && b.cellModel ? `${b.cellMaker} ${b.cellModel}` : b.cellModel]
+    .filter(Boolean).join(' · ');
+  if (identity) host.append(document.createTextNode(`${identity}. `));
+  if (b.estimated?.length) {
+    host.append(document.createTextNode(
+      `${b.estimated.join(', ')} ${b.estimated.length === 1 ? 'is' : 'are'} estimated; replace with the finished pack’s measured values when available.`
+    ));
+  }
+  if (m?.url) {
+    host.append(document.createTextNode(' '));
+    const link = document.createElement('a');
+    link.href = m.url;
+    link.target = '_blank';
+    link.rel = 'noopener';
+    link.textContent = 'Builder source';
+    host.appendChild(link);
+  }
 }
 
 /* ---------- events ---------- */
 
 function bind() {
   $('sel-drone').addEventListener('change', e => { state.droneId = e.target.value; populateControls(); update(); });
+  $('sel-manufacturer').addEventListener('change', e => {
+    state.manufacturerId = e.target.value;
+    state.batteryId = compatibleBatteries()[0]?.id;
+    populateControls();
+    update();
+  });
   $('sel-battery').addEventListener('change', e => { state.batteryId = e.target.value; update(); });
   $('sel-payload').addEventListener('change', e => { state.payloadId = e.target.value; update(); });
   $('in-extra').addEventListener('input', e => { state.extraG = +e.target.value || 0; update(); });
-  $('sel-scenario').addEventListener('change', e => {
-    state.scenarioId = e.target.value;
-    const sc = SCENARIOS.find(s => s.id === state.scenarioId);
-    if (sc) {
-      state.env = { elevFt: sc.elevFt, tempF: sc.tempF, rhPct: sc.rhPct, windMph: sc.windMph, gustMph: sc.gustMph, windMode: sc.windMode };
+  $('sel-weather').addEventListener('change', e => {
+    state.weatherId = e.target.value;
+    const w = WEATHER.find(x => x.id === state.weatherId);
+    if (w) {
+      state.env = { ...state.env, elevFt: w.elevFt, tempF: w.tempF, rhPct: w.rhPct, windMph: w.windMph, gustMph: w.gustMph };
       populateControls();
     }
     update();
   });
+  $('sel-scenario').addEventListener('change', e => { state.scenarioId = e.target.value; update(); });
   const envMap = { 'in-elev': 'elevFt', 'in-temp': 'tempF', 'in-rh': 'rhPct', 'in-wind': 'windMph', 'in-gust': 'gustMph' };
   for (const [id, key] of Object.entries(envMap)) {
     $(id).addEventListener('input', e => {
       state.env[key] = +e.target.value || 0;
-      state.scenarioId = 'custom';
-      $('sel-scenario').value = 'custom';
+      state.weatherId = 'custom';
+      $('sel-weather').value = 'custom';
       update();
     });
   }
@@ -309,23 +399,49 @@ function bind() {
     update();
   });
 
+  $('manufacturer-form').addEventListener('submit', e => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const name = (fd.get('name') || '').toString().trim();
+    if (!name) return;
+    const id = 'manufacturer-' + name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+    const rawUrl = (fd.get('url') || '').toString().trim();
+    saveCustomManufacturer({
+      id,
+      name,
+      url: /^https?:\/\//i.test(rawUrl) ? rawUrl : null,
+    });
+    e.target.reset();
+    populateControls();
+    $('custom-manufacturer').value = id;
+  });
+
   $('custom-form').addEventListener('submit', e => {
     e.preventDefault();
     const fd = new FormData(e.target);
     const name = (fd.get('name') || '').toString().trim();
     if (!name) return;
+    const manufacturerId = fd.get('manufacturer') || 'custom';
+    const id = `custom-${manufacturerId}-${name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
     saveCustomBattery({
-      id: 'custom-' + name.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+      id,
       name, short: name.slice(0, 14),
-      chem: fd.get('chem'), s: +fd.get('s'), p: 1,
+      chem: fd.get('chem'), s: +fd.get('s'), p: +fd.get('p') || 1,
       capAh: (+fd.get('mah') || 0) / 1000,
       massG: +fd.get('mass') || 0,
       irPackMilliOhm: +fd.get('ir') || 25,
       maxContA: +fd.get('amps') || null,
-      connector: drone().connector,
+      connector: (fd.get('connector') || drone().connector).toString().trim(),
       fits: [state.droneId],
+      manufacturerId,
+      cellMaker: (fd.get('cellMaker') || '').toString().trim() || null,
+      cellModel: (fd.get('cellModel') || '').toString().trim() || null,
+      config: `${+fd.get('s')}S${+fd.get('p') || 1}P`,
+      priceUsd: +fd.get('price') || null,
       custom: true,
     });
+    state.manufacturerId = manufacturerId;
+    state.batteryId = id;
     e.target.reset();
     populateControls();
     update();
