@@ -151,8 +151,14 @@
     </section>
 
     <section class="card">
-      <h3>Cruise speed trade-off</h3>
-      <p class="card-sub">Mission radius at every cruise airspeed in this weather — the theoretical optimum vs the speed you're planning</p>
+      <div class="card-head">
+        <h3>Cruise speed trade-off</h3>
+        <select id="sel-speed-metric" class="card-select" aria-label="Trade-off metric">
+          <option value="radius">Mission radius</option>
+          <option value="time">Flight time</option>
+        </select>
+      </div>
+      <p class="card-sub">The theoretical optimum vs the speed you're planning, at every cruise airspeed in this weather</p>
       <p id="speed-note" class="speed-note"></p>
       <div id="chart-speed" class="chart"></div>
     </section>
