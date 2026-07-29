@@ -19,8 +19,8 @@ import {
   envAtHour, goldenHour, nearestHourIndex,
 } from './weather.js';
 import { setupThemes } from './themes.js';
+import { $, setTile } from './render/dom.js';
 
-const $ = (id) => document.getElementById(id);
 const SERIES = ['var(--series-1)', 'var(--series-2)', 'var(--series-3)', 'var(--series-4)'];
 const f0 = (x) => x != null && isFinite(x) ? x.toLocaleString('en-US', { maximumFractionDigits: 0 }) : '—';
 const f1 = (x) => x != null && isFinite(x) ? x.toLocaleString('en-US', { maximumFractionDigits: 1, minimumFractionDigits: 1 }) : '—';
@@ -311,11 +311,6 @@ function renderManufacturerList() {
 }
 
 /* ---------- rendering ---------- */
-
-function setTile(id, value, sub) {
-  $(id).querySelector('.tile-value').textContent = value;
-  if (sub !== undefined) $(id).querySelector('.tile-sub').textContent = sub;
-}
 
 // powerAtSpeed memo for the sweep renders, rebuilt every update pass. A cache
 // is only valid while mass/air/drag are fixed, so it keys on the pack — the one
