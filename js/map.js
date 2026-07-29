@@ -263,8 +263,11 @@ export function renderMapView(rPlan) {
   if (footCase) { footCase.remove(); footCase = null; }
   const anyReal = realByCourse.some(r => r > 0);
   const anyBest = bestByCourse.some(r => r > 0);
+  $('map-canvas').classList.toggle('flight-invalid-map', rPlan.flight.code === 'no_lift');
   if (!anyReal && !anyBest) {
-    note('No viable mission in these conditions — the footprint collapses to the launch point.');
+    note(rPlan.flight.code === 'no_lift'
+      ? `WILL NOT FLY — ${rPlan.massKg * 1000 > 0 ? (rPlan.massKg * 1000).toFixed(0) : '—'} g all-up weight exceeds the estimated ${rPlan.flight.maxHoverMassG.toFixed(0)} g continuous lift ceiling.`
+      : 'No viable mission in these conditions — the footprint collapses to the launch point.');
   } else {
     note(anyReal ? null
       : 'No reach at the planned cruise in this wind — the dashed ring is what best-range speed could still manage.');
@@ -298,13 +301,19 @@ export function renderMapView(rPlan) {
   const upC = ((Math.round(windFrom) % 360) + 360) % 360;
   const downC = (upC + 180) % 360;
   const fmtDist = km => `${u.distanceFromKm(km).toFixed(1)} ${u.distanceUnit}`;
-  setTile('tile-upwind', fmtDist(halfReal[0]), `course ${upC}° — into the wind`);
-  setTile('tile-downwind', fmtDist(halfReal[halfReal.length - 1]), `course ${downC}° — wind behind`);
-  setTile('tile-crosswind', fmtDist(halfReal[90 / SWEEP_STEP_DEG]),
-    `course ${(upC + 90) % 360}° / ${(upC + 270) % 360}°`);
-  setTile('tile-area', `${u.areaFromKm2(footprintAreaKm2(realByCourse)).toFixed(1)} ${u.areaUnit}`,
-    'planned-cruise envelope');
-  setTile('tile-aloft', `${rPlan.timeMin.toFixed(1)} min`, 'dashboard planning case');
+  if (rPlan.flight.code === 'no_lift') {
+    for (const id of ['tile-upwind', 'tile-downwind', 'tile-crosswind', 'tile-area', 'tile-aloft']) {
+      setTile(id, '—', 'unavailable · insufficient lift');
+    }
+  } else {
+    setTile('tile-upwind', fmtDist(halfReal[0]), `course ${upC}° — into the wind`);
+    setTile('tile-downwind', fmtDist(halfReal[halfReal.length - 1]), `course ${downC}° — wind behind`);
+    setTile('tile-crosswind', fmtDist(halfReal[90 / SWEEP_STEP_DEG]),
+      `course ${(upC + 90) % 360}° / ${(upC + 270) % 360}°`);
+    setTile('tile-area', `${u.areaFromKm2(footprintAreaKm2(realByCourse)).toFixed(1)} ${u.areaUnit}`,
+      'planned-cruise envelope');
+    setTile('tile-aloft', `${rPlan.timeMin.toFixed(1)} min`, 'dashboard planning case');
+  }
 
   // Range vs heading chart, with the dashboard's relative-wind case pinned on it.
   const series = [
@@ -334,6 +343,10 @@ export function renderMapView(rPlan) {
     yLabel: u.distanceUnit,
     tipTitle: 'Course',
   });
+  $('chart-bearing').classList.toggle('flight-invalid', rPlan.flight.code === 'no_lift');
+  $('chart-bearing').dataset.flightMessage = rPlan.flight.code === 'no_lift'
+    ? 'WILL NOT FLY · footprint unavailable'
+    : '';
 }
 
 /* ---------- wind particles ---------- */

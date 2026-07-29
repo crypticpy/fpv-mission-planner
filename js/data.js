@@ -20,6 +20,19 @@ export const DRONES = [
     maxSpeedMs: 30.5,       // ~110 km/h reviewer top speed
     cruiseMs: 18,           // realistic hands-on cruise: Oscar Liang flies 60–70 km/h
     motor: 'SPEEDX2 2809 1280KV',
+    // GEPRC publishes 1,148.9 W / 49.35 A per motor, but no thrust curve.
+    // Lift is therefore inferred from the calibrated rotor model and marked
+    // estimated in the UI rather than presented as thrust-stand data.
+    propulsion: {
+      motorMaxW: 1148.9,
+      motorMaxA: 49.35,
+      escMaxA: 65,
+      confidence: 'estimated',
+      sourceLabel: 'GEPRC motor electrical limits',
+      sourceUrl: 'https://geprc.com/product/geprc-speedx2-2809-1280kv-motor/',
+    },
+    parallelHarnessMassG: 20, // planning allowance: XT60 parallel lead + restraint
+    parallelPackCdA: 0.003,   // estimated extra frontal area for the second pack
     wheelbaseMm: 336,
   },
   {
@@ -38,6 +51,18 @@ export const DRONES = [
     maxSpeedMs: 19,         // ~68 km/h practical ceiling for the duct
     cruiseMs: 9,            // realistic cinewhoop cruise ~30–35 km/h
     motor: 'SPEEDX2 1404 3850KV',
+    // GEPRC does not publish the 3850KV variant's electrical table. The value
+    // is bracketed by its published 3000KV/4600KV variants (160–180 W).
+    propulsion: {
+      motorMaxW: 170,
+      motorMaxA: 12,
+      escMaxA: 45,
+      confidence: 'estimated',
+      sourceLabel: 'GEPRC adjacent-variant electrical limits',
+      sourceUrl: 'https://geprc.com/product/geprc-speedx2-1404-3000kv-4600kv-motor/',
+    },
+    parallelHarnessMassG: 8,  // planning allowance: XT30 parallel lead + restraint
+    parallelPackCdA: 0.001,   // estimated extra frontal area for the second pack
     wheelbaseMm: 128,
   },
 ];

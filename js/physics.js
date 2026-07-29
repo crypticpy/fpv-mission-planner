@@ -54,6 +54,103 @@ export function powerCurve(cfg, vMaxMs, step = 0.25) {
   return pts;
 }
 
+// Create the electrically equivalent pack for identical batteries connected in
+// parallel. Voltage/series count stay unchanged; capacity and current capability
+// add, while identical pack resistances divide by the pack count.
+export function parallelBattery(batt, count = 2, {
+  harnessMassG = 0,
+  extraCdA = 0,
+} = {}) {
+  const n = Math.max(1, Math.round(count));
+  if (n === 1) return { ...batt, packCount: 1, extraCdA: 0 };
+  return {
+    ...batt,
+    id: `${batt.id}--${n}x-parallel`,
+    name: `${n}× ${batt.name}`,
+    short: `${n}× ${batt.short || batt.name}`,
+    p: (batt.p || 1) * n,
+    config: `${batt.s}S${(batt.p || 1) * n}P`,
+    capAh: batt.capAh * n,
+    massG: batt.massG * n + harnessMassG,
+    irPackMilliOhm: batt.irPackMilliOhm / n,
+    maxContA: batt.maxContA ? batt.maxContA * n : null,
+    priceUsd: batt.priceUsd ? batt.priceUsd * n : null,
+    packCount: n,
+    harnessMassG,
+    extraCdA,
+    baseBatteryId: batt.id,
+  };
+}
+
+// Continuous static lift ceiling from the lowest electrical limit in the
+// battery → ESC → motor chain. No exact motor/prop thrust curves are published
+// for these aircraft, so ideal hover momentum theory is inverted through the
+// same calibrated etaProp used by the mission model. The result is deliberately
+// exposed as an estimate with its limiting component.
+export function liftEnvelope({ drone, battery, rho, areaM2, tempC, massKg }) {
+  const prop = drone.propulsion;
+  if (!prop) {
+    return {
+      code: 'unknown', viable: true, estimated: true, thrustToWeight: Infinity,
+      maxThrustN: Infinity, maxThrustG: Infinity, maxHoverMassG: Infinity,
+      payloadMarginG: Infinity, maxElectricalW: Infinity,
+      limitingComponent: 'unknown', confidence: 'unknown',
+    };
+  }
+
+  const chem = CHEMISTRY[battery.chem];
+  const rOhm = (battery.irPackMilliOhm / 1000) * interp(chem.irTemp, tempC);
+  const vOcv = chem.vNom * battery.s;
+  const cutoffV = chem.cutoffLoad * battery.s;
+  const sagCurrentA = rOhm > 0 ? Math.max(0, (vOcv - cutoffV) / rOhm) : Infinity;
+  const batteryA = battery.maxContA || sagCurrentA;
+  const motorA = prop.motorMaxA * drone.numRotors;
+  const escA = prop.escMaxA * drone.numRotors;
+  const maxCurrentA = Math.max(0, Math.min(batteryA, motorA, escA, sagCurrentA));
+  const vLoad = Math.max(cutoffV, vOcv - maxCurrentA * rOhm);
+  const currentLimitedW = maxCurrentA * vLoad;
+  const motorLimitedW = prop.motorMaxW * drone.numRotors;
+  const maxElectricalW = Math.max(0, Math.min(currentLimitedW, motorLimitedW));
+  const rotorElectricalW = Math.max(0, maxElectricalW - drone.avionicsW);
+
+  const idealW = rotorElectricalW * drone.etaProp;
+  const maxThrustN = idealW > 0
+    ? Math.pow(idealW * Math.sqrt(2 * rho * areaM2), 2 / 3)
+    : 0;
+  const maxThrustG = maxThrustN / G * 1000;
+  const auwG = massKg * 1000;
+  const thrustToWeight = auwG > 0 ? maxThrustG / auwG : 0;
+  const maxHoverMassG = maxThrustG;
+  const payloadMarginG = maxHoverMassG - auwG;
+
+  let limitingComponent = 'motor';
+  if (batteryA <= motorA && batteryA <= escA && currentLimitedW <= motorLimitedW) limitingComponent = 'battery';
+  else if (escA <= motorA && currentLimitedW <= motorLimitedW) limitingComponent = 'ESC';
+
+  let code = 'viable';
+  if (thrustToWeight <= 1) code = 'no_lift';
+  else if (thrustToWeight < 1.3) code = 'no_control_margin';
+  else if (thrustToWeight < 2) code = 'marginal';
+
+  return {
+    code,
+    viable: code !== 'no_lift',
+    estimated: true,
+    confidence: prop.confidence || 'estimated',
+    maxThrustN,
+    maxThrustG,
+    maxHoverMassG,
+    payloadMarginG,
+    thrustToWeight,
+    maxCurrentA,
+    vLoad,
+    maxElectricalW,
+    limitingComponent,
+    sourceLabel: prop.sourceLabel,
+    sourceUrl: prop.sourceUrl,
+  };
+}
+
 /* ---------------- Battery chemistry ---------------- */
 
 // OCV per cell vs state-of-charge (%), capacity & internal-resistance factors vs °C.
@@ -218,9 +315,9 @@ export function planMission(inp) {
 
   const massKg = (drone.dryMassG + battery.massG + inp.payloadG + (inp.extraG || 0)) / 1000;
   const areaM2 = discAreaM2(drone);
-  const cdA = drone.cdA + (inp.payloadCdA || 0);
+  const cdA = drone.cdA + (inp.payloadCdA || 0) + (battery.extraCdA || 0);
   const cfg = { massKg, rho, areaM2, cdA, etaProp: drone.etaProp, avionicsW: drone.avionicsW };
-  const vMax = drone.maxSpeedMs;
+  const modelVMax = drone.maxSpeedMs;
 
   // Planning wind: average plus a slice of the gust spread (conservatism knob).
   const gustFactor = inp.gustFactor ?? 0.35;
@@ -245,6 +342,19 @@ export function planMission(inp) {
   const vNomPack = battery.s > 0 ? battery.s * CHEMISTRY[battery.chem].vNom : 1;
   const iHover = pHover / vNomPack;
   const discLoadingGcm2 = (massKg * 1000) / (areaM2 * 1e4);
+  const flight = liftEnvelope({ drone, battery, rho, areaM2, tempC: env.tempC, massKg });
+
+  // The published top speed is only usable while the loaded aircraft remains
+  // inside both its continuous power and thrust envelopes.
+  let vMax = 0;
+  if (flight.viable) {
+    for (let v = 0; v <= modelVMax + 1e-9; v += 0.25) {
+      const dragN = 0.5 * rho * cdA * v * v;
+      const thrustN = Math.hypot(massKg * G, dragN);
+      if (thrustN > flight.maxThrustN || pAt(v) > flight.maxElectricalW) break;
+      vMax = v;
+    }
+  }
 
   // Cruise speeds per leg. 'real' flies the airframe's calibrated hands-on
   // cruise speed both ways (like a pilot would); 'range' is the theoretical
@@ -255,8 +365,12 @@ export function planMission(inp) {
     : inp.cruiseMode === 'real' ? Math.min(inp.realVMs || 0, 0.95 * vMax)
     : 0;
   let legOut, legBack;
-  if (fixedV > 0) {
+  if (!flight.viable) {
+    legOut = null;
+    legBack = null;
+  } else if (fixedV > 0) {
     const mk = (vec) => {
+      if (fixedV > vMax + 1e-9) return null;
       const vg = groundSpeedVec(fixedV, vec.head, vec.cross);
       return vg > 0.5
         ? { v: fixedV, vg, whPerKm: pAt(fixedV) / (3.6 * vg) }
@@ -320,8 +434,30 @@ export function planMission(inp) {
   }
 
   /* Warnings */
+  if (flight.code === 'no_lift') {
+    warnings.push({
+      level: 'critical',
+      text: `WILL NOT FLY: ${massKg * 1000 > 0 ? (massKg * 1000).toFixed(0) : '—'} g all-up weight exceeds the estimated ${flight.maxHoverMassG.toFixed(0)} g continuous lift ceiling (${flight.thrustToWeight.toFixed(2)}:1 thrust-to-weight).`,
+    });
+  } else if (flight.code === 'no_control_margin') {
+    warnings.push({
+      level: 'serious',
+      text: `Only ${flight.thrustToWeight.toFixed(2)}:1 estimated thrust-to-weight — it may lift, but has almost no climb or control margin.`,
+    });
+  } else if (flight.code === 'marginal') {
+    warnings.push({
+      level: 'warning',
+      text: `${flight.thrustToWeight.toFixed(2)}:1 estimated thrust-to-weight is marginal for gusts, climb, and recovery.`,
+    });
+  }
+  if (battery.packCount > 1) {
+    warnings.push({
+      level: 'warning',
+      text: `Parallel mode assumes ${battery.packCount} identical, equally charged packs and includes ${battery.harnessMassG || 0} g of harness/restraint allowance.`,
+    });
+  }
   if (!legOut || !legBack) {
-    warnings.push({ level: 'critical', text: 'Wind exceeds what this aircraft can penetrate — no safe out-and-back exists at these settings.' });
+    if (flight.viable) warnings.push({ level: 'critical', text: 'Wind or loaded propulsion limits prevent a safe out-and-back at these settings.' });
   }
   if (battery.maxContA) {
     const iRatio = iHover / battery.maxContA;
@@ -345,8 +481,8 @@ export function planMission(inp) {
               deliveredWh: sim.deliveredWh, usableWh, reservePct: reserve * 100,
               capF: sim.capF, sagLimited: sim.sagLimited },
     radiusKm, totalKm, timeMin, hoverTimeMin, cruiseTimeMin,
-    curve: inp.lite ? [] : powerCurve(cfg, vMax),
-    cfg, timeline, warnings,
+    curve: inp.lite ? [] : powerCurve(cfg, modelVMax),
+    cfg, flight, speedLimitMs: vMax, timeline, warnings,
   };
 }
 

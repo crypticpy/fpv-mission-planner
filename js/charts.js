@@ -143,7 +143,8 @@ export function lineChart(container, { series, height = 240, xLabel, yLabel, xFm
   for (const s of series) {
     const d = s.pts.map((p, i) => `${i ? 'L' : 'M'}${xs(p.x).toFixed(1)},${ys(p.y).toFixed(1)}`).join('');
     svg.appendChild(svgEl('path', { d, fill: 'none', stroke: s.color, 'stroke-width': 2,
-      'stroke-linecap': 'round', 'stroke-linejoin': 'round' }));
+      'stroke-linecap': 'round', 'stroke-linejoin': 'round',
+      ...(s.dash ? { 'stroke-dasharray': s.dash } : {}) }));
   }
   for (const m of markers) {
     if (m.y == null) continue;
@@ -212,27 +213,32 @@ export function barChart(container, { items, height, valueFmt, maxValue }) {
   const svg = svgEl('svg', { viewBox: `0 0 ${width} ${h}`, width: '100%', height: h });
   container.appendChild(svg);
   const iw = width - labelW - 76;
-  const vMax = maxValue || Math.max(...items.map(i => i.value), 1e-9);
+  const vMax = maxValue || Math.max(...items.map(i => isFinite(i.value) ? i.value : 0), 1e-9);
 
   items.forEach((it, idx) => {
     const y = M.top + idx * rowH;
-    const w = Math.max(it.value / vMax * iw, 0);
+    const safeValue = isFinite(it.value) ? it.value : 0;
+    const w = Math.max(safeValue / vMax * iw, 0);
     const lbl = svgEl('text', { x: labelW - 10, y: y + barH / 2 + 4, 'text-anchor': 'end', class: 'viz-bar-label' });
     lbl.textContent = it.label;
     svg.appendChild(lbl);
     const r = Math.min(4, w / 2);
     const bar = svgEl('path', {
       d: `M${labelW},${y} h${Math.max(w - r, 0)} a${r},${r} 0 0 1 ${r},${r} v${barH - 2 * r} a${r},${r} 0 0 1 -${r},${r} h-${Math.max(w - r, 0)} z`,
-      fill: it.color, class: 'viz-bar' });
+      fill: it.invalid ? 'var(--status-critical)' : it.color, class: 'viz-bar',
+      opacity: it.invalid ? 0.35 : 1 });
     svg.appendChild(bar);
     const val = svgEl('text', { x: labelW + w + 8, y: y + barH / 2 + 4, class: 'viz-bar-value' });
-    val.textContent = valueFmt ? valueFmt(it.value) : it.value.toFixed(1);
+    val.textContent = it.invalid ? 'WILL NOT FLY' : valueFmt ? valueFmt(safeValue) : safeValue.toFixed(1);
+    if (it.invalid) val.setAttribute('fill', 'var(--status-critical)');
     svg.appendChild(val);
     const hit = svgEl('rect', { x: 0, y: y - (rowH - barH) / 2, width, height: rowH, fill: 'transparent' });
     bindHit(hit, ev => {
       bar.classList.add('is-hover');
       showTooltip(ev.clientX, ev.clientY,
-        [{ color: it.color, value: valueFmt ? valueFmt(it.value) : it.value, label: it.note || it.label }], it.label);
+        [{ color: it.invalid ? 'var(--status-critical)' : it.color,
+          value: it.invalid ? 'WILL NOT FLY' : valueFmt ? valueFmt(safeValue) : safeValue,
+          label: it.note || it.label }], it.label);
     }, () => { bar.classList.remove('is-hover'); hideTooltip(); });
     svg.appendChild(hit);
   });

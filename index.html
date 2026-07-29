@@ -50,6 +50,11 @@
       <label>Battery
         <select id="sel-battery"></select>
       </label>
+      <label class="check-row">
+        <input id="in-parallel" type="checkbox">
+        <span>Run two identical packs in parallel</span>
+      </label>
+      <p id="parallel-summary" class="parallel-summary" hidden></p>
       <label>Camera payload
         <select id="sel-payload"></select>
       </label>
@@ -163,7 +168,7 @@
       <div class="tile" id="tile-hover"><p class="tile-label">Hover endurance</p><p class="tile-value">—</p><p class="tile-sub"></p></div>
       <div class="tile" id="tile-auw"><p class="tile-label">All-up weight</p><p class="tile-value">—</p><p class="tile-sub"></p></div>
       <div class="tile" id="tile-disc"><p class="tile-label">Disc loading</p><p class="tile-value">—</p><p class="tile-sub"></p></div>
-      <div class="tile" id="tile-eff"><p class="tile-label">Efficiency</p><p class="tile-value">—</p><p class="tile-sub"></p></div>
+      <div class="tile" id="tile-eff"><p class="tile-label">Lift margin</p><p class="tile-value">—</p><p class="tile-sub"></p></div>
       <div class="tile" id="tile-da"><p class="tile-label">Density altitude</p><p class="tile-value">—</p><p class="tile-sub"></p></div>
     </section>
 
@@ -203,8 +208,8 @@
       <div class="table-wrap">
         <table id="cmp-table">
           <thead><tr>
-            <th>Manufacturer</th><th>Pack</th><th>Cell</th><th>Config</th><th>Chem</th><th>Capacity</th><th>Energy</th><th>Weight</th>
-            <th>Radius</th><th>Time</th><th>Burn</th><th>Price</th>
+            <th>Manufacturer</th><th>Pack</th><th>Cell</th><th>Config</th><th>Chem</th><th>Capacity</th><th>Energy</th><th>Battery wt.</th>
+            <th>AUW</th><th>Disc load</th><th>Thrust</th><th>Status</th><th>Radius</th><th>Time</th><th>Burn</th><th>Price</th>
           </tr></thead>
           <tbody></tbody>
         </table>

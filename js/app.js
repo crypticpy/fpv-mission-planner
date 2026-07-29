@@ -4,7 +4,7 @@ import {
   allBatteries, saveCustomBattery, deleteCustomBattery,
   allManufacturers, saveCustomManufacturer, deleteCustomManufacturer,
 } from './data.js';
-import { planMission, CHEMISTRY, U } from './physics.js';
+import { planMission, parallelBattery, CHEMISTRY, U } from './physics.js';
 import { lineChart, barChart, missionProfile, legend, hideTooltip } from './charts.js';
 import { unitSystem } from './units.js';
 import { setupMapView, showMapView, renderMapView, pauseMapView, resizeMapView } from './map.js';
@@ -14,8 +14,8 @@ import { setupThemes } from './themes.js';
 
 const $ = (id) => document.getElementById(id);
 const SERIES = ['var(--series-1)', 'var(--series-2)', 'var(--series-3)', 'var(--series-4)'];
-const f0 = (x) => isFinite(x) ? x.toLocaleString('en-US', { maximumFractionDigits: 0 }) : '—';
-const f1 = (x) => isFinite(x) ? x.toLocaleString('en-US', { maximumFractionDigits: 1, minimumFractionDigits: 1 }) : '—';
+const f0 = (x) => x != null && isFinite(x) ? x.toLocaleString('en-US', { maximumFractionDigits: 0 }) : '—';
+const f1 = (x) => x != null && isFinite(x) ? x.toLocaleString('en-US', { maximumFractionDigits: 1, minimumFractionDigits: 1 }) : '—';
 
 const state = {
   view: 'dash', // 'dash' | 'map' — session-only, never persisted
@@ -23,6 +23,7 @@ const state = {
   droneId: 'moz7v2',
   manufacturerId: 'all',
   batteryId: 'nav5000',
+  parallelPacks: false,
   payloadId: 'naked',
   extraG: 0,
   weatherId: 'live', // 'live' | preset id | 'custom' — live is the boot default
@@ -54,12 +55,21 @@ function manufacturer(id) {
 function payload() { return PAYLOADS.find(p => p.id === state.payloadId) || PAYLOADS[0]; }
 function scenario() { return SCENARIOS.find(s => s.id === state.scenarioId) || SCENARIOS[0]; }
 function units() { return unitSystem(state.units); }
+function loadoutBattery(batt = battery()) {
+  if (!state.parallelPacks) return { ...batt, packCount: 1, extraCdA: 0 };
+  const d = drone();
+  return parallelBattery(batt, 2, {
+    harnessMassG: d.parallelHarnessMassG || 0,
+    extraCdA: d.parallelPackCdA || 0,
+  });
+}
 
 function missionInputs(batt = battery(), envOverride = null) {
   const env = envOverride || state.env;
+  const configuredBatt = loadoutBattery(batt);
   return {
     drone: drone(),
-    battery: batt,
+    battery: configuredBatt,
     payloadG: payload().massG,
     payloadCdA: payload().cdA,
     extraG: state.extraG,
@@ -115,6 +125,13 @@ function populateControls() {
   const batts = compatibleBatteries();
   if (!batts.find(b => b.id === state.batteryId)) state.batteryId = batts[0]?.id;
   fillSelect($('sel-battery'), batts.map(b => ({ value: b.id, label: `${b.name} · ${b.massG} g` })), state.batteryId);
+  $('in-parallel').checked = state.parallelPacks;
+  const configuredBatt = loadoutBattery();
+  const parallelSummary = $('parallel-summary');
+  parallelSummary.hidden = !state.parallelPacks;
+  parallelSummary.textContent = state.parallelPacks
+    ? `${configuredBatt.config} effective · ${f0(configuredBatt.capAh * 1000)} mAh · ${f0(configuredBatt.massG)} g batteries + harness`
+    : '';
   fillSelect($('custom-manufacturer'), allManufacturers().map(m => ({ value: m.id, label: m.name })), 'custom');
   fillSelect($('sel-payload'), PAYLOADS.map(p => ({ value: p.id, label: p.name })), state.payloadId);
   fillSelect($('sel-weather'), [
@@ -215,22 +232,46 @@ function renderWarnings(warnings) {
   host.hidden = warnings.length === 0;
 }
 
+function flightLabel(flight) {
+  if (flight.code === 'no_lift') return 'WILL NOT FLY';
+  if (flight.code === 'no_control_margin') return 'NO CONTROL MARGIN';
+  if (flight.code === 'marginal') return 'MARGINAL';
+  return 'VIABLE';
+}
+
+function setChartFlightState(id, flight, message = null) {
+  const host = $(id);
+  const invalid = flight.code === 'no_lift';
+  host.classList.toggle('flight-invalid', invalid);
+  host.dataset.flightMessage = invalid ? (message || 'WILL NOT FLY · lift ceiling exceeded') : '';
+}
+
 function renderStats(r) {
   const u = units();
-  $('hero-value').textContent = f1(u.distanceFromKm(r.radiusKm));
-  $('hero-unit').textContent = u.distanceUnit;
-  $('hero-sub').textContent = `${f1(u.distanceFromKm(r.radiusKm))} ${u.distanceUnit} out — turn around here and land with ${f0(r.energy.reservePct)}% reserve`;
-  setTile('tile-time', `${f1(r.timeMin)} min`, `${f1(u.distanceFromKm(r.totalKm))} ${u.distanceUnit} round trip`);
-  setTile('tile-hover', `${f1(r.hoverTimeMin)} min`, `hover · ${f0(r.hover.pW)} W · ${f1(r.hover.iA)} A`);
-  setTile('tile-auw', `${f0(r.massKg * 1000)} g`, `${f1(r.massKg * 2.20462)} lb takeoff`);
+  const noLift = r.flight.code === 'no_lift';
+  const hero = document.querySelector('.hero-card');
+  hero.classList.toggle('flight-invalid-card', noLift);
+  $('hero-value').textContent = noLift ? 'WILL NOT FLY' : f1(u.distanceFromKm(r.radiusKm));
+  $('hero-unit').textContent = noLift ? '' : u.distanceUnit;
+  $('hero-sub').textContent = noLift
+    ? `${f0(r.massKg * 1000)} g AUW exceeds ${f0(r.flight.maxHoverMassG)} g estimated continuous lift`
+    : `${f1(u.distanceFromKm(r.radiusKm))} ${u.distanceUnit} out — turn around here and land with ${f0(r.energy.reservePct)}% reserve`;
+  setTile('tile-time', noLift ? '—' : `${f1(r.timeMin)} min`,
+    noLift ? 'mission invalid · insufficient lift' : `${f1(u.distanceFromKm(r.totalKm))} ${u.distanceUnit} round trip`);
+  setTile('tile-hover', noLift ? '—' : `${f1(r.hoverTimeMin)} min`,
+    noLift ? `requires ${f0(r.hover.pW)} W · cannot sustain hover` : `hover · ${f0(r.hover.pW)} W · ${f1(r.hover.iA)} A`);
+  setTile('tile-auw', `${f0(r.massKg * 1000)} g`,
+    `${f1(r.massKg * 2.20462)} lb · lift ceiling ${f0(r.flight.maxHoverMassG)} g`);
   const d = drone();
   setTile('tile-disc', `${r.discLoadingGcm2.toFixed(2)} g/cm²`, `${d.numRotors}× ${d.propDiaIn}″ props`);
-  setTile('tile-eff', `${f1(r.hover.gPerW)} g/W`, 'hover efficiency');
+  setTile('tile-eff', `${r.flight.thrustToWeight.toFixed(2)}:1`,
+    `${flightLabel(r.flight)} · ${r.flight.limitingComponent} limited · estimated`);
   setTile('tile-da', `${f0(U.mToFt(r.densityAltM))} ft`, `density altitude · ρ ${r.rho.toFixed(3)} kg/m³`);
   const out = r.legs.out, back = r.legs.back;
   setTile('tile-cruise',
     out && back ? `${f0(u.speedFromMs(out.v))} / ${f0(u.speedFromMs(back.v))} ${u.speedUnit}` : '—',
-    out && back ? `airspeed out / back · ${f0(u.speedFromMs(out.vg))} / ${f0(u.speedFromMs(back.vg))} ${u.speedUnit} gs` : 'wind exceeds capability');
+    out && back ? `airspeed out / back · ${f0(u.speedFromMs(out.vg))} / ${f0(u.speedFromMs(back.vg))} ${u.speedUnit} gs`
+      : noLift ? 'mission invalid · insufficient lift' : 'wind or propulsion exceeds capability');
   setTile('tile-energy', `${f1(r.energy.usableWh)} Wh`,
     `usable of ${f1(r.energy.packWh)} Wh nominal${r.overheadF > 1 ? ` · burn ×${r.overheadF.toFixed(2)}` : ''}`);
 }
@@ -245,13 +286,21 @@ function renderPowerCurve(r) {
     markers.push({ x: u.speedFromMs(r.legs.back.v), y: r.legs.pBack, color: 'var(--series-2)',
       label: 'back', labelBelow: true });
   }
+  const limitPts = pts.length ? [
+    { x: pts[0].x, y: r.flight.maxElectricalW },
+    { x: pts.at(-1).x, y: r.flight.maxElectricalW },
+  ] : [];
   lineChart($('chart-power'), {
-    series: [{ name: 'electrical power', color: 'var(--series-1)', pts }],
+    series: [
+      { name: 'required electrical power', color: 'var(--series-1)', pts },
+      { name: 'continuous power ceiling', color: 'var(--status-critical)', pts: limitPts, dash: '6 5' },
+    ],
     markers, height: 250,
     xLabel: `airspeed (${u.speedUnit})`, yLabel: 'W',
     xFmt: v => `${f0(v)}`, yFmt: v => `${f0(v)}`,
     tipTitle: 'airspeed',
   });
+  setChartFlightState('chart-power', r.flight);
 }
 
 function renderSpeedTradeoff(r) {
@@ -285,6 +334,7 @@ function renderSpeedTradeoff(r) {
     xLabel: `cruise airspeed (${u.speedUnit})`, yLabel: unit,
     xFmt: v => f0(v), yFmt: v => f1(v), tipTitle: 'cruise',
   });
+  setChartFlightState('chart-speed', r.flight);
   const note = $('speed-note');
   if (viable && plannedSpeed !== null) {
     const py = nearestY(plannedSpeed);
@@ -295,7 +345,9 @@ function renderSpeedTradeoff(r) {
       (atOptimum || cost <= 0.05 ? ' · already at the optimum'
         : ` · pushing costs ${f1(cost)} ${time ? 'min of flight time' : `${u.distanceUnit} of radius`}`);
   } else {
-    note.textContent = 'No cruise speed produces a viable out-and-back in this wind.';
+    note.textContent = r.flight.code === 'no_lift'
+      ? 'No cruise calculation is valid because the configured aircraft cannot sustain hover.'
+      : 'No cruise speed produces a viable out-and-back in this wind or propulsion envelope.';
   }
 }
 
@@ -303,6 +355,9 @@ function renderProfile(r) {
   const u = units();
   const empty = $('chart-profile-empty');
   empty.hidden = r.timeline.length > 0;
+  empty.textContent = r.flight.code === 'no_lift'
+    ? 'WILL NOT FLY — all-up weight exceeds the estimated continuous lift ceiling.'
+    : 'No viable mission in these conditions.';
   missionProfile($('chart-profile'), {
     timeline: r.timeline,
     cutoffV: CHEMISTRY[battery().chem].cutoffLoad * battery().s,
@@ -313,23 +368,27 @@ function renderProfile(r) {
     distanceUnit: u.distanceUnit,
     height: 300,
   });
+  setChartFlightState('chart-profile', r.flight);
 }
 
 function renderComparison() {
   const u = units();
   const batts = compatibleBatteries();
-  const runs = batts.map(b => ({ b, r: planMission(missionInputs(b)) }));
+  const runs = batts.map(b => {
+    const effective = loadoutBattery(b);
+    return { b, effective, r: planMission(missionInputs(b)) };
+  });
   barChart($('chart-cmp-radius'), {
     items: runs.map(({ b, r }, i) => ({
-      label: b.short || b.name, value: u.distanceFromKm(r.radiusKm),
-      color: SERIES[i % SERIES.length], note: 'mission radius',
+      label: `${state.parallelPacks ? '2× ' : ''}${b.short || b.name}`, value: u.distanceFromKm(r.radiusKm),
+      color: SERIES[i % SERIES.length], note: 'mission radius', invalid: r.flight.code === 'no_lift',
     })),
     valueFmt: v => `${f1(v)} ${u.distanceUnit}`,
   });
   barChart($('chart-cmp-time'), {
     items: runs.map(({ b, r }, i) => ({
-      label: b.short || b.name, value: r.timeMin,
-      color: SERIES[i % SERIES.length], note: 'flight time',
+      label: `${state.parallelPacks ? '2× ' : ''}${b.short || b.name}`, value: r.timeMin,
+      color: SERIES[i % SERIES.length], note: 'flight time', invalid: r.flight.code === 'no_lift',
     })),
     valueFmt: v => `${f1(v)} min`,
   });
@@ -337,21 +396,26 @@ function renderComparison() {
   // table view
   const tbody = $('cmp-table').querySelector('tbody');
   tbody.replaceChildren();
-  for (const { b, r } of runs) {
+  for (const { b, effective, r } of runs) {
     const tr = document.createElement('tr');
+    tr.classList.toggle('row-invalid', r.flight.code === 'no_lift');
     const cells = [
       manufacturer(b.manufacturerId)?.name || 'Custom',
-      b.name + (b.custom ? ' ·custom' : ''),
+      `${state.parallelPacks ? '2× ' : ''}${b.name}${b.custom ? ' ·custom' : ''}`,
       [b.cellMaker, b.cellModel].filter(Boolean).join(' '),
-      b.config || `${b.s}S${b.p || 1}P`,
+      effective.config || `${effective.s}S${effective.p || 1}P`,
       CHEMISTRY[b.chem].label + ` ${b.s}S`,
-      `${f0(b.capAh * 1000)} mAh`,
+      `${f0(effective.capAh * 1000)} mAh`,
       `${f1(r.energy.packWh)} Wh`,
-      `${f0(b.massG)} g`,
+      `${f0(effective.massG)} g`,
+      `${f0(r.massKg * 1000)} g`,
+      `${r.discLoadingGcm2.toFixed(2)} g/cm²`,
+      `${r.flight.thrustToWeight.toFixed(2)}:1`,
+      flightLabel(r.flight),
       `${f1(u.distanceFromKm(r.radiusKm))} ${u.distanceUnit}`,
       `${f1(r.timeMin)} min`,
       r.legs.out && r.legs.back ? `${f1(u.burnFromWhPerKm((r.legs.out.whPerKm + r.legs.back.whPerKm) / 2))} ${u.burnUnit}` : '—',
-      b.priceUsd ? `$${b.priceUsd}` : '—',
+      effective.priceUsd ? `$${effective.priceUsd}` : '—',
     ];
     cells.forEach((c, i) => {
       const td = document.createElement('td');
@@ -382,6 +446,8 @@ function renderWindSensitivity() {
     tipTitle: 'wind',
   });
   legend($('legend-wind'), series);
+  const current = planMission(missionInputs());
+  setChartFlightState('chart-wind', current.flight);
 }
 
 /* ---------- live weather mode ---------- */
@@ -493,10 +559,16 @@ function renderBatteryNote() {
   const host = $('battery-note');
   host.replaceChildren();
   const b = battery();
+  const effective = loadoutBattery(b);
   const m = manufacturer(b.manufacturerId);
   const identity = [m?.name, b.cellMaker && b.cellModel ? `${b.cellMaker} ${b.cellModel}` : b.cellModel]
     .filter(Boolean).join(' · ');
   if (identity) host.append(document.createTextNode(`${identity}. `));
+  if (state.parallelPacks) {
+    host.append(document.createTextNode(
+      `Parallel loadout: two identical packs, ${effective.config}, ${f0(effective.massG)} g including the ${f0(effective.harnessMassG)} g harness allowance. `
+    ));
+  }
   if (b.estimated?.length) {
     host.append(document.createTextNode(
       `${b.estimated.join(', ')} ${b.estimated.length === 1 ? 'is' : 'are'} estimated; replace with the finished pack’s measured values when available.`
@@ -538,6 +610,11 @@ function bind() {
     update();
   });
   $('sel-battery').addEventListener('change', e => { state.batteryId = e.target.value; update(); });
+  $('in-parallel').addEventListener('change', e => {
+    state.parallelPacks = e.target.checked;
+    populateControls();
+    update();
+  });
   $('sel-payload').addEventListener('change', e => { state.payloadId = e.target.value; update(); });
   $('in-extra').addEventListener('input', e => { state.extraG = +e.target.value || 0; update(); });
   $('btn-live').addEventListener('click', () => goLive());

@@ -47,7 +47,14 @@ CSS media queries (width for layout, `pointer: coarse` for ergonomics).
    discharge sim with internal-resistance sag (quadratic current solve), cold
    temperature capacity/IR derating, low-voltage cutoff under load. Sag can end
    the flight before the energy does — the tool warns when that happens.
-4. **Mission** — planning wind = average + 35% of the gust spread. **Weather**
+4. **Lift envelope** — continuous battery current, pack sag, ESC limits, and
+   published motor electrical limits cap the available rotor power. The model
+   inverts hover momentum theory through the calibrated airframe efficiency to
+   estimate static thrust at the current air density, then reports thrust-to-
+   weight and rejects a mission below 1:1. Exact motor/prop thrust curves are
+   not published for these aircraft, so lift limits are explicitly labeled
+   **estimated** rather than presented as thrust-stand measurements.
+5. **Mission** — planning wind = average + 35% of the gust spread. **Weather**
    (place + season presets) is separate from the **scenario** (how you fly):
    each scenario sets a realistic cruise speed as a fraction of the airframe's
    calibrated hands-on cruise (MOZ7 ~40 mph, Cinelog ~20 mph) and a maneuvering
@@ -57,6 +64,32 @@ CSS media queries (width for layout, `pointer: coarse` for ergonomics).
    optimum — the ceiling, not a prediction), or *Manual*. Radius solves
    `usable energy = radius × (Wh/km out + Wh/km back)` after the landing
    reserve.
+
+## Parallel batteries
+
+Enable **Run two identical packs in parallel** below the battery selector to
+apply the loadout to the selected pack and every row in the battery shoot-out.
+The electrical model keeps series voltage unchanged, doubles capacity and
+continuous current capability, halves equivalent pack resistance, and doubles
+the pack's effective parallel count. Weight includes both batteries plus an
+airframe-specific harness/restraint allowance (20 g XT60 on MOZ7, 8 g XT30 on
+Cinelog30); a conservative extra drag-area allowance is also applied.
+
+Only parallel identical packs with the same chemistry, cell count, capacity,
+age, condition, voltage, and state of charge. The checkbox models two copies of
+the selected pack—it is not permission to connect mismatched batteries.
+
+Lift status is carried through the hero, stat tiles, power and speed charts,
+mission profile, battery comparison, wind sensitivity, and map footprint:
+
+- **WILL NOT FLY** at or below 1.0:1 estimated continuous thrust-to-weight.
+- **NO CONTROL MARGIN** below 1.3:1.
+- **MARGINAL** below 2.0:1.
+- **VIABLE** at 2.0:1 or better.
+
+The 1:1 boundary is the estimated sustained-hover ceiling; it is not a safe
+operating target. Gust recovery, climb, maneuvering, prop wash, pack aging, and
+motor heating all require margin.
 
 ### Calibration anchors (real flights, not datasheets)
 
@@ -156,6 +189,9 @@ Two ways:
 - One `etaProp` per airframe: profile drag actually grows with speed, so the
   model is most accurate near hover and best-range cruise, slightly optimistic
   at full tilt.
+- Lift ceilings are physics estimates constrained by published electrical
+  limits, not exact thrust-stand curves for the installed motor/prop pairs.
+  Replace them with measured thrust/current tables when those become available.
 - Climb/descent energy, rain, and prop wear aren't modeled. The scenario burn
   multiplier is a flat average for the pattern — a single sustained dive-and-punch
   sequence can transiently pull far beyond it, which is what the landing reserve
