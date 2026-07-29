@@ -15,8 +15,9 @@ python3 -m http.server 8321
 
 Then open <http://localhost:8321>. No build step, no dependencies — plain ES
 modules ([js/physics.js](js/physics.js), [js/data.js](js/data.js),
-[js/charts.js](js/charts.js), [js/app.js](js/app.js),
-[js/map.js](js/map.js)). The only third-party code is Leaflet 1.9.4, vendored
+[js/charts.js](js/charts.js), [js/state.js](js/state.js), `js/render/*`,
+[js/map.js](js/map.js), and [js/app.js](js/app.js) wiring them together).
+The only third-party code is Leaflet 1.9.4, vendored
 as an ES module in `vendor/leaflet/` so the app still needs no CDN or bundler.
 
 ### Tests
