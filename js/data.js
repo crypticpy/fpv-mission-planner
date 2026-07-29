@@ -3,6 +3,8 @@
 // logs), Pyrodrone/WREKD/RDQ listings. etaProp is calibrated so the model
 // reproduces the real-world flight logs cited in README.md, not a datasheet value.
 
+import { get as storeGet, set as storeSet } from './store.js';
+
 export const DRONES = [
   {
     id: 'moz7v2',
@@ -599,50 +601,24 @@ export const SCENARIOS = [
   },
 ];
 
-const LS_KEY = 'fpv-custom-batteries';
-const MFR_LS_KEY = 'fpv-custom-manufacturers';
-const MAP_LS_KEY = 'fpv-map';
-const SPOTS_LS_KEY = 'fpv-spots';
-
-export function loadMapState() {
-  try {
-    const raw = JSON.parse(localStorage.getItem(MAP_LS_KEY) || 'null');
-    if (!raw || !isFinite(raw.lat) || !isFinite(raw.lng)) return null;
-    return {
-      lat: Math.max(-85, Math.min(85, +raw.lat)),
-      lng: Math.max(-180, Math.min(180, +raw.lng)),
-      zoom: isFinite(raw.zoom) ? Math.max(3, Math.min(21, Math.round(+raw.zoom))) : 12,
-      baseLayer: raw.baseLayer === 'streets' ? 'streets' : 'satellite',
-    };
-  } catch { return null; }
-}
-
-export function saveMapState(s) {
-  // Fires on every pan/zoom via Leaflet events — never let quota/private-mode
-  // storage errors escape into the map's event dispatch.
-  try { localStorage.setItem(MAP_LS_KEY, JSON.stringify(s)); } catch { /* view state only */ }
-}
-
 export function loadCustomManufacturers() {
-  try {
-    const raw = JSON.parse(localStorage.getItem(MFR_LS_KEY) || '[]');
-    return Array.isArray(raw)
-      ? raw.filter(m => m && m.id && m.name).map(m => ({
-          ...m, custom: true, kind: 'custom-builder',
-          url: typeof m.url === 'string' && /^https?:\/\//i.test(m.url) ? m.url : null,
-        }))
-      : [];
-  } catch { return []; }
+  const raw = storeGet('custom-manufacturers', []);
+  return Array.isArray(raw)
+    ? raw.filter(m => m && m.id && m.name).map(m => ({
+        ...m, custom: true, kind: 'custom-builder',
+        url: typeof m.url === 'string' && /^https?:\/\//i.test(m.url) ? m.url : null,
+      }))
+    : [];
 }
 
 export function saveCustomManufacturer(manufacturer) {
   const list = loadCustomManufacturers().filter(m => m.id !== manufacturer.id);
   list.push({ ...manufacturer, custom: true, kind: 'custom-builder' });
-  try { localStorage.setItem(MFR_LS_KEY, JSON.stringify(list)); } catch { /* storage quota / private mode */ }
+  storeSet('custom-manufacturers', list);
 }
 
 export function deleteCustomManufacturer(id) {
-  try { localStorage.setItem(MFR_LS_KEY, JSON.stringify(loadCustomManufacturers().filter(m => m.id !== id))); } catch { /* storage quota / private mode */ }
+  storeSet('custom-manufacturers', loadCustomManufacturers().filter(m => m.id !== id));
 }
 
 export function allManufacturers() {
@@ -650,26 +626,24 @@ export function allManufacturers() {
 }
 
 export function loadCustomBatteries() {
-  try {
-    const raw = JSON.parse(localStorage.getItem(LS_KEY) || '[]');
-    return Array.isArray(raw) ? raw.filter(b => b && b.id && b.capAh > 0 && b.massG > 0
-      && b.s >= 1 && Array.isArray(b.fits) && ['liion', 'lipo', 'lihv'].includes(b.chem))
-      .map(b => ({
-        ...b,
-        manufacturerId: b.manufacturerId || 'custom',
-        config: b.config || `${b.s}S${b.p || 1}P`,
-      })) : [];
-  } catch { return []; }
+  const raw = storeGet('custom-batteries', []);
+  return Array.isArray(raw) ? raw.filter(b => b && b.id && b.capAh > 0 && b.massG > 0
+    && b.s >= 1 && Array.isArray(b.fits) && ['liion', 'lipo', 'lihv'].includes(b.chem))
+    .map(b => ({
+      ...b,
+      manufacturerId: b.manufacturerId || 'custom',
+      config: b.config || `${b.s}S${b.p || 1}P`,
+    })) : [];
 }
 
 export function saveCustomBattery(batt) {
   const list = loadCustomBatteries().filter(b => b.id !== batt.id);
   list.push(batt);
-  try { localStorage.setItem(LS_KEY, JSON.stringify(list)); } catch { /* storage quota / private mode */ }
+  storeSet('custom-batteries', list);
 }
 
 export function deleteCustomBattery(id) {
-  try { localStorage.setItem(LS_KEY, JSON.stringify(loadCustomBatteries().filter(b => b.id !== id))); } catch { /* storage quota / private mode */ }
+  storeSet('custom-batteries', loadCustomBatteries().filter(b => b.id !== id));
 }
 
 export function allBatteries() {
@@ -732,12 +706,10 @@ export function normalizeSpot(raw) {
 
 /** Saved spots, name-sorted — the list is read as a roster, not a track log. */
 export function loadSpots() {
-  try {
-    const raw = JSON.parse(localStorage.getItem(SPOTS_LS_KEY) || '[]');
-    if (!Array.isArray(raw)) return [];
-    return raw.map(normalizeSpot).filter(Boolean)
-      .sort((a, b) => a.name.localeCompare(b.name));
-  } catch { return []; }
+  const raw = storeGet('spots', []);
+  if (!Array.isArray(raw)) return [];
+  return raw.map(normalizeSpot).filter(Boolean)
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 /** Upsert by id. Returns the stored record, or null if it wasn't a valid spot. */
@@ -746,10 +718,10 @@ export function saveSpot(spot) {
   if (!clean) return null;
   const list = loadSpots().filter(s => s.id !== clean.id);
   list.push(clean);
-  try { localStorage.setItem(SPOTS_LS_KEY, JSON.stringify(list)); } catch { /* storage quota / private mode */ }
+  storeSet('spots', list);
   return clean;
 }
 
 export function deleteSpot(id) {
-  try { localStorage.setItem(SPOTS_LS_KEY, JSON.stringify(loadSpots().filter(s => s.id !== id))); } catch { /* storage quota / private mode */ }
+  storeSet('spots', loadSpots().filter(s => s.id !== id));
 }

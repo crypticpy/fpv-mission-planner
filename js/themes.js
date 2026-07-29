@@ -1,7 +1,7 @@
 // themes.js — one color contract for UI, charts, status, and map overlays.
 // Add a preset here and it automatically appears in the theme selector.
 
-const STORAGE_KEY = 'fpv-mission-theme-v1';
+import { get as storeGet, set as storeSet } from './store.js';
 
 export const THEMES = Object.freeze({
   'night-ops': {
@@ -129,9 +129,7 @@ export function applyTheme(value, { persist = true, notify = true } = {}) {
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme.tokens.page);
   const select = document.getElementById('sel-theme');
   if (select) select.value = preference;
-  if (persist) {
-    try { localStorage.setItem(STORAGE_KEY, preference); } catch { /* preference only */ }
-  }
+  if (persist) storeSet('theme', preference);
   const changed = activeId !== id;
   activeId = id;
   if (notify && changed) changeHandler?.(theme, id);
@@ -159,7 +157,7 @@ export function setupThemes(onChange) {
     }
     select.addEventListener('change', e => applyTheme(e.target.value));
   }
-  try { preference = localStorage.getItem(STORAGE_KEY) || 'auto'; } catch { preference = 'auto'; }
+  preference = storeGet('theme', 'auto');
   applyTheme(preference, { persist: false, notify: false });
   dayQuery?.addEventListener?.('change', () => {
     if (preference === 'auto') applyTheme('auto');

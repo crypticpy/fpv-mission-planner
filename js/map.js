@@ -5,7 +5,7 @@
 
 import * as L from '../vendor/leaflet/leaflet-src.esm.js';
 import { planMission } from './physics.js';
-import { loadMapState, saveMapState } from './data.js';
+import { loadMapState, saveMapState } from './store.js';
 import { lineChart, legend } from './charts.js';
 
 const AUSTIN = { lat: 30.2672, lng: -97.7431 };

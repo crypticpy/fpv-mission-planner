@@ -3,9 +3,9 @@ import {
   DRONES, PAYLOADS, WEATHER, SCENARIOS,
   allBatteries, saveCustomBattery, deleteCustomBattery,
   allManufacturers, saveCustomManufacturer, deleteCustomManufacturer,
-  loadMapState, saveMapState,
   loadSpots, saveSpot, deleteSpot,
 } from './data.js';
+import { get as storeGet, set as storeSet, loadMapState, saveMapState } from './store.js';
 import { planMission, parallelBattery, CHEMISTRY, U } from './physics.js';
 import { lineChart, barChart, missionProfile, legend, hideTooltip } from './charts.js';
 import { unitSystem } from './units.js';
@@ -66,10 +66,8 @@ const beginner = () => state.detail === 'beginner';
 
 /* ---------- session persistence ---------- */
 
-const SESSION_KEY = 'fpv-session';
-
 function saveSession() {
-  try { localStorage.setItem(SESSION_KEY, JSON.stringify(state)); } catch { /* quota / private mode */ }
+  storeSet('session', state);
 }
 
 /**
@@ -82,8 +80,7 @@ function saveSession() {
  * before the toggle existed.
  */
 function restoreSession() {
-  let s = null;
-  try { s = JSON.parse(localStorage.getItem(SESSION_KEY) || 'null'); } catch { return null; }
+  const s = storeGet('session', null);
   if (!s || typeof s !== 'object' || !s.env || typeof s.env !== 'object') return null;
   const env = s.env;
   const num = (v, lo, hi) => Number.isFinite(v) && v >= lo && v <= hi;
