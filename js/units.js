@@ -2,6 +2,7 @@
 // and the measurement system selected in the UI.
 
 const MILES_PER_KM = 0.621371;
+const SQMI_PER_SQKM = MILES_PER_KM * MILES_PER_KM;
 const MS_PER_MPH = 0.44704;
 const KPH_PER_MPH = 1.609344;
 
@@ -12,7 +13,9 @@ export const UNIT_SYSTEMS = {
     distanceUnit: 'mi',
     speedUnit: 'mph',
     burnUnit: 'Wh/mi',
+    areaUnit: 'mi²',
     distanceFromKm: km => km * MILES_PER_KM,
+    areaFromKm2: km2 => km2 * SQMI_PER_SQKM,
     speedFromMs: ms => ms / MS_PER_MPH,
     speedFromMph: mph => mph,
     speedToMph: mph => mph,
@@ -29,7 +32,9 @@ export const UNIT_SYSTEMS = {
     distanceUnit: 'km',
     speedUnit: 'km/h',
     burnUnit: 'Wh/km',
+    areaUnit: 'km²',
     distanceFromKm: km => km,
+    areaFromKm2: km2 => km2,
     speedFromMs: ms => ms * 3.6,
     speedFromMph: mph => mph * KPH_PER_MPH,
     speedToMph: kph => kph / KPH_PER_MPH,

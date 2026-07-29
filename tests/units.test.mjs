@@ -25,3 +25,8 @@ test('metric speed inputs round-trip through canonical mph state', () => {
 test('unknown unit systems safely fall back to imperial', () => {
   assert.equal(unitSystem('unknown').id, 'imperial');
 });
+
+test('area conversions square the linear factor', () => {
+  assert.equal(UNIT_SYSTEMS.metric.areaFromKm2(10), 10);
+  assert.ok(Math.abs(UNIT_SYSTEMS.imperial.areaFromKm2(10) - 3.86101919641) < 1e-6);
+});
