@@ -16,7 +16,7 @@
 //     place a fit turns into a plan.
 import {
   fitForDrone, clearCalibrationApplied,
-  logsForDrone, saveFlightLog, deleteFlightLog, newLogId, solveLog,
+  logsForDrone, saveFlightLog, deleteFlightLog, newLogId, solveLog, WIND_RELATIONS,
 } from '../flightlog.js';
 import { classForDrone } from '../catalog/classes.js';
 import { allBatteries, compatibleBatteries } from '../registry.js';
@@ -32,6 +32,15 @@ let deps = null; // injected by app.js: { update, populateControls }
 export function setupFlightLog(d) { deps = d; }
 
 /* ---------- the descriptor ---------- */
+
+// Human labels for flightlog.js's own WIND_RELATIONS values — kept here since
+// the wording is a UI concern, not the validator's.
+const WIND_RELATION_LABELS = {
+  mixed: 'Out and back — cancels',
+  head: 'Into the wind',
+  tail: 'Downwind',
+  cross: 'Across the wind',
+};
 
 // Speeds, distances and winds are asked for in whatever system the rail is in,
 // so the form is rebuilt when that changes (units() is read at build time).
@@ -64,12 +73,10 @@ function flightLogFields(u) {
         min: 1, max: 200, step: 1, id: 'flightlog-speed' },
       { key: 'wind', label: 'Wind', type: 'number', unit: u.speedUnit,
         min: 0, max: 120, step: 1, id: 'flightlog-wind' },
-      { key: 'windRelation', label: 'Flown', type: 'select', id: 'flightlog-windrel', options: [
-        { value: 'mixed', label: 'Out and back — cancels' },
-        { value: 'head', label: 'Into the wind' },
-        { value: 'tail', label: 'Downwind' },
-        { value: 'cross', label: 'Across the wind' },
-      ] },
+      // Options are generated from flightlog.js's own WIND_RELATIONS list, so the
+      // form can never offer a value the validator would then reject.
+      { key: 'windRelation', label: 'Flown', type: 'select', id: 'flightlog-windrel',
+        options: WIND_RELATIONS.map(value => ({ value, label: WIND_RELATION_LABELS[value] })) },
     ] },
     { details: { summary: 'Conditions and when — prefilled, correct anything', fields: [
       { grid: [

@@ -81,7 +81,20 @@ function findThrustColumn(headers, rows, columnCount) {
     for (let i = 0; i < headers.length && i < columnCount; i++) {
       const word = HEADER_WORDS.find(([re]) => re.test(headers[i].text));
       if (word && word[1] === 'thrust') {
-        return { index: i, unit: headers[i].unit || null, source: 'header' };
+        // The header's own trailing word is only a unit when it's actually a
+        // mass unit ("Thrust (kg)") — a bare "Thrust" header would otherwise
+        // read its own name back as the unit. When it isn't, fall back to
+        // whatever unit the column's own cells carry ("12 lb"), same rule the
+        // 'unit' source below uses: every row agrees, and it's a mass unit.
+        let unit = headers[i].unit && headers[i].unit in MASS_UNITS ? headers[i].unit : null;
+        if (!unit) {
+          const cellUnits = rows.map(r => r[i].unit).filter(Boolean);
+          if (cellUnits.length && cellUnits.length === rows.length
+            && cellUnits.every(u => u === cellUnits[0]) && cellUnits[0] in MASS_UNITS) {
+            unit = cellUnits[0];
+          }
+        }
+        return { index: i, unit, source: 'header' };
       }
     }
   }

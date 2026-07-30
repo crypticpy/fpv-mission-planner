@@ -216,7 +216,7 @@ export function renderDriftChart() {
     xTicks: pts.length === 1 ? [x(pts[0])] : undefined,
   });
   legend($('legend-drift'), series);
-  $('drift-note').textContent = driftNote(driftSummary(pts), fit, residual);
+  $('drift-note').textContent = driftNote(driftSummary(pts), fit, residual, u);
 }
 
 /**
@@ -225,10 +225,13 @@ export function renderDriftChart() {
  * the switch is only offered when there is a fit that has earned it — otherwise
  * the honest advice is to go fly more.
  */
-function driftNote(sum, fit, residual) {
+function driftNote(sum, fit, residual, u) {
   if (!sum) return '';
   const parts = [];
   const n = `${sum.n} cruise leg${sum.n === 1 ? '' : 's'}`;
+  // Same unit system the axis label is drawn in (u.burnUnit): a metric pilot
+  // reading "per mile" under a Wh/km axis would be reading someone else's units.
+  const perDistance = u.burnUnit.endsWith('/km') ? 'per kilometer' : 'per mile';
   if (sum.signedPct == null) {
     parts.push(`${n} plotted.`);
   } else {
@@ -236,7 +239,7 @@ function driftNote(sum, fit, residual) {
     parts.push(off < 2
       ? `${n} plotted, and the model is inside 2% of what they burned.`
       : `${n} plotted: they burned about ${f0(off)}% ${sum.signedPct > 0 ? 'more' : 'less'} `
-        + 'energy per mile than the model predicted at those speeds.');
+        + `energy ${perDistance} than the model predicted at those speeds.`);
   }
   if (residual) {
     parts.push('Above the line the flight burned more than the model said; below it, less.');

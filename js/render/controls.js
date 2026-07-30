@@ -102,7 +102,7 @@ export function populateControls() {
   renderFlightLog();
 }
 
-// The battery form's "only these drones" checklist is built at boot, before any
+// The battery form's "always offer on" checklist is built at boot, before any
 // pilot-added airframe exists — so it gets rebuilt here, preserving whatever is
 // already ticked. Without this a custom drone could never be pinned in `fits`.
 function renderFitsDrones() {
@@ -245,7 +245,7 @@ export const BATTERY_FORM = [
   // Free text, not a mandatory pick from the manufacturer registry: the
   // submit handler dedupes it against allManufacturers() (case-insensitive)
   // and auto-creates a custom-builder entry behind the scenes on no match.
-  { key: 'brand', label: 'Brand', type: 'text', placeholder: 'Auline', list: 'manufacturer-datalist' },
+  { key: 'brand', label: 'Brand', type: 'text', placeholder: 'Auline', list: 'manufacturer-datalist', id: 'battery-brand' },
   { grid: [
     { key: 'cellMaker', label: 'Cell maker', type: 'text', placeholder: 'EVE' },
     { key: 'cellModel', label: 'Cell model', type: 'text', placeholder: '50PL' },
@@ -267,13 +267,20 @@ export const BATTERY_FORM = [
   ] },
   // Computed compatibility (connector + cell count, via registry.compatible())
   // is the default and the common case — a shared pack no longer has to be
-  // entered once per drone. "Only specific drones" is the pinned-fits escape
-  // hatch for a hand-verified odd pairing.
-  { key: 'fitsMode', label: 'Fits', type: 'select', id: 'battery-fits-mode', options: [
-    { value: 'any', label: 'Any drone that matches (connector + cell count)' },
-    { value: 'specific', label: 'Only specific drones' },
-  ] },
-  { key: 'fitsDrones', label: 'Only these drones', type: 'checkboxes', id: 'battery-fits-drones' },
+  // entered once per drone. "Pin to specific drones" is an *additional*
+  // guarantee, not a narrowing one: registry.compatible() lets an explicit
+  // `fits` pin win positively, but any other drone that still matches by
+  // connector and cell count keeps seeing the pack too.
+  {
+    key: 'fitsMode', label: 'Fits', type: 'select', id: 'battery-fits-mode',
+    help: 'A pin guarantees those drones always see this pack — it does not hide the pack from '
+      + 'other drones that already match by connector and cell count.',
+    options: [
+      { value: 'any', label: 'Any drone that matches (connector + cell count)' },
+      { value: 'specific', label: 'Pin to specific drones (always offered there)' },
+    ],
+  },
+  { key: 'fitsDrones', label: 'Always offer on', type: 'checkboxes', id: 'battery-fits-drones' },
 ];
 
 export const MANUFACTURER_FORM = [
@@ -296,7 +303,7 @@ export function buildAuthoringForms() {
   buildForm($('custom-form'), BATTERY_FORM, {
     submitLabel: 'Save battery',
     // Pre-checks the drone in the rail right now, so switching "Fits" to
-    // "Only specific drones" starts from a sane default instead of an empty
+    // "Pin to specific drones" starts from a sane default instead of an empty
     // list.
     options: {
       fitsDrones: allDrones().map(d => ({ value: d.id, label: d.name, checked: d.id === state.droneId })),

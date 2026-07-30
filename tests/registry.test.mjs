@@ -5,7 +5,7 @@ import { DRONES } from '../js/catalog/drones.js';
 import { BATTERIES } from '../js/catalog/batteries.js';
 import {
   allBatteries, allDrones, allManufacturers, compatible, compatibleBatteries, dronePower,
-  loadCustomDrones, saveCustomDrone, deleteCustomDrone,
+  loadCustomDrones, saveCustomDrone, deleteCustomDrone, loadCustomBatteries,
 } from '../js/registry.js';
 import { validate, DRONE_FIELDS } from '../js/schema.js';
 import { planMission, U } from '../js/physics.js';
@@ -92,6 +92,19 @@ test('a genuinely new custom record appends after the catalog', () => {
   const merged = allBatteries();
   assert.equal(merged.length, BATTERIES.length + 1);
   assert.equal(merged.at(-1).id, 'custom-mine');
+});
+
+test('a battery imported with fits: null loads rather than vanishing', () => {
+  // schema.validate() treats a `tags`-typed field of null as blank-optional
+  // and lets it through, so an imported record can carry `fits: null` — the
+  // load gate has to accept that the same way it accepts `undefined`.
+  globalThis.localStorage = makeStorage({
+    'fpv:v1:custom-batteries': [pack({ id: 'custom-null-fits', fits: null, custom: true })],
+  });
+  const loaded = loadCustomBatteries();
+  assert.equal(loaded.length, 1);
+  assert.equal(loaded[0].id, 'custom-null-fits');
+  assert.equal(loaded[0].fits, undefined);
 });
 
 test('a custom manufacturer overrides the built-in it shares an id with', () => {

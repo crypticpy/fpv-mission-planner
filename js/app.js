@@ -248,7 +248,7 @@ function bind() {
     });
     e.target.reset();
     populateControls();
-    $('custom-manufacturer').value = id;
+    $('battery-brand').value = v.name;
   });
 
   $('custom-form').addEventListener('submit', e => {
@@ -273,7 +273,8 @@ function bind() {
     }
     // "Any matching" (the default) omits `fits` entirely and leaves
     // registry.compatible()'s computed connector/cell-count rule to decide;
-    // "Only specific drones" pins it to whatever got checked.
+    // "Pin to specific drones" adds those drones as a guarantee — it does not
+    // stop another drone from matching by connector and cell count too.
     const fits = v.fitsMode === 'specific' && v.fitsDrones?.length ? v.fitsDrones : undefined;
     const id = `custom-${manufacturerId}-${v.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
     const s = v.s || 0;

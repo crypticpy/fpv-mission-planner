@@ -234,7 +234,12 @@ function applyWeighHelper() {
   const pack = allBatteries().find(b => b.id === ctrl('weighPack')?.value);
   const total = Number(ctrl('weighTotal')?.value);
   if (!pack || !Number.isFinite(total) || !(total > pack.massG)) return;
-  setValue('dryMass', Math.round(total - pack.massG));
+  // Property only, not the attribute setValue() would also write: this is a
+  // live scratch computation from the weigh-in fields, not a record being
+  // edited, so a post-save form.reset() must not bring this rig's dry mass
+  // back as the default for the next blank form.
+  const el = ctrl('dryMass');
+  if (el) el.value = String(Math.round(total - pack.massG));
 }
 
 /* ---------- form values → a drone record ---------- */

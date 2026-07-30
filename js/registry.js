@@ -57,12 +57,17 @@ export function allManufacturers() {
 
 export function loadCustomBatteries() {
   const raw = storeGet('custom-batteries', []);
+  // schema.validate() treats `fits: null` as blank-optional and lets it
+  // through (tags are optional), so an imported record can legitimately carry
+  // null rather than being omitted entirely — this gate has to accept that
+  // the same way it accepts `undefined`, or the record is silently dropped.
   return Array.isArray(raw) ? raw.filter(b => b && b.id && b.capAh > 0 && b.massG > 0
-    && b.s >= 1 && (b.fits === undefined || Array.isArray(b.fits)) && ['liion', 'lipo', 'lihv'].includes(b.chem))
+    && b.s >= 1 && (b.fits == null || Array.isArray(b.fits)) && ['liion', 'lipo', 'lihv'].includes(b.chem))
     .map(b => ({
       ...b,
       manufacturerId: b.manufacturerId || 'custom',
       config: b.config || `${b.s}S${b.p || 1}P`,
+      fits: b.fits == null ? undefined : b.fits,
     })) : [];
 }
 

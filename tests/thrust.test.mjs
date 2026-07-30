@@ -62,6 +62,17 @@ test('the table’s own units are converted, from the header or from the numbers
   assert.equal(unitOnly.source, 'unit');
 });
 
+test('a labeled thrust column with no header unit falls back to the cells’ own unit', () => {
+  // "Thrust" alone isn't a mass unit — the header branch must not read its own
+  // name back as the unit and silently downgrade a pound reading to grams.
+  const got = parseThrustTable('Throttle  Thrust\n100  12 lb');
+  assert.equal(got.ok, true, got.message);
+  assert.equal(got.source, 'header');
+  assert.equal(got.unit, 'lb');
+  assert.ok(Math.abs(got.maxThrustG - 12 * 453.592) < 1e-6);
+  assert.equal(Math.round(got.maxThrustG), 5443);
+});
+
 test('the two commonest bare pastes are read without a header', () => {
   const two = parseThrustTable('50 420\n75 690\n100 980');
   assert.equal(two.ok, true, two.message);

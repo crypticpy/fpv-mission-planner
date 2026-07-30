@@ -377,8 +377,16 @@ input[type="range"] { width: 100%; margin-top: 6px; accent-color: var(--series-1
 .content { display: flex; flex-direction: column; gap: var(--sp-3); min-width: 0; }
 /* No pack fits the selected rig, so there is no plan: the verdict card says so
    and everything that would show a plan stays off screen. Stale numbers under a
-   NO PACK badge would read as a plan the app is standing behind. */
-body[data-plan="none"] .content { display: none; }
+   NO PACK badge would read as a plan the app is standing behind. Only the
+   Planner dashboard is blanked — the map stays usable on purpose (tiles,
+   launch marker, zoom/controls), with just the stale reachability rings
+   removed via the overlay-pane rule below. */
+body[data-plan="none"] #view-dash.content { display: none; }
+/* Reachability rings/footprint polygons render into Leaflet's default overlay
+   pane (SVG renderer); tiles live in the tile pane and the launch/wind markers
+   in the marker pane, so this leaves the map itself fully visible and
+   interactive with no plan to draw a footprint from. */
+body[data-plan="none"] #view-map .leaflet-overlay-pane { display: none; }
 
 /* Go/no-go card. One status color drives the badge and the rail, so a theme
    swap moves both; status tokens are tuned against --page, which is what the
