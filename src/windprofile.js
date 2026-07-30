@@ -12,8 +12,19 @@
 //   the pure "which number does this level mean" helpers the rail label, the
 //     hourly scrubber and the live patch all need.
 //
-// Leaf module: no imports, no DOM, no fetch. weather.js builds the levels shape
-// from the API response; this decides what to do with it.
+// No DOM and no fetch. weather.js builds the levels shape from the API response;
+// this decides what to do with it.
+//
+// M3b adds the fourth thing: the wind at a height that is not one of the
+// published levels, because a route that climbs over a ridge does not fly at 80 m
+// because the forecast happens to publish 80 m. That interpolation is pure and
+// lives in src/domain/vertical.js beside the density it changes with — and is
+// re-exported here, because "which number is the wind at height h" should keep
+// having exactly one answer and this is the module that owns the question.
+
+import { windAtAltitude } from './domain/vertical.js';
+
+export { windAtAltitude };
 
 /** The heights Open-Meteo publishes wind at, in m AGL, low to high. */
 export const CRUISE_ALTS_M = [10, 80, 120, 180];

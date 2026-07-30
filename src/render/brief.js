@@ -338,6 +338,10 @@ function renderSheet(b, fp, route, u) {
   host.appendChild(h('p', 'brief-foot',
     `FPV Mission Planner · generated ${b.generatedAt.toLocaleString()} · a planning estimate, `
     + 'not a guarantee. Fly with margin.'));
+  // Attribution travels with the copy, which is the whole point of a printed
+  // brief: CC BY 4.0 asks for the credit wherever the work appears, and the
+  // sheet is where this one leaves the app.
+  if (b.dataLine) host.appendChild(h('p', 'brief-foot brief-attribution', b.dataLine));
 }
 
 /* ---------- open / close ---------- */
@@ -382,6 +386,7 @@ export function openBrief() {
     cruiseAltM: state.cruiseAltM,
     times: legTimes(r),
     launchAt: plannedLaunchTime(),
+    terrainAttribution: latest.provenance?.terrainAttribution ?? null,
     units: u,
     expert: !beginner(),
   });

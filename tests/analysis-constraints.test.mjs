@@ -29,11 +29,17 @@ test('the constraint code registry is exactly this list', () => {
   // deliberate act; this list is where it gets acknowledged.
   assert.deepEqual(Object.keys(CONSTRAINT_CODES).sort(), [
     'W-AIR-DENSITY-ALTITUDE',
+    'W-ALT-DENSITY-OPTIMISTIC',
+    'W-ALT-VERTICAL-CONSERVATIVE',
+    // Retired in M3b and deliberately still registered: the id travels in saved
+    // dismissals and exported briefs, and a reader who meets it has to be able
+    // to look it up. Nothing produces it any more.
     'W-ALT-VERTICAL-UNMODELLED',
     'W-ANALYSIS-UNCLASSIFIED',
     'W-DATA-ALTITUDE-UNRESOLVED',
     'W-DATA-LINK-ABSENT',
     'W-DATA-TERRAIN-ABSENT',
+    'W-DATA-TERRAIN-SAMPLE-MISSING',
     'W-ENERGY-HOVER-NEAR-RATING',
     'W-ENERGY-HOVER-OVER-RATING',
     'W-ENERGY-NO-PACK',
@@ -46,6 +52,9 @@ test('the constraint code registry is exactly this list', () => {
     'W-LIFT-NO-MARGIN',
     'W-RESERVE-HOLD-BUDGET',
     'W-RESERVE-ONE-WAY',
+    'W-RETURN-ENERGY-SHORT',
+    'W-RETURN-TERRAIN-BLOCKED',
+    'W-RETURN-TERRAIN-UNKNOWN',
     'W-RF-FRESNEL',
     'W-RF-LOS-BLOCKED',
     'W-ROUTE-RESERVE-SHORT',
@@ -54,6 +63,7 @@ test('the constraint code registry is exactly this list', () => {
     'W-TERR-CLEARANCE',
     'W-TERR-CLEARANCE-LOW',
     'W-WIND-GUST-AUTHORITY',
+    'W-WIND-LEVEL-MISMATCH',
     'W-WIND-NO-CLOSE',
   ]);
 });

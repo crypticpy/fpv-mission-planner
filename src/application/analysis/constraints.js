@@ -72,6 +72,21 @@ const ONE_BEARING = 'only the planned bearing is profiled';
 const NO_VERTICAL = 'climb and descent energy are not modelled';
 const BENCH_DATA = 'the figures behind this come off bench data, not this airframe';
 
+/* Two producers now raise the terrain and link codes: the single-bearing card
+ * (render/terrain.js) and M3b's route-wide pass over the corridor. Neither is
+ * "the planned bearing" alone any more, so these four codes carry the limitation
+ * that is true of both — the ground is known where somebody sampled it, and
+ * nowhere else. */
+const SAMPLED_GROUND = 'the ground is only known where it was sampled';
+const BARE_EARTH = 'the DEM is bare earth — trees, towers and wires are not in it';
+
+/* M3b's vertical model, stated once. Every constraint that leans on a climb or
+ * descent figure repeats these, because a pilot reading one of them is entitled
+ * to know the number was chosen to be pessimistic rather than measured. */
+const CLIMB_BOUND = 'climb energy is the potential energy gained over the drivetrain efficiency, '
+  + 'which is an upper bound on the rotor model rather than a measurement';
+const NO_REGEN = 'a descent never returns energy to the pack in this model';
+
 /**
  * Every code this tool can emit, frozen. The tests assert this object's shape,
  * so a rename is a deliberate, visible act — which is the point: these ids will
@@ -183,39 +198,43 @@ export const CONSTRAINT_CODES = Object.freeze(/** @type {Record<string, Constrai
     ),
   },
 
-  /* ---- terrain (render/terrain.js, injected) ---- */
+  /* ---- terrain (render/terrain.js's card, and M3b's route-wide pass) ---- */
   'W-TERR-CLEARANCE': {
     code: 'W-TERR-CLEARANCE', producer: 'terrain', severity: 'critical', legacyLevel: 'critical',
     explanation: why(
-      ['elevation profile along the planned bearing', 'cruise altitude above launch'],
-      'ground rising above the cruise altitude before the turnaround',
-      [ONE_BEARING, 'the DEM is bare earth — trees, towers and wires are not in it'],
+      ['elevation profile along the planned bearing', 'corridor terrain samples',
+        'each leg\'s resolved altitude'],
+      'ground staying below the height the aircraft is flying at',
+      [SAMPLED_GROUND, BARE_EARTH],
     ),
   },
   'W-TERR-CLEARANCE-LOW': {
     code: 'W-TERR-CLEARANCE-LOW', producer: 'terrain', severity: 'warning', legacyLevel: 'serious',
     explanation: why(
-      ['elevation profile along the planned bearing', 'cruise altitude above launch'],
-      'less than 30 m of clearance over the ground before the turnaround',
-      [ONE_BEARING, 'the DEM is bare earth — trees, towers and wires are not in it'],
+      ['elevation profile along the planned bearing', 'corridor terrain samples',
+        'each leg\'s resolved altitude'],
+      'at least 30 m of clearance over the ground everywhere the route goes',
+      [SAMPLED_GROUND, BARE_EARTH],
     ),
   },
 
-  /* ---- radio link (render/terrain.js, injected) ---- */
+  /* ---- radio link (render/terrain.js's card, and M3b's route-wide pass) ---- */
   'W-RF-LOS-BLOCKED': {
     code: 'W-RF-LOS-BLOCKED', producer: 'link', severity: 'critical', legacyLevel: 'critical',
     explanation: why(
-      ['elevation profile', 'cruise altitude', 'antenna height', 'radio band'],
+      ['elevation profile', 'corridor terrain samples', 'flight altitude',
+        'antenna height', 'radio band'],
       'a clear line of sight from the pilot to the aircraft',
-      [ONE_BEARING, 'antenna pattern, polarisation and transmit power are not modelled'],
+      [SAMPLED_GROUND, 'antenna pattern, polarisation and transmit power are not modelled'],
     ),
   },
   'W-RF-FRESNEL': {
     code: 'W-RF-FRESNEL', producer: 'link', severity: 'warning', legacyLevel: 'serious',
     explanation: why(
-      ['elevation profile', 'cruise altitude', 'antenna height', 'radio band'],
+      ['elevation profile', 'corridor terrain samples', 'flight altitude',
+        'antenna height', 'radio band'],
       'the first Fresnel zone kept 60% clear of the ground',
-      [ONE_BEARING, 'antenna pattern, polarisation and transmit power are not modelled'],
+      [SAMPLED_GROUND, 'antenna pattern, polarisation and transmit power are not modelled'],
     ),
   },
 
@@ -300,12 +319,93 @@ export const CONSTRAINT_CODES = Object.freeze(/** @type {Record<string, Constrai
       ['the leg solver takes one cruise policy for the whole route (M3)'],
     ),
   },
+  /**
+   * Retired by M3b, and deliberately still here.
+   *
+   * Nothing produces this any more: climb and descent now cost something, so the
+   * sentence this code carried ("the change is recorded and costs nothing") is no
+   * longer true and W-ALT-VERTICAL-CONSERVATIVE says the true thing instead. The
+   * entry stays because these ids travel — a brief exported last week, a
+   * dismissal saved in someone's browser — and a reader that meets this code has
+   * to be able to look it up. A registered code with no producer is fine; an
+   * unregistered one that turns up in saved state is not.
+   */
   'W-ALT-VERTICAL-UNMODELLED': {
     code: 'W-ALT-VERTICAL-UNMODELLED', producer: 'analysis', severity: 'advisory', legacyLevel: null,
     explanation: why(
       ['segment altitudes'],
       'level flight between waypoints',
-      [NO_VERTICAL, 'the altitude change is recorded and costs nothing in this model (M3)'],
+      [NO_VERTICAL, 'retired in M3b: superseded by W-ALT-VERTICAL-CONSERVATIVE'],
+    ),
+  },
+  'W-ALT-VERTICAL-CONSERVATIVE': {
+    code: 'W-ALT-VERTICAL-CONSERVATIVE', producer: 'analysis', severity: 'advisory', legacyLevel: null,
+    explanation: why(
+      ['segment altitudes', 'all-up mass', 'drivetrain efficiency', 'hover power'],
+      'a climb charged at the potential energy it buys, and a descent charged at no less '
+      + 'than level flight',
+      [CLIMB_BOUND, NO_REGEN,
+        'the climb and descent times are reported but not added to the leg, so a leg too '
+        + 'short to make its own height change is stated rather than lengthened'],
+    ),
+  },
+  'W-ALT-DENSITY-OPTIMISTIC': {
+    code: 'W-ALT-DENSITY-OPTIMISTIC', producer: 'analysis', severity: 'caution', legacyLevel: null,
+    explanation: why(
+      ['launch elevation', 'temperature', 'humidity', 'each leg\'s resolved altitude'],
+      'the air the plan was solved in being the air the route actually flies through',
+      ['the plan is solved at one density for the whole flight; this compares that '
+        + 'density against the air at each leg\'s own height',
+        'humidity is carried up unchanged, and the temperature is lapsed at the ISA rate '
+        + 'rather than forecast'],
+    ),
+  },
+  'W-WIND-LEVEL-MISMATCH': {
+    code: 'W-WIND-LEVEL-MISMATCH', producer: 'analysis', severity: 'caution', legacyLevel: null,
+    explanation: why(
+      ['the forecast\'s published wind levels', 'the planning level', 'each leg\'s height above launch'],
+      'the route being flown in the wind it was planned against',
+      ['the plan takes one wind for the whole flight; nothing here re-solves a leg at its own wind',
+        'levels between two published heights are interpolated, and a forecast with one '
+        + 'level supports no gradient at all'],
+    ),
+  },
+  'W-DATA-TERRAIN-SAMPLE-MISSING': {
+    code: 'W-DATA-TERRAIN-SAMPLE-MISSING', producer: 'analysis', severity: 'unknown', legacyLevel: null,
+    explanation: why(
+      ['corridor terrain samples', 'the elevation provider\'s coverage'],
+      'ground under every station of the route',
+      ['a station with no elevation is checked against nothing — it is not clear, it is unknown',
+        SAMPLED_GROUND],
+    ),
+  },
+  'W-RETURN-TERRAIN-BLOCKED': {
+    code: 'W-RETURN-TERRAIN-BLOCKED', producer: 'analysis', severity: 'critical', legacyLevel: null,
+    explanation: why(
+      ['corridor terrain samples', 'the direct line home from each waypoint', 'return altitude'],
+      'a flight home from any waypoint that stays above the ground under it',
+      [SAMPLED_GROUND, BARE_EARTH,
+        'the return is flown at one height — nothing here plans a climb to clear the ridge'],
+    ),
+  },
+  'W-RETURN-TERRAIN-UNKNOWN': {
+    code: 'W-RETURN-TERRAIN-UNKNOWN', producer: 'analysis', severity: 'unknown', legacyLevel: null,
+    explanation: why(
+      ['corridor terrain samples', 'the direct line home from each waypoint'],
+      'ground under the direct flight home from every waypoint',
+      ['only the route corridor was sampled, and a direct return cuts across ground '
+        + 'nobody looked at',
+        SAMPLED_GROUND],
+    ),
+  },
+  'W-RETURN-ENERGY-SHORT': {
+    code: 'W-RETURN-ENERGY-SHORT', producer: 'analysis', severity: 'warning', legacyLevel: null,
+    explanation: why(
+      ['energy spent reaching each waypoint', 'the adverse-wind flight home from it',
+        'the hunt-and-land allowance', 'delivered energy'],
+      'every waypoint on the route still affording the flight home from it',
+      ['the return is direct and level — a climb to clear terrain on the way back is not costed',
+        NO_VERTICAL],
     ),
   },
 }));
@@ -318,9 +418,13 @@ export const CONSTRAINT_CODES = Object.freeze(/** @type {Record<string, Constrai
  */
 export const EXPLANATION_CODES = Object.freeze({
   'X-SPEED-POLICY-FALLBACK': 'Authored speed policy not honoured; flown at the plan\'s cruise policy.',
+  // Retired with W-ALT-VERTICAL-UNMODELLED, and kept for the same reason: it is
+  // on segments inside briefs that were exported before M3b.
   'X-ALT-VERTICAL-UNMODELLED': 'Altitude change recorded; no vertical energy is modelled.',
+  'X-ALT-VERTICAL-CHARGED': 'Altitude change costed: climb at m·g·h/η, descent at no credit.',
   'X-ALT-UNRESOLVED': 'Altitude has no metres-MSL figure, so nothing was derived from it.',
   'X-HOLD-HOVER-POWER': 'Dwell charged at hover power for the authored time.',
+  'X-TERR-SAMPLE-MISSING': 'Some ground under this leg has no elevation; clearance there is unknown.',
 });
 
 /* ---------- legacy warning classification ---------- */

@@ -105,3 +105,38 @@ export function bearingDelta(a, b) {
   const d = Math.abs(wrapBearing(a) - wrapBearing(b));
   return d > 180 ? 360 - d : d;
 }
+
+/**
+ * Where a point falls relative to the great circle from `from` to `to`:
+ * `alongKm` is its projection onto that course (negative behind the start), and
+ * `crossKm` is how far off the course it lies, signed positive to the right of
+ * the direction of travel.
+ *
+ * The radio needs this. A sightline from the pilot to the aircraft runs straight
+ * from one to the other, and the only ground this app has sampled is the ground
+ * under the *route* — which on a dogleg is somewhere else entirely. Projecting
+ * each sampled point onto the sightline is what says whether it is genuinely in
+ * the way or merely somewhere near, and `crossKm` is the number that decides.
+ *
+ * Standard spherical cross-track/along-track, exact for the sphere geo.js
+ * already models. `from` and `to` at the same place have no course, so both
+ * figures come back 0 — there is no sightline to be off.
+ *
+ * @param {LatLng} from
+ * @param {LatLng} to
+ * @param {LatLng} point
+ * @returns {{ alongKm: number, crossKm: number }}
+ */
+export function trackOffsetKm(from, to, point) {
+  const legKm = distanceKm(from, to);
+  if (!(legKm > 0)) return { alongKm: 0, crossKm: 0 };
+  const d13 = distanceKm(from, point) / EARTH_R_KM;
+  if (!(d13 > 0)) return { alongKm: 0, crossKm: 0 };
+  const t13 = bearingTo(from, point) * Math.PI / 180;
+  const t12 = bearingTo(from, to) * Math.PI / 180;
+  const xt = Math.asin(Math.max(-1, Math.min(1, Math.sin(d13) * Math.sin(t13 - t12))));
+  const at = Math.acos(Math.max(-1, Math.min(1, Math.cos(d13) / Math.cos(xt))));
+  // acos loses the sign, and a point behind the start is not on this leg at all.
+  const turn = Math.abs(((t13 - t12 + 3 * Math.PI) % (2 * Math.PI)) - Math.PI);
+  return { alongKm: (turn > Math.PI / 2 ? -1 : 1) * at * EARTH_R_KM, crossKm: xt * EARTH_R_KM };
+}

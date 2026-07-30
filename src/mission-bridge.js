@@ -199,6 +199,37 @@ export function dispatch(command, opts = {}) {
   return true;
 }
 
+/**
+ * Re-resolve the open mission's altitudes against whatever the terrain sampler
+ * knows now.
+ *
+ * A waypoint authored `agl` cannot be turned into a metres-MSL figure until
+ * something has sampled the ground under it, and that sampling is a network
+ * round trip that lands long after the command that created the waypoint. Until
+ * it does, resolveMissionAltitudes() correctly refuses to invent a number and
+ * the analysis carries a stated unknown. This is the other half: when the ground
+ * arrives, the document gets its figures without the pilot having to touch
+ * anything.
+ *
+ * Not a command, and deliberately not a save: nothing the pilot authored has
+ * changed, so `updatedAt` stays put (an async landing that bumped the revision
+ * would make every in-flight fetch stale against itself) and there is nothing
+ * new to persist — `resolvedMslM` is derived, and re-derived on load.
+ *
+ * @returns {boolean} whether any altitude's resolved figure moved
+ */
+export function reresolveAltitudes() {
+  if (!doc) return false;
+  const next = resolveMissionAltitudes(doc, deps?.terrainSampler ?? null).doc;
+  // Structural sharing is the change detector: resolveMissionAltitudes() hands
+  // back the identical segment object when its figure did not move.
+  const same = next.route.returnPolicy === doc.route.returnPolicy
+    && next.route.segments.every((seg, i) => seg === doc?.route.segments[i]);
+  if (same) return false;
+  doc = next;
+  return true;
+}
+
 /* ---------- route commands (raised by src/map.js through its deps) ---------- */
 
 /** @param {{ lat: number, lng: number }} pt */

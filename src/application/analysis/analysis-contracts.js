@@ -181,6 +181,26 @@ export const CORRIDOR_MAX_SAMPLES = 128;
  */
 export const CORRIDOR_WIDTH_M = 0;
 
+/* ---------- terrain clearance thresholds ---------- */
+
+/**
+ * Clearance below this (metres) is close enough to the ground to say so. The
+ * same number src/terrain.js prints on the single-bearing card, restated here
+ * because the pipeline may not import that module (ADR 0009) and two different
+ * thresholds would mean the card and the constraint list disagreed about the
+ * same ridge. tests/terrain-gate.test.mjs pins the two together.
+ */
+export const TERRAIN_CLEARANCE_WARN_M = 30;
+
+/**
+ * At or below this the route is not close to the ground, it is *in* it: the
+ * planned altitude sits under the sampled surface. Zero is the whole threshold —
+ * there is no margin below which flying through a hill is acceptable — and it
+ * exists as a named constant only so the comparison reads as a decision rather
+ * than a stray literal.
+ */
+export const TERRAIN_CLEARANCE_FLOOR_M = 0;
+
 /* ---------- provenance ---------- */
 
 /**
@@ -194,6 +214,7 @@ export const CORRIDOR_WIDTH_M = 0;
  * @property {string|null} terrainSource        who supplied the ground
  * @property {string|null} samplingResolution   how finely it was sampled
  * @property {string|null} calibrationSource    the flight-log fit behind the model
+ * @property {string|null} terrainAttribution   the licence line the DEM travels under
  * @property {string|null} retrievedAt          when the evidence was fetched
  * @property {string} computedAt                when this snapshot was built
  * @property {string} cacheKey
@@ -213,6 +234,10 @@ export function provenanceOf(overrides = {}) {
     terrainSource: null,
     samplingResolution: null,
     calibrationSource: null,
+    // Open-Meteo's DEM is CC BY 4.0. The licence line rides on the snapshot so
+    // every surface that prints ground — the card, the brief, an export — can
+    // make the attribution without reaching into an infrastructure module for it.
+    terrainAttribution: null,
     retrievedAt: null,
     computedAt: '',
     cacheKey: '',
@@ -228,7 +253,11 @@ export function provenanceOf(overrides = {}) {
  * composes the document's updatedAt with a hash of the rail inputs that change
  * the answer without touching the document. Compare it for equality; never
  * parse it.
- * @typedef {{ missionId: string, missionUpdatedAt: string }} AnalysisRevision
+ * Both fields are null before a document is open: the host is asked for a
+ * revision on every render, including the ones that happen while the repository
+ * is still opening, and a null pair is the honest answer to "which mission is
+ * this". `acceptAsync` reads it as "nothing to be stale against".
+ * @typedef {{ missionId: string|null, missionUpdatedAt: string|null }} AnalysisRevision
  */
 
 /**
@@ -255,6 +284,8 @@ export function provenanceOf(overrides = {}) {
  * injected, so this is a structural description of what analyze.js needs from
  * it rather than an import of the module that returns it.
  * @typedef {object} SolvedPlan
+ * @property {number} rho     the one density the whole plan was solved at
+ * @property {{ massKg: number, etaProp: number }} cfg  what the rotor model ran on
  * @property {{ pW: number }} hover
  * @property {{ planningMs: number, gustFactor: number }} wind
  * @property {{ deliveredWh: number, huntLandWh: number, landFloorPct: number,
@@ -288,10 +319,29 @@ export function provenanceOf(overrides = {}) {
  */
 
 /**
+ * What planRoute already worked out about one waypoint: everything burned
+ * reaching it, the adverse-wind flight home from it, and what the pack is
+ * therefore committed to at that turn. M3b's direct-return check reads these
+ * rather than re-deriving a return — one integrator, one answer.
+ * @typedef {object} RouteHold
+ * @property {number} index
+ * @property {number} spentWh
+ * @property {number} distHomeKm
+ * @property {number} courseHome
+ * @property {number|null} homeWhPerKm
+ * @property {number} homeWh
+ * @property {number} needWh
+ * @property {boolean} solved
+ */
+
+/**
  * The subset of `planRoute()`'s result this layer reads.
  * @typedef {object} RouteResult
  * @property {boolean} empty
  * @property {RouteLeg[]} legs
+ * @property {RouteHold[]} holds
+ * @property {{ deliveredWh: number, floorWh: number, huntLandWh: number,
+ *              landFloorPct: number }|null} budget
  * @property {number} totalKm
  * @property {number} totalMin
  * @property {number} totalWh
@@ -318,7 +368,8 @@ export function provenanceOf(overrides = {}) {
  * @property {number} plannedMin
  * @property {number} plannedWh
  * @property {number} holdWh      every segment's dwell, at hover power
- * @property {number} missionWh   plannedWh + holdWh
+ * @property {number} verticalWh  every segment's climb and descent (M3b)
+ * @property {number} missionWh   plannedWh + holdWh + verticalWh
  */
 
 /** @typedef {RouteResult & RouteTotals} AnalysedRoute */
@@ -327,10 +378,59 @@ export function provenanceOf(overrides = {}) {
 /** @typedef {{ blocked?: boolean, [key: string]: unknown }} LinkResult */
 
 /**
+ * What one leg's climb or descent costs (M3b). Exactly one of the two energies
+ * is ever non-zero — a leg changes height in one direction — and the seconds are
+ * reported rather than folded into `timeMin`, because the route integrator sized
+ * the leg and this module does not get to move its clock.
+ * @typedef {object} SegmentVertical
+ * @property {number} climbWh
+ * @property {number} descentWh
+ * @property {number} wh
+ * @property {number} climbS
+ * @property {number} descentS
+ */
+
+/**
+ * The ground under one leg, as the corridor sampled it. `missing` counts
+ * stations with no elevation at all — the difference between "checked and clear"
+ * and "never looked", which is the distinction this whole milestone turns on.
+ * `minM` is null when nothing under the leg could be checked.
+ * @typedef {object} SegmentClearance
+ * @property {number|null} minM
+ * @property {string|null} atSampleId  the corridor sample `minM` was measured at
+ * @property {number} checked
+ * @property {number} missing
+ */
+
+/**
+ * The air one leg actually flies through, against the air the plan was solved
+ * in. `hoverPowerRatio` is >1 when the leg's air is thinner than the plan's.
+ * @typedef {object} SegmentAir
+ * @property {number} rho
+ * @property {number} tempC
+ * @property {number} densityAltM
+ * @property {number} hoverPowerRatio
+ */
+
+/**
+ * The wind at one leg's own height, and where that figure came from.
+ * @typedef {object} SegmentWind
+ * @property {number} windMph
+ * @property {number} windFromDeg
+ * @property {'interpolated'|'clamped'|'single-level'} basis
+ * @property {readonly number[]} levelsM
+ * @property {number} heightAboveLaunchM
+ */
+
+/**
  * What the pipeline could say about one authored segment. Energy is split so
- * the hold contribution is checkable on its own, and the vertical figures are
- * *recorded, not modelled* — M2 states the altitude change and says plainly
- * that no vertical energy went into the number beside it.
+ * each contribution is checkable on its own: `flightWh` is the route
+ * integrator's level-flight figure and is never touched, `holdWh` is the dwell,
+ * and `vertical` is M3b's climb/descent on top of both.
+ *
+ * The four nested blocks are all nullable, and null means "not established" —
+ * no field for the ground, no forecast levels for the wind, no resolved altitude
+ * for the air. None of them ever carries a zero standing in for an absence.
  * @typedef {object} SegmentAnalysis
  * @property {string} segmentId
  * @property {number} index
@@ -349,6 +449,10 @@ export function provenanceOf(overrides = {}) {
  * @property {boolean} speedHonoured     false when the solver could not take it
  * @property {number|null} altitudeMslM
  * @property {number|null} altitudeDeltaM
+ * @property {SegmentVertical|null} vertical
+ * @property {SegmentClearance|null} clearance
+ * @property {SegmentAir|null} air
+ * @property {SegmentWind|null} wind
  * @property {string[]} explanations     X-* codes; see EXPLANATION_CODES
  */
 

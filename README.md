@@ -238,8 +238,9 @@ beside it. The route and launch point live in the **mission document**, which
 autosaves to the browser's own storage: both survive a reload, and moving the
 launch keeps the waypoints where they are. The *Missions* fold on the planner
 rail manages saved missions — rename, save a copy, reopen, delete, and export
-or import as JSON files. Terrain and radio analysis stay on the plan's primary
-bearing — a route leg is not re-profiled.
+or import as JSON files. The terrain chart and the link card still read the
+plan's primary bearing, but every leg of the route is checked against its own
+sampled ground — see *Ground under the whole route* below.
 
 **Mission brief**: the button on the map card renders the whole plan as one
 printable, phone-readable page — launch coordinates (decimal and
@@ -270,6 +271,39 @@ says 10,000 ft and the pin is in Austin, the profile is drawn but the plan stays
 on the scenario you asked for. Offline, or anywhere the request fails, the
 planner falls back to the launch elevation and everything else is unaffected.
 
+## Ground under the whole route
+
+The profile above looks along one bearing. A route that doglegs to a ridge and
+back leaves the other legs unlooked-at, and "we didn't look" is not the same
+answer as "it's clear". So the planner also samples a **corridor along every
+segment** — stations down each leg plus a post 300 m either side of the track —
+and runs four checks against what comes back:
+
+- **Clearance.** How much air is under each leg, at that leg's own altitude.
+  Rising ground that eats the margin is a warning; ground *above* the leg is a
+  critical, and both name the segment and the sample where it happens.
+- **Line of sight.** The same Fresnel geometry as the outbound card, per
+  segment, so a leg the pilot cannot see is flagged even when the leg the ring
+  was drawn on is clear.
+- **Direct return.** From every waypoint, the flight home a failsafe would
+  actually fly: the terrain on that straight line and the energy to cross it.
+- **Air and wind at altitude.** Density is computed from each sample's own
+  elevation and the temperature lapsed to it, and the wind is read at the height
+  the leg flies rather than at whichever level the forecast happens to publish.
+
+Anywhere the DEM has a hole — an unbuilt tile, a coastline — the affected
+samples come back empty and the route carries a **stated unknown** for them.
+That is deliberate and it is the rule the whole feature is built around: missing
+ground is never quietly rendered as clear ground, and a leg over a data hole
+reads as *nobody knows*, not as a pass.
+
+Climb and descent are charged too, now that the legs have heights. A climb costs
+the potential energy gained over drivetrain efficiency; a descent costs the
+difference between a conservative descent-power policy and the cruise already
+budgeted, and **never** returns energy to the pack. Both ends are deliberately
+pessimistic — a planner that credits you for coming downhill is a planner that
+sends you home short.
+
 ## Radio line of sight — "energy OK, link blocked"
 
 The footprint ring is an *energy* answer: how far the pack can push and still
@@ -298,9 +332,10 @@ diffraction behaviour and the link budget to work through an intrusion that has
 already killed the video. The card and the warning quote all three bands side by
 side rather than let one number stand for "the link".
 
-Only the profiled bearing is analysed — 37 per-ray terrain profiles would be 37
-elevation requests — so the ring on every other course is still energy only, and
-the card says so.
+Only the profiled bearing gets a *chart* — 37 per-ray terrain profiles would be
+37 elevation requests — so the ring on every other course is still energy only,
+and the card says so. Route legs are checked against the corridor sample instead
+of drawn, which is a warning rather than a picture.
 
 ## Planning ahead
 
@@ -495,17 +530,22 @@ from one they typed in.
   is really living on a milder row of the table than the one we hold it at.
   Preheating is modeled; the pack cooling back down in the airstream is not, so a
   preheated plan is the optimistic end of what you'll get.
-- Climb/descent energy, rain, and prop wear aren't modeled. The scenario burn
-  multiplier is a flat average for the pattern — a single sustained dive-and-punch
-  sequence can transiently pull far beyond it, which is what the landing reserve
-  is for.
-- Wind is treated as uniform along the route — one level, one direction, all the
-  way out and back; mountain rotor and valley acceleration are very much not
-  uniform.
-- The terrain profile is a bare-earth elevation model. It knows nothing about
-  trees, towers, wires or buildings, and the density altitude it feeds the model
-  is the turnaround's — a ridge higher than the turnaround is drawn and warned
-  about, but the plan is not flown over it.
+- Rain and prop wear aren't modeled. The scenario burn multiplier is a flat
+  average for the pattern — a single sustained dive-and-punch sequence can
+  transiently pull far beyond it, which is what the landing reserve is for.
+- Climb and descent energy *are* modeled on a route, but as a bound rather than a
+  simulation: the climb charge is the ceiling of the momentum-theory excess it
+  stands in for, and the descent is a fixed power policy with no regeneration.
+  Both err against you on purpose. The ring, which has no altitude profile to
+  work from, is still level flight.
+- Wind aloft is interpolated between the levels the forecast publishes. Where the
+  forecast has only one level there is no gradient and none is invented; and
+  either way it is a smooth field, so mountain rotor and valley acceleration are
+  very much not in it.
+- The terrain data is a bare-earth elevation model. It knows nothing about trees,
+  towers, wires or buildings, and the density altitude on the dashboard is the
+  turnaround's — a ridge higher than the turnaround is drawn and warned about,
+  but the ring is not flown over it. Route legs do read their own sampled ground.
 - The link check is **geometry, not a link budget**. It counts bare-earth terrain
   against the first Fresnel zone; it knows nothing about transmit power, antenna
   pattern and polarisation, noise floor, multipath, or the trees and buildings

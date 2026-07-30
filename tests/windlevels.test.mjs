@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {
   CRUISE_ALTS_M, CRUISE_ALT_DEFAULT_M, isCruiseAlt, levelLabel,
   windAtLevel, levelWindPatch, setWindLevels, windLevels, activeWindAt, activeLevelPatch,
-  launchWind,
+  launchWind, windAtAltitude,
 } from '../src/windprofile.js';
 import { fetchLiveEnv, shapeForecast, envAtHour } from '../src/weather.js';
 import { planMission, U } from '../src/domain/physics.js';
@@ -81,6 +81,39 @@ test('the launch and landing wind is the 10 m one, said to be measured or not', 
   // A profile with no 10 m level in it is the same case.
   setWindLevels({ 80: LEVELS[80] }, 22);
   assert.deepEqual(launchWind(15), { mph: 7.5, measured: false });
+});
+
+/* ---------- 1b. the wind between the published levels (M3b) ---------- */
+
+/* A route that climbs over a ridge does not fly at 80 m because the forecast
+ * happens to publish 80 m. windAtAltitude answers "the wind at height h" for the
+ * heights in between — and it is asserted here, through windprofile.js's
+ * re-export, because this module is the one that owns that question. The
+ * arithmetic itself is pinned in tests/vertical-physics.test.mjs. */
+
+test('a height between two published levels reads as a blend of them, and says so', () => {
+  const mid = windAtAltitude(LEVELS, 100);
+  assert.ok(mid, 'two bracketing levels is an answer');
+  assert.equal(mid.basis, 'interpolated');
+  assert.ok(mid.windMph > 15 && mid.windMph < 19, `${mid.windMph} mph sits between 80 m and 120 m`);
+  assert.deepEqual(mid.levelsM, [80, 120], 'and names which two it came off');
+});
+
+test('a height above the top published level is clamped, not extrapolated upward', () => {
+  const high = windAtAltitude(LEVELS, 400);
+  assert.equal(high.basis, 'clamped');
+  assert.equal(high.windMph, 24, '180 m is the highest thing anyone measured');
+  assert.deepEqual(high.levelsM, [180]);
+});
+
+test('one published level is one wind at every height, and no level is no wind', () => {
+  // The rule that matters most: where the forecast gives a single level there is
+  // no gradient to report, so none is invented.
+  const only = windAtAltitude({ 80: LEVELS[80] }, 300);
+  assert.equal(only.basis, 'single-level');
+  assert.equal(only.windMph, 15);
+  assert.equal(windAtAltitude(null, 100), null, 'and no profile is a stated nothing');
+  assert.equal(windAtAltitude({}, 100), null);
 });
 
 /* ---------- 2. one call carries the whole profile ---------- */

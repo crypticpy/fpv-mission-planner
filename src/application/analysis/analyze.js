@@ -21,14 +21,17 @@
 //     is planRoute; every number in the snapshot came out of one of them. The
 //     parity test exists to keep it that way.
 //
-//   It does not model vertical flight. Segment altitudes are read, the change
-//     between them is recorded, and the snapshot says plainly that no energy
-//     was charged for it. That is M3's work and pretending otherwise here would
-//     produce a number nobody had validated.
+//   It does not do the vertical arithmetic itself. M3b charges climb and
+//     descent, reads the air and the wind at each leg's own height, and checks
+//     the ground under every segment — but the equations live in
+//     domain/vertical.js and domain/fresnel.js, and the per-leg and route-wide
+//     bookkeeping around them lives in vertical-flight.js and route-checks.js.
+//     What stays here is the pass that calls them in order.
 //
 //   It does not import a provider. Not terrain.js, not rf.js, not state.js, not
 //     a render module — the layer check enforces it and the injected ports make
-//     it easy to honour.
+//     it easy to honour. The terrain field arrives the same way everything else
+//     impure does: as a nullable accessor in `deps`.
 
 import { destination, distanceKm, bearingTo } from '../../domain/geo.js';
 import { HOLD_INTENTS } from '../../domain/mission/mission-schema.js';
@@ -38,6 +41,8 @@ import {
   anchorAt, hashKey, provenanceOf, stableStringify,
 } from './analysis-contracts.js';
 import { draftConstraint, draftFromLegacy, finalizeConstraints } from './constraints.js';
+import { returnEnergyChecks, routeWideChecks } from './route-checks.js';
+import { legVerticalFlight, verticalFlightDrafts } from './vertical-flight.js';
 
 /**
  * @typedef {import('../../domain/mission/mission-schema.js').MissionDocumentV1} MissionDocumentV1
@@ -54,8 +59,11 @@ import { draftConstraint, draftFromLegacy, finalizeConstraints } from './constra
  * @typedef {import('./analysis-contracts.js').MissionPlan} MissionPlan
  * @typedef {import('./analysis-contracts.js').RouteResult} RouteResult
  * @typedef {import('./analysis-contracts.js').SegmentAnalysis} SegmentAnalysis
+ * @typedef {import('./analysis-contracts.js').SegmentClearance} SegmentClearance
  * @typedef {import('./analysis-contracts.js').SolvedPlan} SolvedPlan
  * @typedef {import('./constraints.js').ConstraintDraft} ConstraintDraft
+ * @typedef {import('../terrain/terrain-contracts.js').TerrainField} TerrainField
+ * @typedef {import('./vertical-flight.js').TaggedLegFlight} TaggedLegFlight
  */
 
 /** @typedef {{ lat: number, lng: number }} LatLng */
@@ -76,6 +84,16 @@ import { draftConstraint, draftFromLegacy, finalizeConstraints } from './constra
  * below them is impure and may be null, which is a statement the snapshot then
  * carries as an `unknown`-severity constraint.
  *
+ * `terrainField` is M3b's seam and it is an accessor rather than a value on
+ * purpose. Corridor sampling is asynchronous and lands whenever the network
+ * lets it; the host holds the newest field it has accepted and hands the
+ * pipeline a way to read it at the instant of the pass. That keeps this module
+ * synchronous and pure — one call, one answer, no awaiting — while the freshness
+ * question stays where it belongs, with the host that owns the clock. What makes
+ * the memo honest is `terrainSignature`: the host derives it from the field it
+ * is holding, so a new field is a new question rather than a cache hit on the
+ * old one.
+ *
  * @typedef {object} AnalysisDeps
  * @property {(inputs: AnalysisInputs) => MissionPlan} plan
  * @property {(plan: SolvedPlan, opts: { launch: LatLng, waypoints: LatLng[],
@@ -85,6 +103,9 @@ import { draftConstraint, draftFromLegacy, finalizeConstraints } from './constra
  * @property {((plan: SolvedPlan) => LegacyWarning[])|null} [terrainWarnings]
  * @property {(() => { points?: unknown[], spanKm?: number }|null)|null} [elevationProfile]
  * @property {((plan: SolvedPlan) => string|null)|null} [strandedNote]
+ * @property {(() => TerrainField|null)|null} [terrainField] the corridor's ground
+ * @property {(() => unknown)|null} [windLevels] the forecast's published wind levels
+ * @property {number|null} [linkGhz] the band the pilot selected
  * @property {string|null} [terrainSignature] identifies the active terrain data
  * @property {string|null} [forecastSignature] overrides the document's own
  * @property {Partial<AnalysisProvenance>} [provenance] what the callers know
@@ -227,19 +248,42 @@ function buildCorridor(doc, legs, bearingDeg, fallbackKm) {
 /* ---------- per-segment reading ---------- */
 
 /**
+ * What `readSegments` needs beyond the document: the plan's own figures, the
+ * air it was solved in, and the forecast levels — all of them read, none of
+ * them re-derived.
+ * @typedef {object} SegmentContext
+ * @property {SolvedPlan} plan
+ * @property {number} massKg
+ * @property {number} etaProp
+ * @property {number} planRho
+ * @property {number} refElevM
+ * @property {number} refTempC
+ * @property {number} rhPct
+ * @property {number|null} launchElevMslM
+ * @property {unknown} windLevels
+ * @property {Record<string, SegmentClearance>} clearance
+ */
+
+/**
  * @param {MissionDocumentV1} doc
  * @param {DocLeg[]} legs
  * @param {RouteResult|null} route
- * @param {number} hoverW
- * @returns {{ segments: Record<string, SegmentAnalysis>, holdWh: number, drafts: ConstraintDraft[] }}
+ * @param {SegmentContext} ctx
+ * @returns {{ segments: Record<string, SegmentAnalysis>, holdWh: number, verticalWh: number,
+ *            verticalWhTo: number[], flights: TaggedLegFlight[], drafts: ConstraintDraft[] }}
  */
-function readSegments(doc, legs, route, hoverW) {
+function readSegments(doc, legs, route, ctx) {
+  const hoverW = ctx.plan.hover.pW;
   /** @type {Record<string, SegmentAnalysis>} */
   const segments = {};
   /** @type {ConstraintDraft[]} */
   const drafts = [];
+  /** @type {TaggedLegFlight[]} */
+  const flights = [];
+  /** @type {number[]} */
+  const verticalWhTo = [];
   let holdWh = 0;
-  let verticalSeen = false;
+  let verticalWh = 0;
 
   legs.forEach((docLeg, i) => {
     const seg = docLeg.segment;
@@ -291,10 +335,38 @@ function readSegments(doc, legs, route, hoverW) {
         + 'figure yet, so nothing here was derived from it — not the climb, not the clearance.',
         anchor,
       ));
-    } else if (altitudeDeltaM != null && altitudeDeltaM !== 0) {
-      explanations.push('X-ALT-VERTICAL-UNMODELLED');
-      verticalSeen = true;
     }
+
+    /* The level power this leg already costs, from the leg the route integrator
+     * solved — never re-derived, so the descent's "no credit below level flight"
+     * rule is measured against the same number on screen beside it. An unsolved
+     * leg falls back to hover, which is the conservative stand-in. */
+    const levelPowerW = leg && leg.whLeg != null && leg.timeMin != null && leg.timeMin > 0
+      ? leg.whLeg * 60 / leg.timeMin
+      : hoverW;
+    const flight = legVerticalFlight({
+      massKg: ctx.massKg,
+      etaProp: ctx.etaProp,
+      hoverW,
+      levelPowerW,
+      planRho: ctx.planRho,
+      altitudeMslM,
+      deltaM: altitudeDeltaM,
+      launchElevMslM: ctx.launchElevMslM,
+      refElevM: ctx.refElevM,
+      refTempC: ctx.refTempC,
+      rhPct: ctx.rhPct,
+      windLevels: ctx.windLevels,
+    });
+    flights.push({ segmentId: seg.id, flight });
+    if (flight.vertical) {
+      verticalWh += flight.vertical.wh;
+      explanations.push('X-ALT-VERTICAL-CHARGED');
+    }
+    verticalWhTo.push(verticalWh);
+
+    const clearance = ctx.clearance[seg.id] ?? null;
+    if (clearance && clearance.missing > 0) explanations.push('X-TERR-SAMPLE-MISSING');
 
     segments[seg.id] = Object.freeze({
       segmentId: seg.id,
@@ -314,19 +386,17 @@ function readSegments(doc, legs, route, hoverW) {
       speedHonoured,
       altitudeMslM,
       altitudeDeltaM,
+      vertical: flight.vertical,
+      clearance,
+      air: flight.air,
+      wind: flight.wind,
       explanations,
     });
   });
 
-  if (verticalSeen) {
-    drafts.push(draftConstraint(
-      'W-ALT-VERTICAL-UNMODELLED',
-      'This route changes altitude between legs. The change is recorded on each leg, but no climb or '
-      + 'descent energy is in these figures — every leg is costed as level flight.',
-    ));
-  }
+  drafts.push(...verticalFlightDrafts(flights, { planningWindMs: ctx.plan.wind.planningMs }));
 
-  return { segments, holdWh, drafts };
+  return { segments, holdWh, verticalWh, verticalWhTo, flights, drafts };
 }
 
 /* ---------- constraints from the injected providers ---------- */
@@ -464,7 +534,13 @@ export function analyzeMission(request, deps) {
       terrain: !!deps.terrainWarnings,
       profile: !!deps.elevationProfile,
       stranded: !!deps.strandedNote,
+      field: !!deps.terrainField,
     },
+    // Not a provider flag but an input: the band decides the Fresnel radius, and
+    // the wind levels decide what the legs are flying in. Both are read straight
+    // out of `deps` — neither is in the document or in `missionInputs()`.
+    linkGhz: deps.linkGhz ?? null,
+    windLevels: deps.windLevels ? deps.windLevels() : null,
     provenance: deps.provenance ?? null,
   }));
   const hit = CACHE.get(cacheKey);
@@ -509,7 +585,8 @@ function compute(doc, inputs, revision, deps, cacheKey, computedAt) {
       link: null,
       segments: {},
       constraints: finalizeConstraints(drafts),
-      provenance: buildProvenance(doc, deps, corridor, null, cacheKey, computedAt),
+      provenance: buildProvenance(doc, deps, corridor,
+        deps.terrainField ? deps.terrainField() : null, null, cacheKey, computedAt),
     });
   }
 
@@ -535,7 +612,62 @@ function compute(doc, inputs, revision, deps, cacheKey, computedAt) {
     })
     : null;
 
-  const { segments, holdWh, drafts: segmentDrafts } = readSegments(doc, legs, raw, plan.hover.pW);
+  /* The ground, as of this instant. The host holds it; this reads it once and
+   * hands the same object to every check, so nothing in one pass can see two
+   * different fields. */
+  const field = deps.terrainField ? deps.terrainField() : null;
+  const launch = { lat: doc.launch.latitude, lng: doc.launch.longitude };
+  const launchElevMslM = typeof doc.launch.elevationMslM === 'number'
+    ? doc.launch.elevationMslM
+    : null;
+
+  /* Clearance first, because the segment records carry it. The other two checks
+   * in this pass need figures readSegments has not produced yet, so the pass is
+   * deliberately split around it rather than run twice over the field. */
+  const groundChecks = routeWideChecks({
+    launch,
+    legs: legs.map((l) => ({
+      segmentId: l.segment.id,
+      to: l.to,
+      altitudeMslM: typeof l.segment.altitude.resolvedMslM === 'number'
+        ? l.segment.altitude.resolvedMslM
+        : null,
+    })),
+    corridor,
+    field,
+    fieldPortWired: !!deps.terrainField,
+    returnAltitudeMslM: typeof doc.route.returnPolicy?.altitude?.resolvedMslM === 'number'
+      ? doc.route.returnPolicy.altitude.resolvedMslM
+      : null,
+    linkGhz: deps.linkGhz ?? null,
+  });
+
+  const env = inputs.env ?? {};
+  const { segments, holdWh, verticalWh, verticalWhTo, drafts: segmentDrafts } = readSegments(
+    doc, legs, raw, {
+      plan,
+      massKg: plan.cfg.massKg,
+      etaProp: plan.cfg.etaProp,
+      planRho: plan.rho,
+      // The reading the plan's own density came off, so `atmosphereAt` lapses
+      // from the same place planMission started rather than from a second one.
+      refElevM: Number.isFinite(env.elevM) ? Number(env.elevM) : (launchElevMslM ?? 0),
+      refTempC: Number.isFinite(env.tempC) ? Number(env.tempC) : 15,
+      rhPct: Number.isFinite(env.rhPct) ? Number(env.rhPct) : 50,
+      launchElevMslM,
+      windLevels: deps.windLevels ? deps.windLevels() : null,
+      clearance: groundChecks.clearance,
+    });
+
+  /* The one check that had to wait for the climb figures: whether a waypoint
+   * still affords the flight home once the height it sits at is paid for. */
+  const returnEnergyDrafts = returnEnergyChecks({
+    legs: legs.map((l) => ({ segmentId: l.segment.id })),
+    holds: raw?.holds ?? [],
+    deliveredWh: raw?.budget?.deliveredWh ?? null,
+    routeFits: raw ? raw.fits !== false : false,
+    verticalWhTo,
+  });
 
   /* `none` means no return leg is flown, so the mission's own totals are the
    * outbound ones. planRoute's home leg is still in `legs` and still costed —
@@ -549,7 +681,11 @@ function compute(doc, inputs, revision, deps, cacheKey, computedAt) {
     plannedMin: oneWay ? raw.outMin : raw.totalMin,
     plannedWh: oneWay ? raw.outWh : raw.totalWh,
     holdWh,
-    missionWh: (oneWay ? raw.outWh : raw.totalWh) + holdWh,
+    verticalWh,
+    // `plannedWh` is planRoute's own figure and stays exactly that. The climb
+    // and the dwell are siblings beside it, so a reader can subtract either one
+    // back out and land on the integrator's number.
+    missionWh: (oneWay ? raw.outWh : raw.totalWh) + holdWh + verticalWh,
   }) : null;
 
   const profile = deps.elevationProfile ? deps.elevationProfile() : null;
@@ -562,6 +698,8 @@ function compute(doc, inputs, revision, deps, cacheKey, computedAt) {
     ...linkConstraintDrafts,
     ...(raw ? routeDrafts(raw, holdWh) : []),
     ...segmentDrafts,
+    ...groundChecks.drafts,
+    ...returnEnergyDrafts,
   ];
   if (oneWay) {
     drafts.push(draftConstraint('W-RESERVE-ONE-WAY',
@@ -579,7 +717,7 @@ function compute(doc, inputs, revision, deps, cacheKey, computedAt) {
     link,
     segments,
     constraints: finalizeConstraints(drafts),
-    provenance: buildProvenance(doc, deps, corridor, profile, cacheKey, computedAt),
+    provenance: buildProvenance(doc, deps, corridor, field, profile, cacheKey, computedAt),
   });
 }
 
@@ -624,23 +762,33 @@ function forecastSignatureOf(doc) {
  * @param {MissionDocumentV1} doc
  * @param {AnalysisDeps} deps
  * @param {CorridorRequest} corridor
+ * @param {TerrainField|null} field
  * @param {{ points?: unknown[], spanKm?: number }|null} profile
  * @param {string} cacheKey
  * @param {string} computedAt
  * @returns {AnalysisProvenance}
  */
-function buildProvenance(doc, deps, corridor, profile, cacheKey, computedAt) {
+function buildProvenance(doc, deps, corridor, field, profile, cacheKey, computedAt) {
   const env = doc.environmentReference;
   const prov = /** @type {Record<string, unknown>} */ (env?.provenance ?? {});
   const aircraft = doc.aircraftSnapshot;
   const str = (/** @type {unknown} */ v) => (typeof v === 'string' ? v : null);
-  const sampled = profile && Array.isArray(profile.points) && profile.points.length > 0
-    ? `${profile.points.length} elevation points over ${(profile.spanKm ?? 0).toFixed(1)} km`
-    : `${corridor.samples.length} corridor samples at ${corridor.spacingM} m spacing`;
+  /* The field describes the whole route and the profile describes one bearing,
+   * so where a field landed it is the better answer to "how finely was this
+   * sampled" — and its attribution is the licence line the DEM travels under,
+   * which every surface printing ground has to be able to reach without
+   * importing an infrastructure module to get it. */
+  const sampled = field
+    ? `${field.samples.length} corridor samples at ${field.provenance.spacingM} m spacing `
+      + `(${field.provenance.coverage} coverage)`
+    : (profile && Array.isArray(profile.points) && profile.points.length > 0
+      ? `${profile.points.length} elevation points over ${(profile.spanKm ?? 0).toFixed(1)} km`
+      : `${corridor.samples.length} corridor samples at ${corridor.spacingM} m spacing`);
   return provenanceOf({
     forecastIssue: str(prov.forecastIssue),
     forecastValid: str(prov.forecastValid),
-    terrainSource: profile ? str(prov.terrainSource) : null,
+    terrainSource: field?.provenance.source ?? (profile ? str(prov.terrainSource) : null),
+    terrainAttribution: field?.provenance.attribution ?? null,
     samplingResolution: sampled,
     calibrationSource: aircraft
       ? (aircraft.calibrated ? 'flight-log calibration' : str(aircraft.confidence))

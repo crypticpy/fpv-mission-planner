@@ -42,7 +42,9 @@ import {
   setupMissionBridge, openMissionBridge, missionWaypoints,
   addWaypoint, moveWaypoint, removeWaypoint, clearRoute,
 } from './mission-bridge.js';
-import { analyzeNow, analysisRevision, acceptAsync } from './analysis-host.js';
+import {
+  analyzeNow, analysisRevision, acceptAsync, setupAnalysisHost, groundAt,
+} from './analysis-host.js';
 import {
   missionSeed, restoreLaunch, pushLaunch, pushLoadout, pushEnvironment, pushPolicy,
 } from './mission-commands.js';
@@ -132,7 +134,10 @@ function update() {
     // decide for themselves whether route mode is showing.
     renderMapView(r, link, snapshot.route);
     renderRouteCard(r, snapshot.route);
-    renderTerrainCard(r, link);
+    // The licence line rides in on the snapshot's provenance (CC BY 4.0, task
+    // #47): whichever elevation source answered — the corridor field or the
+    // single-bearing profile — the card credits the one that did.
+    renderTerrainCard(r, link, snapshot.provenance.terrainAttribution);
     return;
   }
   renderStats(r);
@@ -489,6 +494,11 @@ const asyncPorts = { update, revision: analysisRevision, accept: acceptAsync };
 setupLive(asyncPorts);
 setupForecast({ update, liveError });
 setupTerrain(asyncPorts);
+// The third async landing (M3b): the ground under the whole corridor, not just
+// the outbound bearing. Wiring it here rather than at import time is what lets
+// the pipeline tests analyse a mission without a network — an unwired field port
+// is a stated unknown, never a clear route.
+setupAnalysisHost({ update });
 setupMapView({
   missionInputs,
   units,
@@ -516,6 +526,11 @@ setupMissionBridge({
   requestRender: update,
   onMissionChanged: renderMissions,
   onStorage: renderMissionStorage,
+  // How an `agl` waypoint altitude becomes a metres-MSL figure (ADR 0003): the
+  // corridor field the analysis host holds, read nearest-station. Stable across
+  // every field that lands, and null-answering until one has — which the
+  // resolver states as 'missing-terrain-sample' rather than guessing.
+  terrainSampler: groundAt,
 });
 setupThemes(() => {
   hideTooltip();

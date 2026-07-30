@@ -288,6 +288,7 @@ export function buildBrief({
   plan, verdict, warnings = [], footprint = null, route = null, link = null, terrain = null,
   launch = null, drone = null, battery = null, packCount = 1, payloadLabel = null, extraG = 0,
   env = {}, scenarioLabel = null, cruiseAltM = null, times = null, launchAt = null,
+  terrainAttribution = null,
   units: u, now = new Date(), expert = true,
 } = {}) {
   const dist = (km) => `${f1(u.distanceFromKm(km))} ${u.distanceUnit}`;
@@ -352,6 +353,12 @@ export function buildBrief({
     warningsHeld: Math.max(0, warnings.length - MAX_WARNINGS),
     terrainLine: terrainLine(terr, u),
     linkLine: expert ? linkLine(link, plan, u) : null,
+    // The licence the elevation data travels under (CC BY 4.0), printed whenever
+    // the analysis read ground — which is not the same as whenever the terrain
+    // *section* prints. Beginner mode drops the elevation figures but the
+    // route's clearance findings still came off that DEM, and a credit that
+    // disappeared with the chart would not be travelling with the work.
+    dataLine: typeof terrainAttribution === 'string' && terrainAttribution ? terrainAttribution : null,
     route: routeSection(route, u),
     checklist: checklist({ plan, clock, link, terrain: terr, route, env, u, expert }),
   };

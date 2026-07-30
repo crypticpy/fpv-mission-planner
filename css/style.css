@@ -1286,6 +1286,10 @@ body.brief-open { overflow: hidden; }
 .brief-box { flex: none; font-size: 19px; line-height: 1.1; }
 
 .brief-foot { margin-top: var(--sp-4); padding-top: 8px; border-top: 1px solid #000; font-size: 12px; }
+/* The elevation licence line, under the footer rule rather than through it: it
+   is small print, but CC BY 4.0 asks for it to be *visible*, so it prints and it
+   is never display:none. */
+.brief-attribution { margin-top: 4px; padding-top: 0; border-top: 0; font-size: 11px; }
 
 /* The footprint plate: a drawn, north-up line map rather than a screenshot of
    Leaflet. Tiles are online-only, attribution-bound, and print as grey mud. */

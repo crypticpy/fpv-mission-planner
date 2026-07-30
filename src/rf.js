@@ -18,7 +18,16 @@
 // render module reads it against the plan on screen, the same way it reads
 // terrainStats().
 
+import {
+  ANTENNA_HEIGHT_M, FRESNEL_CLEAR_FRAC, earthBulgeM, fresnelRadiusM, wavelengthM,
+} from './domain/fresnel.js';
 import { elevAtKm } from './terrain.js';
+
+// The geometry moved to src/domain/fresnel.js so the analysis pipeline can reach
+// it without dragging this module's terrain fetch into the application layer.
+// Re-exported here because this is where every existing caller imports it from,
+// and because "where do I get a Fresnel radius" should keep having one answer.
+export { ANTENNA_HEIGHT_M, FRESNEL_CLEAR_FRAC, earthBulgeM, fresnelRadiusM, wavelengthM };
 
 /**
  * The bands this planner knows about. The user's own kit is the reason for all
@@ -54,46 +63,6 @@ export const isLinkBand = (id) => LINK_BANDS.some(b => b.id === id);
 export function linkBand(id) {
   return LINK_BANDS.find(b => b.id === id) || LINK_BANDS.find(b => b.id === LINK_BAND_DEFAULT);
 }
-
-/**
- * How high the pilot's antenna is above the ground they are standing on, in
- * metres. A goggle antenna at head height, standing, and a control transmitter
- * held in front of the chest — call the pair 1.5 m and be done. Deliberately a
- * constant and not another control: the number moves the blockage distance by
- * metres over a ridge that moves it by hundreds, and the tool does not need
- * another knob to be wrong about.
- */
-export const ANTENNA_HEIGHT_M = 1.5;
-
-/** The share of the first Fresnel radius that has to stay clear for a good link. */
-export const FRESNEL_CLEAR_FRAC = 0.6;
-
-const C_MS = 299792458;
-
-/** Wavelength in metres for a frequency in GHz. */
-export const wavelengthM = (ghz) => C_MS / (ghz * 1e9);
-
-/**
- * First Fresnel zone radius at a point d1 from one end and d2 from the other, all
- * in metres: r = √(λ·d1·d2 / d). Everything is SI here so the dimensions check by
- * inspection — the familiar field form r = 8.657·√(d_km / f_GHz) is this same
- * expression evaluated at the midpoint, and the tests pin the two together.
- */
-export function fresnelRadiusM(d1M, d2M, ghz) {
-  const d = d1M + d2M;
-  if (!(d > 0) || !(ghz > 0) || d1M < 0 || d2M < 0) return 0;
-  return Math.sqrt(wavelengthM(ghz) * d1M * d2M / d);
-}
-
-/**
- * How much the earth's own curve lifts the ground between two points, in metres,
- * on the 4/3-radius effective earth that accounts for standard atmospheric
- * refraction bending the beam back down. Half a metre over 5 km — never the
- * headline, but it is two lines of arithmetic and it always signs the same way
- * (against the pilot), so there is no reason to leave it out.
- */
-const EARTH_R_EFF_M = (4 / 3) * 6371000;
-export const earthBulgeM = (d1M, d2M) => d1M * d2M / (2 * EARTH_R_EFF_M);
 
 /**
  * The obstruction list for a leg: the profile's own samples inside it, and only

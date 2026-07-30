@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { destination } from '../src/domain/geo.js';
 import { planMission, U } from '../src/domain/physics.js';
 import { planRoute } from '../src/domain/route.js';
+import { climbEnergyWh } from '../src/domain/vertical.js';
 import { createMission } from '../src/domain/mission/mission-schema.js';
 import { missionReduce } from '../src/domain/mission/mission-reducer.js';
 import { resolveMissionAltitudes } from '../src/domain/mission/altitude.js';
@@ -192,7 +193,7 @@ test('a dogleg reports every segment, in document order', () => {
   assert.equal(legs[legs.length - 1].phase, 'home');
 });
 
-test('a climb and a descent are recorded, and cost nothing', () => {
+test('M3b: a climb costs energy and a descent never returns any', () => {
   const plan = planMission(inputs());
   const near = wpAt(0, plan.radiusKm * 0.35);
   const far = wpAt(0, plan.radiusKm * 0.7);
@@ -204,16 +205,40 @@ test('a climb and a descent are recorded, and cost nothing', () => {
 
   const up = segAt(climb, climbDoc, 1);
   assert.ok(Math.abs(up.altitudeDeltaM - 60) < 1e-9, `+60 m expected, got ${up.altitudeDeltaM}`);
-  assert.ok(up.explanations.includes('X-ALT-VERTICAL-UNMODELLED'));
-  assert.ok(codes(climb).includes('W-ALT-VERTICAL-UNMODELLED'));
+  assert.ok(up.explanations.includes('X-ALT-VERTICAL-CHARGED'));
+  assert.ok(codes(climb).includes('W-ALT-VERTICAL-CONSERVATIVE'));
+  // The advisory M3b replaced is registered and produced by nothing.
+  assert.ok(!codes(climb).includes('W-ALT-VERTICAL-UNMODELLED'));
+
+  // m·g·Δh/η, to the digit, against this leg's own delta — the pipeline computes
+  // no vertical energy of its own, it calls the domain function.
+  assert.equal(up.vertical.climbWh,
+    climbEnergyWh(plan.cfg.massKg, plan.cfg.etaProp, up.altitudeDeltaM));
+  assert.ok(Math.abs(up.vertical.climbWh
+    - climbEnergyWh(plan.cfg.massKg, plan.cfg.etaProp, 60)) < 1e-12);
+  assert.equal(up.vertical.descentWh, 0);
 
   const down = segAt(descent, climbDoc, 1);
   assert.ok(Math.abs(down.altitudeDeltaM + 60) < 1e-9, `-60 m expected, got ${down.altitudeDeltaM}`);
+  assert.equal(down.vertical.climbWh, 0);
+  assert.ok(down.vertical.descentWh >= 0, 'a descent may never credit the pack');
+  assert.ok(descent.route.verticalWh >= level.route.verticalWh,
+    'losing height must never make a route cheaper than staying level');
 
-  // The whole point of "recorded, not modelled": same geometry, same energy.
+  // The level leg is level: no delta, so no vertical block at all.
+  assert.equal(segAt(level, climbDoc, 1).altitudeDeltaM, 0);
+  assert.equal(segAt(level, climbDoc, 1).vertical, null);
+  // The first leg still climbs — from the launch point up to 80 m — in all three.
+  assert.equal(segAt(level, climbDoc, 0).altitudeDeltaM, 80);
+
+  // planRoute's own figure is untouched: the climb is a sibling of it, not a
+  // correction to it. Same geometry, same level-flight energy.
   assert.equal(climb.route.plannedWh, level.route.plannedWh);
   assert.equal(descent.route.plannedWh, level.route.plannedWh);
   assert.equal(up.flightWh, segAt(level, climbDoc, 1).flightWh);
+  // …and the extra 60 m of height is the whole difference in the mission total.
+  assert.ok(Math.abs((climb.route.missionWh - level.route.missionWh)
+    - climbEnergyWh(plan.cfg.massKg, plan.cfg.etaProp, 60)) < 1e-12);
 });
 
 test('a 120 s orbit costs exactly hover power for 120 s', () => {
@@ -229,11 +254,14 @@ test('a 120 s orbit costs exactly hover power for 120 s', () => {
   assert.equal(seg.energyWh, seg.flightWh + seg.holdWh);
   assert.ok(seg.explanations.includes('X-HOLD-HOVER-POWER'));
 
-  // The flying is unchanged; the mission total grows by the hold and only the hold.
+  // The flying is unchanged; the mission total grows by the hold and only the
+  // hold. The climb out to 80 m is in both and cancels.
   assert.equal(held.route.plannedWh, plain.route.plannedWh);
   assert.equal(held.route.holdWh, seg.holdWh);
-  assert.equal(held.route.missionWh, held.route.plannedWh + seg.holdWh);
-  assert.equal(plain.route.missionWh, plain.route.plannedWh);
+  assert.equal(held.route.verticalWh, plain.route.verticalWh);
+  assert.equal(held.route.missionWh,
+    held.route.plannedWh + seg.holdWh + held.route.verticalWh);
+  assert.equal(plain.route.missionWh, plain.route.plannedWh + plain.route.verticalWh);
   assert.ok(Math.abs((held.route.missionWh - plain.route.missionWh) - seg.holdWh) < 1e-12);
 });
 

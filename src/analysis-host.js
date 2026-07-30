@@ -9,7 +9,7 @@
 // allowed to know both the application layer and the render modules that own
 // the impure seams.
 //
-// It owns three things and nothing else:
+// It owns four things and nothing else:
 //
 //   the ports — built once, because which providers are wired up is part of the
 //     analysis question (a null one becomes a stated `unknown` constraint);
@@ -18,27 +18,63 @@
 //     AnalysisSnapshot out. Every number and every warning on screen comes from
 //     the object this returns;
 //
+//   the corridor terrain sampler (M3b) — the elevation provider, the cache it
+//     consults and the newest TerrainField that came back. The pipeline is pure
+//     and synchronous, so it cannot await ground; it reads whatever field is in
+//     hand through an accessor port and states an unknown when there is none.
+//     Sampling is kicked off *after* a snapshot exists, because the snapshot is
+//     what publishes the corridor to sample;
+//
 //   staleness — one newestOnly() guard, keyed on the document revision and the
-//     rail inputs together, that both async landings (the terrain profile fetch
-//     and the live-weather fetch) check before they apply anything. Before this
-//     there were two ad-hoc sequence counters that could each only see their
-//     own fetch; a launch move between the ask and the answer was invisible to
-//     both.
+//     rail inputs together, that every async landing (the single-bearing terrain
+//     profile, the corridor field, the live-weather fetch) checks before it
+//     applies anything. Before this there were two ad-hoc sequence counters that
+//     could each only see their own fetch; a launch move between the ask and the
+//     answer was invisible to both.
 import { planMission } from './domain/physics.js';
 import { planRoute } from './domain/route.js';
 import { analyzeMission, newestOnly } from './application/analysis/analyze.js';
 import { hashKey, stableStringify } from './application/analysis/analysis-contracts.js';
-import { missionDocument } from './mission-bridge.js';
+import { usableField } from './application/analysis/route-checks.js';
+import { createElevationCache } from './application/terrain/elevation-cache.js';
+import { createTerrainSampler, nearestGroundSampler } from './application/terrain/sample-corridor.js';
+import {
+  OPEN_METEO_ATTRIBUTION, createOpenMeteoElevationProvider,
+} from './infrastructure/elevation/open-meteo-elevation.js';
+import { missionDocument, reresolveAltitudes } from './mission-bridge.js';
 import { state, battery, missionInputs } from './state.js';
 import { activeProfile, setTurnaroundKm } from './terrain.js';
+import { linkBand } from './rf.js';
+import { windLevels } from './windprofile.js';
 import { zeroRadiusNote } from './render/dashboard.js';
 import { linkStats, linkWarnings, refreshTerrain, terrainWarnings } from './render/terrain.js';
 
 /** @typedef {import('./application/analysis/analysis-contracts.js').AnalysisRevision} AnalysisRevision */
 /** @typedef {import('./application/analysis/analysis-contracts.js').AnalysisSnapshot} AnalysisSnapshot */
+/** @typedef {import('./application/analysis/analysis-contracts.js').CorridorRequest} CorridorRequest */
+/** @typedef {import('./application/terrain/terrain-contracts.js').TerrainField} TerrainField */
 
 /** Who supplies the ground when a profile is on hand. */
 const TERRAIN_SOURCE = 'Open-Meteo elevation API';
+
+/**
+ * How far either side of the track the corridor is sampled, in metres.
+ *
+ * M2's CorridorRequest states `corridorWidthM: 0` — the honest version of "this
+ * analysis has not looked either side of the line" — and the sampler lets the
+ * host ask for cross-track evidence without editing that frozen contract. 300 m
+ * is a little over three Copernicus DEM posts: enough for the feature detector
+ * to tell a pass from a saddle from a ridge the route merely passes, and it
+ * triples the point count rather than multiplying it further.
+ */
+const CROSS_TRACK_OFFSET_M = 300;
+
+/**
+ * Debounce on corridor sampling, in ms. Dragging a waypoint moves the route on
+ * every pointermove; the same 500 ms the single-bearing profile fetch already
+ * waits, for the same reason.
+ */
+const SAMPLE_DEBOUNCE_MS = 500;
 
 /**
  * The ports, built once. `plan` and `routePlan` are the pure domain functions;
@@ -55,17 +91,179 @@ const PORTS = Object.freeze({
   strandedNote: zeroRadiusNote,
 });
 
+/* ---------- the corridor's ground ---------- */
+
+/** @type {{ update: () => void }|null} */
+let hostDeps = null;
+/** @type {((corridor: CorridorRequest) => Promise<TerrainField>)|null} */
+let sampler = null;
+/** @type {TerrainField|null} */
+let field = null;
+/** @type {(latitude: number, longitude: number) => number|null} */
+let groundLookup = () => null;
+let sampling = false;
+/** @type {ReturnType<typeof setTimeout>|number} */
+let sampleTimer = 0;
+/** @type {string|null} */
+let failedCorridorSig = null;
+/** @type {CorridorRequest|null} */
+let lastCorridor = null;
+
 /**
- * Which elevation profile is on hand, as a string. The pipeline folds this into
- * its cache key so a landed fetch invalidates the memo — the profile is read
- * through a port, so nothing else about the request changes when it arrives.
+ * Wire the corridor sampler up and hand the host a way to ask for a re-render.
+ *
+ * Deliberately explicit rather than done at import time. Everything below this
+ * line reaches the network, and a module that starts fetching the moment it is
+ * imported cannot be unit-tested against the pipeline without a stub — the
+ * staleness tests in tests/analysis-host.test.mjs count fetches, and they are
+ * counting the single-bearing profile's. An app that never calls this analyses
+ * with no field port at all, which the pipeline states as W-DATA-TERRAIN-ABSENT
+ * rather than passing off as clear ground.
+ *
+ * @param {{ update: () => void, fetch?: typeof fetch, now?: () => string }} d
+ */
+export function setupAnalysisHost(d) {
+  hostDeps = d;
+  sampler = createTerrainSampler({
+    provider: createOpenMeteoElevationProvider({
+      ...(d.fetch ? { fetch: d.fetch } : null),
+      ...(d.now ? { now: d.now } : null),
+    }),
+    // One cache for the life of the tab, owned here rather than inside the
+    // sampler: a corridor that shifts by one waypoint re-asks about ground it
+    // already knows, and the DEM under a fixed lat/lng does not change.
+    cache: createElevationCache(),
+    crossTrackOffsetM: CROSS_TRACK_OFFSET_M,
+    ...(d.now ? { now: d.now } : null),
+  });
+  field = null;
+  groundLookup = () => null;
+  failedCorridorSig = null;
+  lastCorridor = null;
+}
+
+/** The newest accepted field, for the pipeline's accessor port. */
+function currentField() { return field; }
+
+/**
+ * The ground under one point, in metres MSL, or null where the corridor never
+ * looked. This is what turns an `agl` waypoint altitude into an MSL figure
+ * (ADR 0003) — a stable function identity so mission-bridge.js can hold it as a
+ * dep across every field that lands.
+ *
+ * @param {number} latitude
+ * @param {number} longitude
+ * @returns {number|null}
+ */
+export function groundAt(latitude, longitude) {
+  return groundLookup(latitude, longitude);
+}
+
+/** The field on hand, for the renderers that print its provenance. */
+export function terrainField() { return field; }
+
+/**
+ * What identifies a corridor, for "have I already asked this?". The geometry
+ * and nothing else: the mission's title moving is not a reason to re-sample the
+ * ground under it.
+ * @param {CorridorRequest} corridor
+ * @returns {string}
+ */
+function corridorSignature(corridor) {
+  return hashKey(stableStringify({
+    mission: corridor.missionId,
+    spacing: corridor.spacingM,
+    width: corridor.corridorWidthM,
+    at: corridor.samples.map((s) => [s.id, s.latitude.toFixed(6), s.longitude.toFixed(6)]),
+  }));
+}
+
+/**
+ * Ask for the ground under this corridor, unless the field in hand already
+ * answers it. Debounced and idempotent, like the profile fetch beside it: a
+ * landed field triggers a render, which analyses again, which arrives back here.
+ *
+ * @param {CorridorRequest} corridor
+ */
+function refreshField(corridor) {
+  if (!sampler || !corridor || corridor.samples.length === 0) return;
+  lastCorridor = corridor;
+  if (usableField(field, corridor)) return;
+  const sig = corridorSignature(corridor);
+  // A dead connection is asked once per question, not once per render. The
+  // pipeline is already saying "not sampled" for this corridor, which is the
+  // honest state to sit in until the question changes.
+  if (sampling || sig === failedCorridorSig) return;
+  clearTimeout(sampleTimer);
+  sampleTimer = setTimeout(() => { void runSample(corridor, sig); }, SAMPLE_DEBOUNCE_MS);
+}
+
+/**
+ * Sample one corridor and keep the answer — unless the mission moved on first.
+ *
+ * sampleCorridor() never rejects: a provider that fell over comes back as a
+ * field of null elevations with a note saying why, and that is a field worth
+ * keeping. `coverage: 'empty'` is not the same as no field at all, and the
+ * difference is what the clearance checks read.
+ *
+ * @param {CorridorRequest} corridor
+ * @param {string} sig
+ */
+async function runSample(corridor, sig) {
+  if (!sampler) return;
+  const asked = analysisRevision();
+  sampling = true;
+  try {
+    const next = await sampler(corridor);
+    if (!acceptAsync(asked, 'corridor terrain')) return;
+    field = next;
+    // Rebuilt with the field, not per lookup: nearestGroundSampler() filters the
+    // sample list once and the resolver calls the result per waypoint.
+    groundLookup = nearestGroundSampler(next);
+    failedCorridorSig = next.provenance.coverage === 'empty' ? sig : null;
+    // An `agl` altitude the document could not resolve for want of ground can be
+    // resolved now. Silent when nothing was waiting on terrain, which is the
+    // common case — the default frame is launch-relative.
+    reresolveAltitudes();
+  } catch (err) {
+    // Nothing here is expected to throw; if something does, the analysis keeps
+    // its energy, wind and route findings and says the ground is unknown.
+    console.warn('analysis: the corridor terrain sample failed.', err);
+    failedCorridorSig = sig;
+  } finally {
+    sampling = false;
+    hostDeps?.update();
+    // A corridor that changed while this one was in flight never got its own
+    // timer, because `sampling` was true when it came past.
+    if (lastCorridor && lastCorridor !== corridor) refreshField(lastCorridor);
+  }
+}
+
+/**
+ * Which terrain data is on hand, as a string. The pipeline folds this into its
+ * cache key so a landed fetch invalidates the memo — both terrain sources are
+ * read through ports, so nothing else about the request changes when one
+ * arrives.
+ *
+ * Both are in it because both still feed the analysis: the single-bearing
+ * profile drives the legacy terrain and link cards, and the corridor field
+ * drives M3b's route-wide clearance, sightline and return checks.
+ *
  * @returns {string|null}
  */
 function terrainSignature() {
   const p = activeProfile();
-  if (!p) return null;
-  return `${p.launch.lat.toFixed(4)},${p.launch.lng.toFixed(4)}`
-    + `@${Math.round(p.bearingDeg)}/${p.spanKm.toFixed(1)}x${p.points.length}`;
+  const profileSig = p
+    ? `${p.launch.lat.toFixed(4)},${p.launch.lng.toFixed(4)}`
+      + `@${Math.round(p.bearingDeg)}/${p.spanKm.toFixed(1)}x${p.points.length}`
+    : null;
+  const fieldSig = field
+    ? `${field.missionId}@${field.revision}/${field.samples.length}`
+      + `:${field.provenance.coverage}:${field.provenance.missing}`
+      + `:${field.provenance.retrievedAt ?? '-'}`
+    : null;
+  if (!profileSig && !fieldSig) return null;
+  return `${profileSig ?? '-'}|${fieldSig ?? '-'}`;
 }
 
 /**
@@ -159,9 +357,15 @@ export function analyzeNow() {
   // once at the launch elevation, latch the radius, and let the real plan read
   // the ground under it. With no fetched profile planElevM() hands back the
   // launch elevation and this line changes nothing.
-  setTurnaroundKm(planMission({
+  //
+  // With no pack there is no probe: planMission() answers `{ code: 'no_battery' }`
+  // and reading .radiusKm off it latched `undefined` as the turnaround distance.
+  // Leaving the previous radius latched is the honest fallback — no plan means
+  // nothing is asking the terrain module for an elevation anyway.
+  const probe = planMission({
     ...missionInputs(battery(), null, { terrain: false }), lite: true,
-  }).radiusKm);
+  });
+  if (!('code' in probe)) setTurnaroundKm(probe.radiusKm);
 
   analysed = true;
   // One revision for both freshness checks: the guard the async landings ask,
@@ -180,12 +384,37 @@ export function analyzeNow() {
   }, {
     ...PORTS,
     terrainSignature: terrainSignature(),
-    ...(profile ? { provenance: { terrainSource: TERRAIN_SOURCE } } : null),
+    // Null until setupAnalysisHost() runs, and the difference is load-bearing:
+    // an unwired port is "nobody asked", which the pipeline already reports as
+    // W-DATA-TERRAIN-ABSENT, while a wired port with nothing back is "asked and
+    // not answered yet" and must never read as clear ground.
+    terrainField: sampler ? currentField : null,
+    windLevels,
+    // The band the pilot picked, so the route-wide sightline check runs the same
+    // wavelength as the card. linkBand() falls back to the default band rather
+    // than answering null, so this is always a number.
+    linkGhz: linkBand(state.linkBand).ghz,
+    // The single-bearing profile is Open-Meteo elevation data too, and CC BY 4.0
+    // travels with it wherever it is shown (task #47). The corridor field carries
+    // its own licence line in its provenance; this fills in for the profile,
+    // which is fetched by src/terrain.js and has no provenance block of its own.
+    // The two can only ever name the same provider, so there is nothing here for
+    // them to disagree about.
+    ...(profile
+      ? { provenance: { terrainSource: TERRAIN_SOURCE, terrainAttribution: OPEN_METEO_ATTRIBUTION } }
+      : null),
   });
 
   // Ask for the ground along the leg this plan actually flies (debounced, and a
   // no-op while the profile on hand still answers the question). With no pack
   // there is no radius to profile, which is what the null plan says.
   if (snapshot.plan) refreshTerrain(snapshot.plan.radiusKm);
+  // …and the ground under the whole corridor, which is a question about the
+  // route rather than about the pack: a mission with waypoints and no battery
+  // still has terrain under it, and the clearance answer does not wait on a
+  // plan. The corridor comes off the snapshot because the snapshot is what
+  // publishes it — sampling before this point would be sampling a route the
+  // analysis had not yet agreed to.
+  refreshField(snapshot.corridor);
   return snapshot;
 }

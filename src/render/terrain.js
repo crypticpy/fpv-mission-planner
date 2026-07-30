@@ -233,8 +233,16 @@ export function linkWarnings(r, link) {
 /**
  * Elevation and clearance along the leg. Map tab, expert only — the warning above
  * is the part a beginner needs, and it rides the verdict rail on both tabs.
+ *
+ * `attribution` is the licence line the elevation data travels under, taken off
+ * the analysis snapshot's provenance rather than imported from the provider:
+ * this module draws what the analysis said, and a render module reaching into an
+ * infrastructure adapter for a string is the wrong direction (ADR 0009). CC BY
+ * 4.0 requires the credit to be visible wherever the work is shown, so it prints
+ * in the card's note whenever there is ground on the chart — small, but on
+ * screen and copied by a text selection over the card.
  */
-export function renderTerrainCard(r, link) {
+export function renderTerrainCard(r, link, attribution = null) {
   const card = $('terrain-card');
   if (beginner()) { card.hidden = true; return; }
   card.hidden = false;
@@ -343,8 +351,9 @@ export function renderTerrainCard(r, link) {
       : `Launch elevation ${f0(state.env.elevFt)} ft doesn't match this ground, so the plan is still `
         + 'running the elevation on the rail — a preset sky over a real map. ')
     + `Least clearance ${alt(s.minClearanceM)} at ${dist(s.minClearanceAtKm)} out, holding `
-    + `${s.cruiseAltM} m above the launch point. Elevation data: Open-Meteo (Copernicus DEM), `
-    + 'terrain only — it knows nothing about trees, towers or wires.';
+    + `${s.cruiseAltM} m above the launch point. `
+    + `${attribution ?? 'Elevation data by Open-Meteo.com (CC BY 4.0), derived from the Copernicus DEM'}`
+    + ' — bare earth, so it knows nothing about trees, towers or wires.';
 
   if (!link) { linkNote.textContent = ''; return; }
   // How much of the first Fresnel zone survives at the tightest point. Above 100%

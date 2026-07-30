@@ -20,6 +20,8 @@
   "include": [
     "src/domain/units.js",
     "src/domain/geo.js",
+    "src/domain/vertical.js",
+    "src/domain/fresnel.js",
     "src/store.js",
     "src/catalog/batteries.js",
     "src/catalog/drones.js",
@@ -33,6 +35,8 @@
     "src/domain/mission/altitude.js",
     "src/application/analysis/analysis-contracts.js",
     "src/application/analysis/constraints.js",
+    "src/application/analysis/vertical-flight.js",
+    "src/application/analysis/route-checks.js",
     "src/application/analysis/analyze.js",
     "src/domain/terrain/terrain-features.js",
     "src/application/terrain/terrain-contracts.js",

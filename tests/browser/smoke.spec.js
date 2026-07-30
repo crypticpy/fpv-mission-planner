@@ -106,6 +106,27 @@ test.describe('built app', () => {
     expect(errors, `console errors:\n${errors.join('\n')}`).toEqual([]);
   });
 
+  /* Task #47 — CC BY 4.0.
+   *
+   * Open-Meteo's elevation data is licensed CC BY 4.0, which requires the credit
+   * to be visible wherever the work is shown. Small print is fine; a comment in
+   * the source, a tooltip or an attribute nobody renders is not. This asserts it
+   * on the two surfaces the ground actually reaches: the terrain card on screen,
+   * and the brief that leaves the app as a printout. */
+  test('the elevation licence is on screen wherever the ground is', async ({ context, page }) => {
+    await stubExternals(context);
+    await page.goto('/');
+    await page.locator('#tab-map').click();
+
+    const note = page.locator('#terrain-note');
+    await expect(note).toBeVisible();
+    await expect(note).toContainText('CC BY 4.0');
+    await expect(note).toContainText('Open-Meteo.com');
+
+    await page.locator('#btn-brief').click();
+    await expect(page.locator('.brief-attribution')).toContainText('CC BY 4.0');
+  });
+
   test('the generated service worker installs and serves the shell offline', async ({ context, page }) => {
     await stubExternals(context);
 
