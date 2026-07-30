@@ -234,9 +234,12 @@ failsafe RTH would. The verdict checks the get-home reserve at **every**
 waypoint and names the worst one — on a dogleg it's often not the farthest pin.
 If the route fits, the panel says how long you can **loiter** at the end of it:
 remaining energy over hover power, with the station-keeping-in-wind figure
-beside it. Routes are a sketch for one outing; they clear when the launch point
-moves and are deliberately not saved. Terrain and radio analysis stay on the
-plan's primary bearing — a route leg is not re-profiled.
+beside it. The route and launch point live in the **mission document**, which
+autosaves to the browser's own storage: both survive a reload, and moving the
+launch keeps the waypoints where they are. The *Missions* fold on the planner
+rail manages saved missions — rename, save a copy, reopen, delete, and export
+or import as JSON files. Terrain and radio analysis stay on the plan's primary
+bearing — a route leg is not re-profiled.
 
 **Mission brief**: the button on the map card renders the whole plan as one
 printable, phone-readable page — launch coordinates (decimal and

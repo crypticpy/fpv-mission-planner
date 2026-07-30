@@ -461,7 +461,9 @@ export function missionReduce(doc, command, deps = {}) {
     return warn('W-CMD-MALFORMED', 'A command must be an object with a string `type`.');
   }
   const type = command.type;
-  const handler = HANDLERS[type];
+  // Own-property lookup: `'toString'` or `'__proto__'` as a command type must
+  // hit the unknown branch, not the prototype chain.
+  const handler = Object.hasOwn(HANDLERS, type) ? HANDLERS[type] : undefined;
   if (!handler) {
     return warn('W-CMD-UNKNOWN',
       `'${type}' is not a mission command. Known commands: ${MISSION_COMMANDS.join(', ')}.`, type);

@@ -125,6 +125,16 @@ test('an unknown command returns the very same document, with a warning naming t
   assert.match(warning.message, /setSegmentIntent/, 'the warning lists the real commands');
 });
 
+test('a command type inherited from Object.prototype is unknown, not a handler', () => {
+  const deps = harness();
+  const doc = routed(deps);
+  for (const type of ['__proto__', 'constructor', 'toString', 'hasOwnProperty']) {
+    assert.equal(missionReduce(doc, { type, payload: {} }, deps), doc, `'${type}' changes nothing`);
+  }
+  assert.deepEqual(deps.warnings.map((w) => w.code),
+    ['W-CMD-UNKNOWN', 'W-CMD-UNKNOWN', 'W-CMD-UNKNOWN', 'W-CMD-UNKNOWN']);
+});
+
 for (const [label, command] of [
   ['a bare string', 'setTitle'],
   ['null', null],

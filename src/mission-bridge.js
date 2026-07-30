@@ -68,6 +68,8 @@ import { openMissionRepository } from './infrastructure/persistence/mission-repo
  * @property {(state: MissionStorageState) => void} [onStorage]
  * @property {TerrainSampler|null} [terrainSampler] M3 supplies a real one; until
  *   then launch-relative altitudes resolve and AGL ones honestly do not
+ * @property {MissionRepository} [repository]  tests inject a failing store here;
+ *   the app always lets `openMissionBridge` open the real one
  */
 
 /**
@@ -111,10 +113,11 @@ function report(save, message = '') {
 
 /** @param {MissionWarning} w */
 function onWarning(w) {
-  // A rejected command is not an error the pilot caused a crash with, but it is
-  // never silent: the console gets it always, the fold's note when one is wired.
+  // A rejected command is never silent — the console always gets it. It is not
+  // a storage failure, though, so it must stay out of the storage banner (which
+  // shows its message only inside the red failed state). M2's coded-warning
+  // surface (ADR 0008) is where these get a pilot-facing home.
   console.warn(`mission: ${w.message}`);
-  report(storage.save, w.message);
 }
 
 /* ---------- persistence ---------- */
@@ -128,10 +131,14 @@ async function writeNow(snapshot) {
     storage = { ...storage, ...res.storage, save: 'saved', message: '' };
     deps?.onStorage?.(storage);
   } catch (e) {
+    // Stay dirty so the next edit or flush retries, but never re-arm the timer
+    // from here: a persistent failure (full disk) would otherwise retry at
+    // debounce rate forever, flashing the very banner it is trying to show.
     dirty = true;
     report('failed', reason(e));
+    return;
   }
-  if (dirty) scheduleSave();
+  if (dirty) scheduleSave(); // a new edit landed while the write was in flight
 }
 
 function scheduleSave() {
@@ -293,7 +300,7 @@ function seededMission() {
 export async function openMissionBridge() {
   if (!deps) return;
   try {
-    repo = await openMissionRepository();
+    repo = deps.repository ?? await openMissionRepository();
     storage = { ...storage, adapter: repo.adapter, durable: repo.durable };
   } catch (e) {
     repo = null;
@@ -327,8 +334,15 @@ export async function openMissionBridge() {
 /** @returns {Promise<MissionSummary[]>} newest first */
 export async function listMissions() {
   await flushMission();
-  if (!repo) return [];
-  return repo.list();
+  const summaries = repo ? await repo.list() : [];
+  // The open mission gets a row even when the store has never accepted it —
+  // without one there is no export button exactly when exporting is the only
+  // way to keep the plan (failed or unavailable storage).
+  const open = doc;
+  if (open && !summaries.some((s) => s.id === open.id)) {
+    summaries.unshift({ id: open.id, title: open.title, updatedAt: open.updatedAt });
+  }
+  return summaries;
 }
 
 /**
@@ -401,6 +415,11 @@ export async function deleteMission(id) {
  * @returns {Promise<string|null>} the mission as a self-contained JSON file
  */
 export async function exportMission(id) {
+  // The open mission exports straight from memory. This is the escape hatch
+  // the header promises when the store is failing, so it cannot depend on
+  // reading back a document the store may never have accepted — and memory is
+  // newer than the store whenever they disagree.
+  if (doc && id === doc.id) return JSON.stringify(doc, null, 2);
   await flushMission();
   return repo ? repo.exportJson(id) : null;
 }
