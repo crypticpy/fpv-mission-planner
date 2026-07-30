@@ -225,6 +225,30 @@ Geographics, and the GIS User Community) and OpenStreetMap streets
 (© OpenStreetMap contributors). Tiles load from the providers' free endpoints;
 the footprint still renders if tiles fail in the field.
 
+**Routes** (full detail mode): the ring answers "how far out and straight
+back", but real flights bend — out along a river, cut across to a ridge. The
+*Route* button lets you drop waypoints into a polyline; each leg gets its own
+wind decomposition, ground speed, time and Wh from the exact solver the
+footprint uses, with the return flown direct from the last waypoint the way a
+failsafe RTH would. The verdict checks the get-home reserve at **every**
+waypoint and names the worst one — on a dogleg it's often not the farthest pin.
+If the route fits, the panel says how long you can **loiter** at the end of it:
+remaining energy over hover power, with the station-keeping-in-wind figure
+beside it. Routes are a sketch for one outing; they clear when the launch point
+moves and are deliberately not saved. Terrain and radio analysis stay on the
+plan's primary bearing — a route leg is not re-profiled.
+
+**Mission brief**: the button on the map card renders the whole plan as one
+printable, phone-readable page — launch coordinates (decimal and
+degrees-minutes for radio relay), a drawn north-up footprint plate with bearing
+ticks, scale rings, wind arrow and the route if one exists, the Wh budget, the
+cardinal-bearing reach table, the top warnings verbatim, a short checklist
+derived from the plan's actual state, and the headline: the **turnaround
+clock** — "if you're not turned around by this time on the timer, you're not
+coming home with reserve." It forces black-on-white whatever theme you fly the
+app in (sunlight is the enemy), and `Print / save PDF` is the browser's own
+print dialog, so it works offline once the page is up.
+
 ## Terrain along the outbound leg
 
 A mission over hill country climbs, and the model plans at one elevation. The

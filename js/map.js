@@ -271,6 +271,18 @@ function sweep(cruiseMode, cache) {
 let lastSweep = { baseRays: 0, extraRays: 0, ms: 0 };
 export function sweepStats() { return { ...lastSweep }; }
 
+/* The planned-cruise ring exactly as it was last drawn, kept for the mission
+   brief (Phase 4 item 8) to re-render as an SVG. Handing over the sweep rather
+   than letting the brief run its own is what makes the printed footprint the
+   *same* shape as the one on screen by identity — two sweeps of the same physics
+   would agree, but only until someone changes one of them. Null until the map
+   has rendered once, which is also exactly when the brief button is reachable:
+   it lives on the map card. */
+let lastFootprint = null;
+export function footprintState() {
+  return lastFootprint ? { ...lastFootprint, launch: { ...lastFootprint.launch } } : null;
+}
+
 function footprintLatLngs(courses, radii) {
   const pts = [];
   for (let i = 0; i < courses.length; i++) {
@@ -344,6 +356,17 @@ export function renderMapView(rPlan, link = null, route = null) {
   };
   const realByCourse = real.byCourse;
   const bestByCourse = best.byCourse;
+  const areaKm2 = polarAreaKm2(real.courses, real.radii);
+  lastFootprint = {
+    launch: { ...launch },
+    windFromDeg: windFrom,
+    plannedCourseDeg: plannedCourseDeg(windFrom, base.env.windMode),
+    courses: real.courses.slice(),
+    radii: real.radii.slice(),
+    byCourse: realByCourse.slice(),
+    bestByCourse: bestByCourse.slice(),
+    areaKm2,
+  };
 
   flow = { toRad: (windFrom + 180) * Math.PI / 180, speedMs: base.env.windAvgMs };
 
@@ -428,7 +451,7 @@ export function renderMapView(rPlan, link = null, route = null) {
     setTile('tile-downwind', fmtDist(radiusAtAlpha(halfReal, 180)), `course ${downC}° — wind behind`);
     setTile('tile-crosswind', fmtDist(radiusAtAlpha(halfReal, 90)),
       `course ${(upC + 90) % 360}° / ${(upC + 270) % 360}°`);
-    setTile('tile-area', `${u.areaFromKm2(polarAreaKm2(real.courses, real.radii)).toFixed(1)} ${u.areaUnit}`,
+    setTile('tile-area', `${u.areaFromKm2(areaKm2).toFixed(1)} ${u.areaUnit}`,
       'planned-cruise envelope');
     setTile('tile-aloft', `${rPlan.timeMin.toFixed(1)} min`, 'dashboard planning case');
   }

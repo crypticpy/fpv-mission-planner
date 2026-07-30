@@ -1066,3 +1066,249 @@ body {
    and the body attribute decides. Placed last so it wins over the layout rules
    that set display on the same elements. */
 body[data-detail="beginner"] .full-only { display: none; }
+
+/* ---------- mission brief (Phase 4 item 8) ---------- */
+
+/* The one surface that does not follow the theme. This is what a pilot reads at
+   arm's length in direct sun and what goes through a printer, so it is black on
+   white in Night Ops, Race Gate and everything else — and the on-screen overlay
+   IS the print view, one DOM, so the two can never drift apart. Every colour
+   below is literal for the same reason: a theme token here would print whatever
+   the ground station happened to be set to. */
+
+.brief {
+  position: fixed;
+  inset: 0;
+  z-index: 1200; /* over the map, the sheet scrim and the mobile dock */
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: #fff;
+  color: #000;
+  -webkit-text-size-adjust: 100%;
+}
+body.brief-open { overflow: hidden; }
+
+.brief-bar {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+  padding: 10px var(--sp-3);
+  background: #fff;
+  border-bottom: 2px solid #000;
+}
+.brief-btn {
+  width: auto;
+  margin: 0;
+  padding: 10px 16px;
+  min-height: 44px; /* thumb target: this bar is used in gloves, standing up */
+  border: 2px solid #000;
+  border-radius: 6px;
+  background: #000;
+  color: #fff;
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+.brief-btn-quiet { background: #fff; color: #000; }
+.brief-btn:focus-visible { outline: 3px solid #000; outline-offset: 2px; }
+
+.brief-sheet {
+  max-width: 940px;
+  margin: 0 auto;
+  padding: var(--sp-4) var(--sp-3) var(--sp-5);
+  font-size: 15px;
+  line-height: 1.45;
+}
+.brief-sheet:focus { outline: none; }
+
+/* Nothing inside the sheet takes a colour from the theme. The app's global
+   table, list and note rules are all written against theme tokens, and one of
+   them reaching in is exactly how a brief ends up printing pale grey on white
+   — unreadable in sun, invisible on paper. The handful of deliberate inversions
+   below out-specify this. */
+.brief-sheet, .brief-sheet * { color: #000; background: transparent; }
+
+.brief-head { border-bottom: 3px solid #000; padding-bottom: 8px; margin-bottom: var(--sp-3); }
+.brief-title {
+  font-family: var(--font-display);
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: #000;
+}
+.brief-date { font-size: 14px; color: #000; margin-top: 2px; }
+
+/* The verdict, in the same three words the card on screen uses. Level is carried
+   by a heavy left rule rather than a wash, because a colour fill is the first
+   thing a monochrome printer throws away. */
+.brief-verdict {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  border-left: 8px solid #000;
+  padding: 8px 0 8px 12px;
+  margin-bottom: 6px;
+}
+.brief-verdict-nogo { border-left-style: solid; border-left-width: 12px; }
+.brief-verdict-caution { border-left-style: double; border-left-width: 10px; }
+.brief-verdict-go { border-left-style: solid; border-left-width: 4px; }
+.brief-badge {
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.brief-why { font-size: 15px; }
+.brief-fix { font-size: 14px; font-weight: 600; margin: 0 0 var(--sp-3) 20px; }
+
+/* The headline. Deliberately the biggest thing on the page: it is the sentence
+   the whole artifact exists to carry. */
+.brief-clock {
+  border: 3px solid #000;
+  border-radius: 8px;
+  padding: var(--sp-3);
+  margin-bottom: var(--sp-3);
+}
+.brief-clock-big {
+  font-family: var(--font-display);
+  font-size: 40px;
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: 0.01em;
+  font-variant-numeric: tabular-nums;
+}
+.brief-clock-sub { font-size: 14.5px; margin-top: 6px; }
+
+.brief-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 360px) minmax(0, 1fr);
+  gap: var(--sp-3) var(--sp-4);
+  align-items: start;
+}
+.brief-col { display: flex; flex-direction: column; gap: var(--sp-3); min-width: 0; }
+@media (max-width: 760px) { .brief-grid { grid-template-columns: 1fr; } }
+
+.brief-block { break-inside: avoid; }
+.brief-h {
+  font-family: var(--font-display);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  border-bottom: 2px solid #000;
+  padding-bottom: 3px;
+  margin-bottom: 8px;
+}
+.brief-note { font-size: 13px; margin-top: 6px; }
+.brief-empty { font-size: 14px; font-style: italic; padding: var(--sp-3) 0; }
+
+.brief-dl {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 3px var(--sp-2);
+  font-size: 14px;
+}
+.brief-dl dt { font-weight: 600; white-space: nowrap; }
+.brief-mono { font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; font-size: 14.5px; }
+
+.brief-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+/* Colour and wrapping are both restated here: the app's global `td` rules set a
+   theme ink and `white-space: nowrap`, and they out-specify the sheet-wide guard
+   above. The notes column has to wrap — it is a sentence, not a figure. */
+.brief-table td {
+  color: #000;
+  white-space: normal;
+  border-bottom: 1px solid #000;
+  padding: 5px 6px 5px 0;
+  vertical-align: baseline;
+}
+.brief-table tr:last-child td { border-bottom: none; }
+.brief-table .brief-k { font-weight: 600; white-space: nowrap; }
+.brief-table .brief-v { font-variant-numeric: tabular-nums; white-space: nowrap; text-align: right; padding-left: var(--sp-2); }
+.brief-table .brief-n { font-size: 12.5px; padding-left: var(--sp-2); }
+
+.brief-compass td { width: 25%; text-align: center; padding: 6px 2px; }
+.brief-compass-label {
+  display: block;
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+.brief-compass-val { display: block; font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+.brief-warn { display: flex; gap: 8px; font-size: 13.5px; margin-bottom: 8px; break-inside: avoid; }
+.brief-warn-level {
+  flex: none;
+  width: 66px;
+  font-family: var(--font-display);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border: 2px solid #000;
+  border-radius: 3px;
+  text-align: center;
+  padding: 1px 0;
+  height: fit-content;
+}
+.brief-warn-critical .brief-warn-level { background: #000; color: #fff; }
+
+.brief-checks { list-style: none; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.brief-checks li { display: flex; gap: 10px; font-size: 14.5px; break-inside: avoid; }
+.brief-box { flex: none; font-size: 19px; line-height: 1.1; }
+
+.brief-foot { margin-top: var(--sp-4); padding-top: 8px; border-top: 1px solid #000; font-size: 12px; }
+
+/* The footprint plate: a drawn, north-up line map rather than a screenshot of
+   Leaflet. Tiles are online-only, attribution-bound, and print as grey mud. */
+.brief-plate { display: block; width: 100%; max-width: 340px; height: auto; margin: 0 auto; }
+.plate-ring { fill: none; stroke: #000; stroke-width: 0.7; stroke-dasharray: 3 4; opacity: 0.55; }
+.plate-tick { stroke: #000; stroke-width: 1; opacity: 0.75; }
+.plate-cardinal { font-family: var(--font-display); font-size: 12px; font-weight: 700; fill: #000; }
+.plate-foot { fill: #000; fill-opacity: 0.09; stroke: #000; stroke-width: 2.4; stroke-linejoin: round; }
+.plate-leg { stroke: #000; stroke-width: 1.6; stroke-dasharray: 5 4; }
+.plate-route { fill: none; stroke: #000; stroke-width: 2.6; stroke-linejoin: round; stroke-linecap: round; }
+.plate-route-home { stroke: #000; stroke-width: 2; stroke-dasharray: 6 5; }
+.plate-wp { fill: #fff; stroke: #000; stroke-width: 2; }
+.plate-wp-label { font-size: 9.5px; font-weight: 700; fill: #000; }
+.plate-launch { fill: #000; stroke: #fff; stroke-width: 1.5; }
+.plate-wind { stroke: #000; stroke-width: 2; }
+.plate-wind-head { fill: #000; }
+.plate-note { font-size: 9.5px; fill: #000; }
+
+/* ---------- print ---------- */
+
+/* Only ever the brief. Scoped to .brief-open so hitting Cmd+P with the brief
+   closed still prints the app rather than a blank sheet. */
+@media print {
+  body.brief-open { background: #fff; overflow: visible; }
+  body.brief-open > *:not(#brief) { display: none !important; }
+  body.brief-open .brief {
+    position: static;
+    overflow: visible;
+    background: #fff;
+    color: #000;
+  }
+  body.brief-open .brief-bar { display: none; }
+  body.brief-open .brief-sheet { max-width: none; padding: 0; font-size: 11.5pt; }
+  body.brief-open .brief-title { font-size: 20pt; }
+  body.brief-open .brief-clock-big { font-size: 28pt; }
+  body.brief-open .brief-plate { max-width: 78mm; }
+  /* The critical badge is white on black. Browsers drop background colour when
+     printing unless told not to, and dropping this one leaves white text on a
+     white page — the single most important warning, invisible. */
+  body.brief-open .brief-warn-critical .brief-warn-level {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  @page { margin: 12mm; }
+}

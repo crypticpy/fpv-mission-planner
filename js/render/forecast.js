@@ -168,6 +168,21 @@ function renderClockPlan(r, launch, golden) {
   el.appendChild(warn);
 }
 
+/**
+ * The wall-clock time the plan on screen launches at, or null when nothing knows
+ * — a preset sky, a failed fetch, or plain offline. The mission brief (Phase 4
+ * item 8) prints its turnaround as elapsed timer minutes, which is what a pilot
+ * actually flies; this is the second line it can add when the app already knows
+ * which hour is being planned for, and it is deliberately the same Date
+ * renderClockPlan() draws the launch → turn → land line from.
+ */
+export function plannedLaunchTime() {
+  const hours = forecastHours();
+  if (!hours) return null;
+  const i = selectedIdx(hours);
+  return i === nowIdx(hours) ? new Date() : hours[i].time;
+}
+
 export function renderForecastStrip(r) {
   const hours = forecastHours();
   $('forecast-strip').hidden = !hours;

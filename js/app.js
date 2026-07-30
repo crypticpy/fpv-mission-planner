@@ -42,11 +42,24 @@ import { setTurnaroundKm } from './terrain.js';
 import { isLinkBand } from './rf.js';
 import { isCruiseAlt, activeLevelPatch } from './windprofile.js';
 import { routePlan, renderRouteCard } from './render/route.js';
+import { setupBrief, bindBrief } from './render/brief.js';
 import { renderSpots, bindSpots } from './render/spots.js';
 import { setupShare, bindShare } from './render/share.js';
 import { renderSessionPlanner } from './render/session.js';
 
+/**
+ * What the last render pass solved, for the mission brief (Phase 4 item 8).
+ *
+ * The brief has to print the plan the pilot is looking at, not a fresh one it
+ * solved for itself — a re-plan a keystroke later would be a different document
+ * from the screen it was opened off. So the pass hands its own results over here
+ * and render/brief.js reads them through injection, the same way every other
+ * render module reaches update(): nothing imports this file.
+ */
+let latest = null;
+
 function update() {
+  latest = null;
   updateLiveUI();
   const u = units();
   const batts = compatibleBatteries();
@@ -102,6 +115,7 @@ function update() {
   }
   // Both live outside the tab panels — the field answer and its callouts stay
   // on screen whichever tab is open.
+  latest = { plan: r, link, route: null };
   renderVerdict(r, stranded);
   renderWarnings(r.warnings);
   renderForecastStrip(r);
@@ -119,6 +133,7 @@ function update() {
     // that draws it and the card that explains it, so the line and the verdict
     // under it cannot disagree about whether it fits.
     const route = routePlan(r);
+    latest.route = route;
     renderMapView(r, link, route);
     renderRouteCard(r, route);
     renderTerrainCard(r, link);
@@ -414,6 +429,7 @@ function bind() {
 
   $('in-forecast-hour').addEventListener('input', e => setForecastHour(+e.target.value));
   bindSpots();
+  bindBrief();
   // An import adds rigs, packs and flights all at once, so the Share fold needs
   // the same pair the authoring forms do: rebuild the rail, then re-plan.
   bindShare();
@@ -474,6 +490,8 @@ setupThemes(() => {
   hideTooltip();
   update();
 });
+// The brief prints the render pass that is on screen, never one of its own.
+setupBrief({ latest: () => latest });
 setupShell({ setView });
 const bootView = restoreSession();
 buildAuthoringForms();

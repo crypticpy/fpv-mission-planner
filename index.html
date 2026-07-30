@@ -400,6 +400,11 @@
           <button id="btn-route" class="map-btn full-only" type="button" aria-pressed="false"
                   aria-controls="route-card">Route</button>
           <button id="btn-route-clear" class="map-btn full-only" type="button" hidden>Clear route</button>
+          <!-- The mission brief (Phase 4 item 8). Deliberately NOT full-only: a
+               one-page brief is the most beginner-friendly output this app has,
+               and the expert figures inside it (link band, route, cruise level)
+               simply aren't there when the rail isn't offering them. -->
+          <button id="btn-brief" class="map-btn" type="button" aria-haspopup="dialog">Mission brief</button>
         </div>
       </div>
       <p class="card-sub">Out-and-back turnaround envelope from the launch point — click or drag the map to move it.
@@ -488,6 +493,19 @@
   <button id="dock-map" class="dock-btn" type="button">Map</button>
   <button id="dock-loadout" class="dock-btn" type="button" aria-expanded="false" aria-controls="rail">Loadout</button>
 </nav>
+
+<!-- The mission brief (Phase 4 item 8): the one page a pilot saves, prints, or
+     hands to a spotter. A direct child of <body> because the print stylesheet
+     hides every other top-level element — the overlay on screen and the sheet
+     that comes out of the printer are the same DOM, so they cannot drift apart.
+     Filled by js/render/brief.js; black on white in every theme. -->
+<section id="brief" class="brief" role="dialog" aria-modal="true" aria-labelledby="brief-title" hidden>
+  <div class="brief-bar">
+    <button id="brief-print" class="brief-btn" type="button">Print / save PDF</button>
+    <button id="brief-close" class="brief-btn brief-btn-quiet" type="button">Close</button>
+  </div>
+  <article id="brief-sheet" class="brief-sheet" tabindex="-1"></article>
+</section>
 
 <script type="module" src="js/app.js"></script>
 </body>

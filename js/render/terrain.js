@@ -88,7 +88,13 @@ async function runFetch(ask, sig) {
 
 /* ---------- the numbers, read against the current plan ---------- */
 
-function statsFor(r) {
+/**
+ * The ground read against the current plan, or null when no profile describes
+ * this leg. Exported for the mission brief (Phase 4 item 8), which prints the
+ * same climb and clearance figures this module's card and warnings are written
+ * from — one profile, one set of numbers.
+ */
+export function terrainStatsFor(r) {
   const p = activeProfile();
   if (!p) return null;
   const ask = currentAsk(r.radiusKm);
@@ -134,7 +140,7 @@ function bearingPhrase() {
  * physics.js: the model is handed an elevation and knows nothing about ground.
  */
 export function terrainWarnings(r) {
-  const s = statsFor(r);
+  const s = terrainStatsFor(r);
   if (!s || !(r.radiusKm > 0)) return [];
   const u = units();
   const alt = (m) => `${f0(u.altFromM(m))} ${u.altUnit}`;
@@ -212,7 +218,7 @@ export function renderTerrainCard(r, link) {
   card.hidden = false;
   const u = units();
   const p = activeProfile();
-  const s = statsFor(r);
+  const s = terrainStatsFor(r);
   const note = $('terrain-note');
   const linkNote = $('link-note');
   const empty = $('terrain-empty');

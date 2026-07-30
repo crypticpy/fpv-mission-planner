@@ -151,7 +151,7 @@ export function renderReserveNote(r) {
  * synthesis over the plan: one level, the binding constraint worst-first, and
  * the lever that moves it. Every number here is already on screen elsewhere.
  */
-function verdict(r, stranded) {
+export function verdict(r, stranded) {
   const u = units();
   const spd = (ms) => `${f0(u.speedFromMs(ms))} ${u.speedUnit}`;
   const b = loadoutBattery();
