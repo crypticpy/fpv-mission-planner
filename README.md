@@ -59,11 +59,20 @@ they just won't load offline.
 
 1. **Air density** — ISA barometric pressure at field elevation, Magnus vapor
    pressure from temp + humidity → humid-air density and density altitude.
-2. **Rotor power** — momentum theory on total disc area (4 props): induced
-   velocity solved by fixed-point iteration, parasite drag `½ρ·CdA·V²` tilts the
-   thrust vector, plus a constant avionics draw. A single per-airframe
-   efficiency `etaProp` folds figure of merit, motor/ESC losses, and profile
-   drag.
+2. **Rotor power** — momentum theory on total disc area (4 props): parasite drag
+   `½ρ·CdA·V²` tilts the thrust vector, and the induced velocity is solved by
+   fixed-point iteration against the *tilted* disc, so forward flight is split
+   into the edgewise component that unloads the rotor and the perpendicular
+   component that feeds it. On top of that sits a speed-dependent profile term
+   `P₀·(1 + 4.65·µ²)`: blade drag rises with the square of edgewise advance
+   ratio, so a nose-down dash costs real power that a flat efficiency hides. A
+   single per-airframe efficiency `etaProp` folds figure of merit, motor/ESC
+   losses, and *hover* profile drag; only the µ² excess above hover is modeled
+   separately, from one constant fixed across all airframes (`PROFILE_MU2`,
+   derived in `js/physics.js` from typical quad solidity, blade Cd₀, and design
+   lift coefficient — not a per-drone tuning knob). Both new terms are
+   identically zero at hover, so hover power is unchanged and a hover-solved
+   `etaProp` still means exactly what it always meant.
 3. **Battery** — per-chemistry OCV curve (Li-Ion / LiPo / LiHV), constant-power
    discharge sim with internal-resistance sag (quadratic current solve), cold
    temperature capacity/IR derating, low-voltage cutoff under load. Sag can end
@@ -117,10 +126,10 @@ motor heating all require margin.
 | Anchor | Source | Model check |
 |---|---|---|
 | MOZ7 V2: 843 g dry (measured, claim is 750 g) | Oscar Liang review | used as dry mass |
-| MOZ7 V2: ~16 min / 15+ km, 6S 6000 Li-Ion, 15–20 mph wind | Oscar Liang review | `etaProp 0.55` reproduces it |
+| MOZ7 V2: ~16 min / 15+ km, 6S 6000 Li-Ion, 15–20 mph wind | Oscar Liang review | `etaProp 0.55` / `cdA 0.042` reproduces it |
 | MOZ7 V2: hover ~26–30% throttle, cruise 60–70 km/h, top ~110 km/h | Oscar Liang review | hover A and speed cap |
 | Cinelog30 V3: 192 g dry (measured) | Oscar Liang review | used as dry mass |
-| Cinelog30 V3: 8:10 claimed on 4S 720; 7–7.5 min real on 850 | GEPRC / Oscar Liang | `etaProp 0.37` reproduces both |
+| Cinelog30 V3: 8:10 claimed on 4S 720; 7–7.5 min real on 850 | GEPRC / Oscar Liang | `etaProp 0.37` / `cdA 0.020` reproduces both |
 | NAV packs: 499 g / 975 g, cell DCIR 19.6 mΩ @25 °C → 76 mΩ @−20 °C, cold capacity curve | Lumenier INR21700-50SE factory test report | pack IR & Li-Ion temp tables |
 | GNB 6S 5500/7000 70C XT60: 656/797 g | GNB product pages | capacity, mass, connector, and price |
 | DIY500AMP 6S2P: EVE 40PL/50PL, Ampace JP40/JP50P1, Tenpower 50XG, Reliance RS50, LinkData 55P/65P | DIY500AMP pack and cell pages | cell capacity, weight, current limits, and IR bounds |
@@ -348,9 +357,11 @@ from one they typed in.
 
 ## Honest limitations
 
-- One `etaProp` per airframe: profile drag actually grows with speed, so the
-  model is most accurate near hover and best-range cruise, slightly optimistic
-  at full tilt.
+- One `etaProp` per airframe, plus one profile-drag growth constant shared by
+  every airframe. The µ² term captures the shape of the loss, not each rig's
+  exact blade geometry, so the model is most accurate near hover and best-range
+  cruise and least certain at full tilt — where a real blade also starts
+  stalling on the retreating side, which is not modeled at all.
 - Lift ceilings are physics estimates constrained by published electrical
   limits, not exact thrust-stand curves for the installed motor/prop pairs.
   Replace them with measured thrust/current tables when those become available.

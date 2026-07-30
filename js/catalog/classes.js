@@ -8,7 +8,7 @@
 //
 // Provenance, in the same spirit as drones.js and batteries.js: exactly two
 // rows are anchored to real flight logs — `cinewhoop3` from the Cinelog30 V3
-// (etaProp 0.37 / cdA 0.018) and `lr7` from the MOZ7 V2 (0.55 / 0.042), the
+// (etaProp 0.37 / cdA 0.020) and `lr7` from the MOZ7 V2 (0.55 / 0.042), the
 // two calibrated built-ins. Every other row is interpolation or extrapolation
 // from those two anchors plus general FPV domain knowledge, and says so:
 // `confidence: 'estimated'`, with the reasoning written out on the record.
@@ -22,9 +22,17 @@
 //   - Ducts cost efficiency and add drag: the 3" ducted anchor sits at 0.37
 //     while an unducted 4" — barely a size step up — is put near 0.47.
 //   - cdA does not follow size cleanly for the same reason. The ducted 3"
-//     (0.018 m²) is draggier than a naked 4" (0.016 m²) despite being
+//     (0.020 m²) is draggier than a naked 4" (0.016 m²) despite being
 //     smaller; the ladder above 5" is frontal area plus the camera/gimbal
 //     hanging off the front.
+//
+// etaProp still means exactly what physics.js says it means, including after
+// powerAtSpeed gained a speed-dependent profile-power term: that term is zero at
+// hover by construction, so every η on this table — and every η a hover test
+// solves — keeps its old value and its old range. Only the ducted 3" anchor's
+// cdA moved (0.018 → 0.020, re-solved against its own anchor flights); the
+// estimated rows are interpolations whose 0.5×–2× ranges swallow a shift that
+// size without changing what they claim.
 //
 // `ranges` is warn-don't-block territory (§6.1: people build weird things) and
 // the clamp calibrate.js checks a solved value against. Roughly ±25% around
@@ -67,7 +75,7 @@ export const CLASSES = [
     // (8:10 claimed on 720 mAh, 7–7.5 min measured on an 850) — see
     // catalog/drones.js and README.md's calibration-anchors table.
     etaProp: 0.37,
-    cdA: 0.018,
+    cdA: 0.020,
     avionicsW: 9,             // O4 Pro air unit + AIO FC
     cruiseMs: 9,
     maxSpeedMs: 19,

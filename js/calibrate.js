@@ -14,6 +14,13 @@
 // because cdA sits inside the drag term that feeds the thrust that feeds the
 // induced-velocity fixed point. Two flights, two unknowns, in that order:
 // hover pins efficiency with drag out of the picture, cruise then pins drag.
+//
+// powerAtSpeed's speed-dependent profile-power term does not disturb either
+// solve, by design: both the µ² excess and the disc tilt are identically zero at
+// v = 0, so the hover closure below is the same one division it always was, and
+// what it recovers is the same etaProp it always recovered. A cruise solve does
+// see the new terms — that is the point of them — and still bisects, because
+// power is still strictly increasing in cdA at a fixed airspeed.
 
 import {
   airDensity, discAreaM2, powerAtSpeed, dischargeSim, dischargeToSoc,

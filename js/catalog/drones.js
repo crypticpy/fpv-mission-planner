@@ -20,7 +20,11 @@ export const DRONES = [
     // whether it can lift the pack is liftEnvelope's answer, not this block's.
     power: { connectors: ['XT60'], sMin: 6, sMax: 6, maxPackMassG: null },
     etaProp: 0.55,          // calibrated: ~16 min / 15+ km on 6S 6000mAh Li-Ion in wind
-    cdA: 0.042,             // m², clean airframe
+    // m², clean airframe. Re-solved against the same anchor when powerAtSpeed
+    // gained speed-dependent profile power, and it landed back on 0.042: the new
+    // model's cruise figures move toward the published ~16 min, not away from it,
+    // so there was nothing to correct. See README's calibration-anchors table.
+    cdA: 0.042,
     avionicsW: 10,          // O4 Pro + H743 FC + GPS + RX
     maxSpeedMs: 30.5,       // ~110 km/h reviewer top speed
     cruiseMs: 18,           // realistic hands-on cruise: Oscar Liang flies 60–70 km/h
@@ -53,7 +57,12 @@ export const DRONES = [
     connector: 'XT30',
     power: { connectors: ['XT30'], sMin: 4, sMax: 4, maxPackMassG: null },
     etaProp: 0.37,          // calibrated: 8:10 claim on 720mAh, 7–7.5 min real on 850
-    cdA: 0.018,             // m², ducts are draggy for the size
+    // m², ducts are draggy for the size. Re-solved from 0.018 when powerAtSpeed
+    // gained the tilt-corrected induced velocity: that correction makes forward
+    // flight cheaper, and on a rig this light the drag-to-weight ratio is high
+    // enough that it outran the new profile-power term. 0.020 puts the same
+    // endurance figures back on the same anchor flights.
+    cdA: 0.020,
     avionicsW: 9,           // O4 Pro + F722 AIO
     maxSpeedMs: 19,         // ~68 km/h practical ceiling for the duct
     cruiseMs: 9,            // realistic cinewhoop cruise ~30–35 km/h

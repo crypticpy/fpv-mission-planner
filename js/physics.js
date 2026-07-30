@@ -23,26 +23,95 @@ export function discAreaM2(drone) {
   return drone.numRotors * Math.PI * r * r;
 }
 
-// Induced velocity in forward flight (momentum theory, fixed-point iteration).
-function inducedVelocity(thrustN, rho, areaM2, vMs) {
+/**
+ * Blade-profile power growth with speed, as the lumped constant of
+ * `P0·(1 + k·µ²)` — the classical rotor profile-power law, with µ the advance
+ * ratio (edgewise flow over blade tip speed) and k ≈ 4.65.
+ *
+ * Why one number and not two new fields: the constant term `P0` is already in
+ * the model. `etaProp` has always folded hover profile drag in with figure of
+ * merit and the motor/ESC chain, and because it divides the whole ideal power it
+ * carries `P0` as a *fraction* of induced power — which is how blade drag
+ * actually scales with thrust. So the only thing missing was the µ² excess:
+ *
+ *   ΔP_profile = P0·k·µ²  with  P0 = f·T·v_h  and  µ = v·cosθ / v_tip
+ *
+ * Blade-element theory closes both unknowns without any per-airframe data. For a
+ * rotor of solidity σ, profile drag coefficient Cd0 and mean blade lift
+ * coefficient C̄l:
+ *
+ *   v_tip / v_h = √(12 / (σ·C̄l)) ≡ C     (independent of size, thrust and ρ)
+ *   f = P0 / (T·v_h) = σ·Cd0·C³ / 16
+ *   ⇒  ΔP_profile = (f·k/C²) · T · (v·cosθ)² / v_h
+ *
+ * `PROFILE_MU2` is that single lumped `f·k/C²`. With σ = 0.18 (a three-blade FPV
+ * prop), Cd0 = 0.04 (blade Reynolds number ~5×10⁴ — far draggier than a
+ * helicopter blade), C̄l = 0.55 and k = 4.65: C ≈ 11.0, f ≈ 0.60, and
+ * f·k/C² ≈ 0.023. Every term is a rotor-design constant, none of them scales
+ * with diameter or disc loading, which is why this is a model constant rather
+ * than a class template field — nobody can type it and nothing in the catalog
+ * would distinguish it.
+ *
+ * The f ≈ 0.60 that falls out is a useful cross-check on the whole
+ * decomposition: it implies a hover figure of merit of 1/(1+f) ≈ 0.62 and hence
+ * a drive-chain efficiency of etaProp·(1+f) — 0.88 for the MOZ7, 0.59 for the
+ * ducted Cinelog30. Both land where a motor/ESC chain plus (for the Cinelog)
+ * duct losses should.
+ */
+export const PROFILE_MU2 = 0.023;
+
+/**
+ * Induced velocity in forward flight (momentum theory, fixed-point iteration),
+ * with the disc tilt the thrust vector needs to overcome drag.
+ *
+ * The freestream meets a disc tilted forward by θ = atan(D/W) as two
+ * components: `vEdgeMs` in the plane of the disc (v·cosθ) and `vPerpMs` through
+ * it (v·sinθ), the latter adding to the induced flow the same way a climb rate
+ * would. So the inflow the momentum balance sees is hypot(v·cosθ, v·sinθ + vi)
+ * rather than hypot(v, vi) — larger, so less induced velocity is needed, so
+ * induced power in fast forward flight is lower than the untilted form claims.
+ * The untilted form is exactly the θ = 0 case of this one, and at v = 0 both
+ * reduce to vi = v_h with the fixed point closing on the first pass (hypot(0, x)
+ * is |x| exactly, so hover stays bit-identical — calibrate.js's closed-form
+ * hover solve depends on it).
+ *
+ * Returns `{ vi, vHover }`; `vHover` (√(T/2ρA)) is the profile term's velocity
+ * scale, handed back rather than recomputed.
+ */
+function inducedVelocity(thrustN, rho, areaM2, vEdgeMs, vPerpMs) {
   const vh2 = thrustN / (2 * rho * areaM2);
-  let vi = Math.sqrt(vh2);
+  const vHover = Math.sqrt(vh2);
+  let vi = vHover;
   for (let i = 0; i < 30; i++) {
-    vi = vh2 / Math.hypot(vMs, vi);
+    vi = vh2 / Math.hypot(vEdgeMs, vPerpMs + vi);
   }
-  return vi;
+  return { vi, vHover };
 }
 
-// Electrical power (W) to fly at airspeed vMs.
-// etaProp is overall electrical→ideal-induced efficiency (folds figure of merit,
-// motor/ESC losses, and profile drag at hover); calibrated per airframe against
-// real-world flight logs. cdA in m².
+/**
+ * Electrical power (W) to fly at airspeed vMs. cdA in m².
+ *
+ * etaProp is overall electrical→ideal efficiency (folds figure of merit,
+ * motor/ESC losses, and blade profile drag at hover); calibrated per airframe
+ * against real-world flight logs, and unchanged in meaning by the profile term
+ * above — at vMs = 0 this function is bit-identical to the flat-η form it
+ * replaces, because the tilt is zero and the µ² excess is zero.
+ *
+ * Three ideal-power terms, then one efficiency divisor and the avionics draw:
+ *   induced  T·vi          the momentum-theory cost of holding the tilted thrust
+ *   parasite D·v           which is also T·v·sinθ — the propulsive half
+ *   profile  PROFILE_MU2 · T·(v·cosθ)²/v_h    blade drag's growth with speed
+ */
 export function powerAtSpeed({ massKg, rho, areaM2, cdA, etaProp, avionicsW }, vMs) {
   const W = massKg * G;
   const D = 0.5 * rho * cdA * vMs * vMs;
   const T = Math.hypot(W, D);
-  const vi = inducedVelocity(T, rho, areaM2, vMs);
-  const pIdeal = T * vi + D * vMs;
+  // Disc tilt: cosθ = W/T, sinθ = D/T. Every record the schema accepts has mass,
+  // so T > 0.
+  const vEdge = vMs * (W / T);
+  const { vi, vHover } = inducedVelocity(T, rho, areaM2, vEdge, vMs * (D / T));
+  const pProfile = PROFILE_MU2 * T * vEdge * vEdge / vHover;
+  const pIdeal = T * vi + D * vMs + pProfile;
   return pIdeal / etaProp + avionicsW;
 }
 
