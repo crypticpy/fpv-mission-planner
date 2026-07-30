@@ -1,0 +1,42 @@
+# Deploys the BUILT bundle (dist/) to GitHub Pages — ADR 0009.
+# Production serves Vite output with the generated service-worker precache;
+# the repo root stays runnable as the no-build dev path.
+name: pages
+
+# NOTE: manual trigger only until the repo's Pages setting is flipped to
+# "GitHub Actions" (build_type=workflow) — a repo-settings change the owner
+# makes once. Then restore the push trigger:
+#   push:
+#     branches: [main]
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+      - id: deployment
+        uses: actions/deploy-pages@v4

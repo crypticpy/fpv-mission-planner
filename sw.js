@@ -26,7 +26,7 @@
 // Paths are relative to this file's scope (the app can live at "/" locally
 // or at a GitHub Pages subpath) — never use a leading "/".
 
-const CACHE_NAME = 'fpv-shell-v1';
+const CACHE_NAME = 'fpv-shell-v2';
 
 const PRECACHE_URLS = [
   '.',
