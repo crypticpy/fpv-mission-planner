@@ -231,6 +231,34 @@ Two ways:
   [js/catalog/manufacturers.js](js/catalog/manufacturers.js) for a new
   built-in builder.
 
+## Sharing rigs, packs and flights
+
+"Share drones, packs and flights" in the Aircraft rail writes a JSON file of
+everything you authored — the drones and packs you added, the custom brands they
+name, and (optionally) your flight logs:
+
+```json
+{ "version": 1, "manufacturers": [...], "drones": [...], "batteries": [...], "flightLogs": [...] }
+```
+
+Built-in catalog records are never in the file; the planner you send it to already
+has them. Custom brands always ride along, so a shared pack never arrives naming a
+builder the other planner has never heard of. **Coordinates are never exported**
+(saved spots aren't shared at all) and flight dates are stripped unless you tick
+the box.
+
+Importing is deliberately paranoid: the file's schema version has to be 1, every
+drone and pack is validated against the same field descriptors the forms are built
+from, every flight goes through the logbook's own gate, and anything that fails is
+skipped with the reason shown. **An import never overwrites.** A record whose id
+collides with one you already have (yours or a built-in) comes in as
+`<id>-imported`, and every reference to it inside the same file — a pack's `fits`
+pins, its brand, a flight's drone and pack — is rewritten to match. You see the
+whole diff, renames and skips included, and nothing is saved until you confirm.
+Imported flights feed the calibration fit for the imported airframe, so a
+stranger's `etaProp` backed by eleven logged flights is still visibly different
+from one they typed in.
+
 ## Honest limitations
 
 - One `etaProp` per airframe: profile drag actually grows with speed, so the

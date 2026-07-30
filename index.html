@@ -127,6 +127,36 @@
         <form id="manufacturer-form"></form>
         <div id="manufacturer-list"></div>
       </details>
+      <details class="custom-batt full-only">
+        <summary>Share drones, packs and flights</summary>
+        <!-- §6.3. A file, not an account. The logic is js/share.js; the wiring is
+             js/render/share.js. Import shows what it would do and waits. -->
+        <p class="rail-note">A JSON file of the rigs and packs you added and the flights you
+          logged — send it to anyone, or take theirs. Nothing you didn’t author is in it, and
+          no locations or dates unless you ask.</p>
+        <label class="check-row">
+          <input id="share-logs" type="checkbox" checked>
+          <span>Include my flight logs</span>
+        </label>
+        <label class="check-row">
+          <input id="share-times" type="checkbox">
+          <span>Include the dates and times I flew</span>
+        </label>
+        <button id="share-export" type="button" class="share-btn">Export a file</button>
+        <label>Import a shared file
+          <input id="share-file" type="file" accept="application/json,.json">
+        </label>
+        <div id="share-diff" class="share-diff" hidden>
+          <p class="panel-title">What this file would add</p>
+          <p id="share-summary" class="share-summary"></p>
+          <div id="share-skips"></div>
+          <div class="share-actions">
+            <button id="share-confirm" type="button" class="share-btn">Add these to my hangar</button>
+            <button id="share-cancel" type="button" class="link-btn">Cancel</button>
+          </div>
+        </div>
+        <p id="share-note" class="rail-note" role="status" hidden></p>
+      </details>
     </section>
 
     <section class="rail-group">

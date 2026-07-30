@@ -32,6 +32,7 @@ import { renderComparison } from './render/comparison.js';
 import { setupLive, goLive, useMyLocation, updateLiveUI, liveError } from './render/live.js';
 import { setupForecast, renderForecastStrip, setForecastHour } from './render/forecast.js';
 import { renderSpots, bindSpots } from './render/spots.js';
+import { setupShare, bindShare } from './render/share.js';
 import { renderSessionPlanner } from './render/session.js';
 
 function update() {
@@ -306,6 +307,9 @@ function bind() {
 
   $('in-forecast-hour').addEventListener('input', e => setForecastHour(+e.target.value));
   bindSpots();
+  // An import adds rigs, packs and flights all at once, so the Share fold needs
+  // the same pair the authoring forms do: rebuild the rail, then re-plan.
+  bindShare();
   // Session-planner row count inputs bind their own listener when built in renderSessionPlanner();
   // no static bindings needed here since the rows don't exist until first render.
 
@@ -341,6 +345,7 @@ setupFlightLog({ update, populateControls });
 // Applying a fit changes what the planner is flying, so the status line needs
 // the same pair. The drift chart's view toggle only re-renders itself.
 setupCalibration({ update, populateControls });
+setupShare({ update, populateControls });
 setupLive({ update });
 setupForecast({ update, liveError });
 setupMapView({
