@@ -1,16 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { DRONES } from '../js/catalog/drones.js';
-import { BATTERIES } from '../js/catalog/batteries.js';
-import { CLASSES, classById } from '../js/catalog/classes.js';
+import { DRONES } from '../src/catalog/drones.js';
+import { BATTERIES } from '../src/catalog/batteries.js';
+import { CLASSES, classById } from '../src/catalog/classes.js';
 import {
   airDensity, discAreaM2, powerAtSpeed, dischargeSim, dischargeToSoc,
-} from '../js/physics.js';
+} from '../src/physics.js';
 import {
   avgPowerFromFlight, clampToClass, confidence, landedSocFromMahIn,
   solveCdA, solveEtaProp,
-} from '../js/calibrate.js';
+} from '../src/calibrate.js';
 
 // §6.2's free test: the model generates its own ground truth, so the whole
 // calibration chain is verified without a single measured flight. Fly a known

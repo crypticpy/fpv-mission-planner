@@ -1,14 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { DRONES } from '../js/catalog/drones.js';
-import { BATTERIES } from '../js/catalog/batteries.js';
-import { CLASSES } from '../js/catalog/classes.js';
+import { DRONES } from '../src/catalog/drones.js';
+import { BATTERIES } from '../src/catalog/batteries.js';
+import { CLASSES } from '../src/catalog/classes.js';
 import {
   G, PROFILE_MU2, airDensity, discAreaM2, dischargeSim, dischargeToSoc,
   planMission, powerAtSpeed,
-} from '../js/physics.js';
-import { solveCdA, solveEtaProp } from '../js/calibrate.js';
+} from '../src/physics.js';
+import { solveCdA, solveEtaProp } from '../src/calibrate.js';
 
 // Phase 4 item 1: powerAtSpeed grew a speed-dependent profile-power term
 // (P0·(1 + k·µ²)) and the induced-velocity tilt correction that term was masking.

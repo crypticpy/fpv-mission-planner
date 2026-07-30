@@ -486,7 +486,7 @@ function legVecsFromMode(mode, windMs) {
 // Snapping sub-nanoscale components keeps the cardinal cases bit-identical to
 // the discrete modes.
 //
-// Exported for js/route.js (Phase 4 item 7), which decomposes the wind onto each
+// Exported for src/route.js (Phase 4 item 7), which decomposes the wind onto each
 // leg of a pilot-drawn polyline and must do it exactly the way the footprint
 // sweep does — a route that traces the out-and-back has to reproduce the ring's
 // own numbers, and it only can if both read the same decomposition.
@@ -523,7 +523,7 @@ function bestRangeSpeed(vec, vMax, pAt) {
  * planMission's `legs.pOut`/`pBack` stay steady-flight (power-curve markers have
  * to sit on the curve) while `whPerKm` carries the overhead.
  *
- * A factory rather than a block inside planMission because js/route.js (Phase 4
+ * A factory rather than a block inside planMission because src/route.js (Phase 4
  * item 7) integrates a pilot-drawn polyline leg by leg and has to do it with the
  * *same* solve: a route that traces the planned out-and-back reproduces that
  * plan's numbers by identity, not by a second implementation agreeing with the

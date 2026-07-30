@@ -1,18 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { DRONES } from '../js/catalog/drones.js';
-import { BATTERIES } from '../js/catalog/batteries.js';
+import { DRONES } from '../src/catalog/drones.js';
+import { BATTERIES } from '../src/catalog/batteries.js';
 import {
   allBatteries, allDrones, allManufacturers, compatible, compatibleBatteries, dronePower,
   loadCustomDrones, saveCustomDrone, deleteCustomDrone, loadCustomBatteries,
-} from '../js/registry.js';
-import { validate, DRONE_FIELDS } from '../js/schema.js';
-import { planMission, U } from '../js/physics.js';
+} from '../src/registry.js';
+import { validate, DRONE_FIELDS } from '../src/schema.js';
+import { planMission, U } from '../src/physics.js';
 // The pilot-facing form's own mapping: what "pick a class, weigh the rig, type a
 // name" turns into. Imported here so the record shape the UI writes is the record
 // shape these tests plan with — no hand-built fixture drifting away from it.
-import { recordFromForm } from '../js/render/droneform.js';
+import { recordFromForm } from '../src/render/droneform.js';
 
 // Same Map-backed localStorage stub the store tests use. registry.js reads
 // through store.js, which resolves globalThis.localStorage lazily on every

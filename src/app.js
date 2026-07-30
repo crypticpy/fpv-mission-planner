@@ -1,5 +1,5 @@
 // app.js — the wiring hub: one render pass, the event bindings, and boot.
-// State lives in state.js and every render lives in js/render/*; nothing
+// State lives in state.js and every render lives in src/render/*; nothing
 // imports this file, so app-level callbacks (update, setView) reach those
 // modules by one-time injection at boot.
 import { WEATHER, allBatteries, allManufacturers, saveCustomBattery, saveCustomManufacturer } from './data.js';

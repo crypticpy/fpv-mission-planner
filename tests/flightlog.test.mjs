@@ -1,17 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { DRONES } from '../js/catalog/drones.js';
-import { BATTERIES } from '../js/catalog/batteries.js';
-import { airDensity, discAreaM2, powerAtSpeed, dischargeSim, dischargeToSoc } from '../js/physics.js';
+import { DRONES } from '../src/catalog/drones.js';
+import { BATTERIES } from '../src/catalog/batteries.js';
+import { airDensity, discAreaM2, powerAtSpeed, dischargeSim, dischargeToSoc } from '../src/physics.js';
 import {
   loadFlightLogs, logsForDrone, saveFlightLog, deleteFlightLog, normalizeLog,
   fitForDrone, appliedState, setCalibrationApplied, clearCalibrationApplied,
   calibratedDrone, solveLog,
-} from '../js/flightlog.js';
+} from '../src/flightlog.js';
 // The form's own parse, so the string the pilot types off the OSD is tested
 // where it is read rather than in a fixture that could drift from it.
-import { parseFlightTime } from '../js/render/flightlog.js';
+import { parseFlightTime } from '../src/render/flightlog.js';
 
 // Same free ground truth §6.2 buys the solvers (see calibrate.test.mjs): the
 // model generates the flight a pilot would have typed, the logbook stores it,

@@ -3,13 +3,13 @@ import assert from 'node:assert/strict';
 
 import {
   planMission, powerAtSpeed, dischargeSim, GUST_FACTOR_DEFAULT, HUNT_LAND_HOVER_MIN, U,
-} from '../js/physics.js';
+} from '../src/physics.js';
 
 /* Phase 4 item 2 (the get-home reserve in Wh) and item 4 (the gust factor as a
  * parameter). Two loadouts, because the whole complaint against the percent
  * reserve was that it scaled backwards between a big pack and a small one. */
 
-// MOZ7 V2 + NAV 5000 6S Li-Ion: ~95 Wh, long legs (mirrors js/catalog).
+// MOZ7 V2 + NAV 5000 6S Li-Ion: ~95 Wh, long legs (mirrors src/catalog).
 const moz7 = {
   dryMassG: 843, propDiaIn: 7.5, numRotors: 4, cdA: 0.042,
   etaProp: 0.55, avionicsW: 12, maxSpeedMs: 30.5, cruiseMs: 18,

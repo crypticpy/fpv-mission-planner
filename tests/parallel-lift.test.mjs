@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { DRONES, BATTERIES } from '../js/data.js';
-import { airDensity, discAreaM2, liftEnvelope, parallelBattery, planMission, U } from '../js/physics.js';
+import { DRONES, BATTERIES } from '../src/data.js';
+import { airDensity, discAreaM2, liftEnvelope, parallelBattery, planMission, U } from '../src/physics.js';
 
 const moz7 = DRONES.find(d => d.id === 'moz7v2');
 const cinelog = DRONES.find(d => d.id === 'cinelog30v3');

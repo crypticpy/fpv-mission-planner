@@ -78,7 +78,7 @@
         <span>Run two identical packs in parallel</span>
       </label>
       <p id="parallel-summary" class="parallel-summary full-only" hidden></p>
-      <!-- Which physical copy of that pack model is on the rig (js/packinstances.js).
+      <!-- Which physical copy of that pack model is on the rig (src/packinstances.js).
            Catalog spec is the default and the whole fold stays shut until a pilot
            has two of something; a selected pack's measured resistance replaces the
            model's in the sag model, and the footnote under the plan says so. -->
@@ -148,8 +148,8 @@
       </details>
       <details class="custom-batt full-only">
         <summary>Share drones, packs and flights</summary>
-        <!-- §6.3. A file, not an account. The logic is js/share.js; the wiring is
-             js/render/share.js. Import shows what it would do and waits. -->
+        <!-- §6.3. A file, not an account. The logic is src/share.js; the wiring is
+             src/render/share.js. Import shows what it would do and waits. -->
         <p class="rail-note">A JSON file of the rigs and packs you added and the flights you
           logged — send it to anyone, or take theirs. Nothing you didn’t author is in it, and
           no locations or dates unless you ask.</p>
@@ -498,7 +498,7 @@
      hands to a spotter. A direct child of <body> because the print stylesheet
      hides every other top-level element — the overlay on screen and the sheet
      that comes out of the printer are the same DOM, so they cannot drift apart.
-     Filled by js/render/brief.js; black on white in every theme. -->
+     Filled by src/render/brief.js; black on white in every theme. -->
 <section id="brief" class="brief" role="dialog" aria-modal="true" aria-labelledby="brief-title" hidden>
   <div class="brief-bar">
     <button id="brief-print" class="brief-btn" type="button">Print / save PDF</button>
@@ -507,6 +507,6 @@
   <article id="brief-sheet" class="brief-sheet" tabindex="-1"></article>
 </section>
 
-<script type="module" src="js/app.js"></script>
+<script type="module" src="src/app.js"></script>
 </body>
 </html>

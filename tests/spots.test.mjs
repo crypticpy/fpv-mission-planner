@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { normalizeSpot } from '../js/data.js';
+import { normalizeSpot } from '../src/data.js';
 
 const base = {
   id: 'spot-mabry',

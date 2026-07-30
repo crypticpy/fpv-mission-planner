@@ -5,9 +5,9 @@ import {
   CRUISE_ALTS_M, CRUISE_ALT_DEFAULT_M, isCruiseAlt, levelLabel,
   windAtLevel, levelWindPatch, setWindLevels, windLevels, activeWindAt, activeLevelPatch,
   launchWind,
-} from '../js/windprofile.js';
-import { fetchLiveEnv, shapeForecast, envAtHour } from '../js/weather.js';
-import { planMission, U } from '../js/physics.js';
+} from '../src/windprofile.js';
+import { fetchLiveEnv, shapeForecast, envAtHour } from '../src/weather.js';
+import { planMission, U } from '../src/physics.js';
 
 /* Phase 4 item 9: the wind at more than one height.
  *
@@ -251,7 +251,7 @@ function makeStorage(session = undefined) {
 let seq = 0;
 async function freshState(storage) {
   globalThis.localStorage = storage;
-  return import(`../js/state.js?windlevels=${seq++}`);
+  return import(`../src/state.js?windlevels=${seq++}`);
 }
 
 async function savedBlob(mutate = (s) => s) {

@@ -40,7 +40,7 @@ export const state = {
   // warmed on the car dash, or still cold-soaked from a car left out overnight.
   // Expert-only; beginner mode pins it back to null.
   //
-  // Not to be confused with a pack instance's `irTempC` (js/packinstances.js):
+  // Not to be confused with a pack instance's `irTempC` (src/packinstances.js):
   // that records what the bench was at when the charger measured the pack's
   // resistance. This is how warm the pack is when it leaves the ground.
   packTempF: null,
@@ -237,7 +237,7 @@ export function catalogBattery() {
  * copy of this model is on the rig *and* measured its resistance, the record
  * comes back carrying that number instead of the model's — so planMission, the
  * sag warnings and every chart see the aged pack without knowing instances
- * exist. Mirrors drone()/catalogDrone() above; see js/packinstances.js.
+ * exist. Mirrors drone()/catalogDrone() above; see src/packinstances.js.
  */
 export function battery() {
   return instanceBattery(catalogBattery());

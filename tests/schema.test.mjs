@@ -1,12 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { DRONES } from '../js/catalog/drones.js';
-import { BATTERIES } from '../js/catalog/batteries.js';
+import { DRONES } from '../src/catalog/drones.js';
+import { BATTERIES } from '../src/catalog/batteries.js';
 import {
   BATTERY_FIELDS, DRONE_FIELDS, CONFIDENCE_OPTIONS,
   normalizeConfidence, validate, serialize, parse,
-} from '../js/schema.js';
+} from '../src/schema.js';
 
 const moz7 = DRONES.find(d => d.id === 'moz7v2');
 const nav5000 = BATTERIES.find(b => b.id === 'nav5000');

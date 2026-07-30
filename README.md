@@ -14,9 +14,9 @@ python3 -m http.server 8321
 ```
 
 Then open <http://localhost:8321>. No build step, no dependencies — plain ES
-modules ([js/physics.js](js/physics.js), [js/data.js](js/data.js),
-[js/charts.js](js/charts.js), [js/state.js](js/state.js), `js/render/*`,
-[js/map.js](js/map.js), and [js/app.js](js/app.js) wiring them together).
+modules ([src/physics.js](src/physics.js), [src/data.js](src/data.js),
+[src/charts.js](src/charts.js), [src/state.js](src/state.js), `src/render/*`,
+[src/map.js](src/map.js), and [src/app.js](src/app.js) wiring them together).
 The only third-party code is Leaflet 1.9.4, vendored
 as an ES module in `vendor/leaflet/` so the app still needs no CDN or bundler.
 
@@ -33,7 +33,7 @@ Use the single **Units** selector in the header to switch every displayed
 distance, speed, wind, and distance-normalized burn rate between imperial
 (`mi`, `mph`, `Wh/mi`) and metric (`km`, `km/h`, `Wh/km`). The physics model
 keeps its native SI values; all display labels, conversions, and unit-specific
-input ranges are centralized in [js/units.js](js/units.js).
+input ranges are centralized in [src/units.js](src/units.js).
 
 ### On a phone or tablet
 
@@ -69,7 +69,7 @@ they just won't load offline.
    single per-airframe efficiency `etaProp` folds figure of merit, motor/ESC
    losses, and *hover* profile drag; only the µ² excess above hover is modeled
    separately, from one constant fixed across all airframes (`PROFILE_MU2`,
-   derived in `js/physics.js` from typical quad solidity, blade Cd₀, and design
+   derived in `src/physics.js` from typical quad solidity, blade Cd₀, and design
    lift coefficient — not a per-drone tuning knob). Both new terms are
    identically zero at hover, so hover power is unchanged and a hover-solved
    `etaProp` still means exactly what it always meant.
@@ -162,7 +162,7 @@ motor heating all require margin.
 | GNB packs: 88 / 73 / 72 g confirmed; C-ratings optimistic brand-wide | Pyrodrone, WREKD, Oscar Liang | masses; derated `maxContA` |
 | Cinelog30 packs: GNB 550, RDQ 650, GEPRC 720, Flywoo 750, Tattu 850 | manufacturer/dealer product pages | capacity, mass, chemistry, connector, and current price |
 
-Fields marked `estimated:` in [js/catalog/batteries.js](js/catalog/batteries.js) had no published source
+Fields marked `estimated:` in [src/catalog/batteries.js](src/catalog/batteries.js) had no published source
 (mostly pack IR and true continuous current) — weigh your packs and measure IR
 to tighten them. DIY500AMP does not publish finished weight or variant pricing,
 so its recipes use the published weight of twelve cells plus a 55 g construction
@@ -408,12 +408,12 @@ Two ways:
   batteries persist in browser localStorage. Packs can record the cell maker,
   cell model, S/P configuration, connector, price, IR, and current limit.
 - **Permanently** — add an entry to `BATTERIES` in
-  [js/catalog/batteries.js](js/catalog/batteries.js): builder
+  [src/catalog/batteries.js](src/catalog/batteries.js): builder
   (`manufacturerId`), cell identity, chemistry, S/P count, capacity, weight,
   pack IR (mΩ), continuous amps, and optionally which drones it `fits` — a
   pack without a `fits` pin matches any drone whose connector and cell count
   agree. Add a corresponding entry to `MANUFACTURERS` in
-  [js/catalog/manufacturers.js](js/catalog/manufacturers.js) for a new
+  [src/catalog/manufacturers.js](src/catalog/manufacturers.js) for a new
   built-in builder.
 
 While you fill the form in, a line under it works out the pack's **Wh/g** and

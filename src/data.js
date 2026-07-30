@@ -1,7 +1,7 @@
 // data.js — domain module: re-exports the hardware/scenario catalogs and the
-// hardware registry, plus saved-spots. Catalog literals live in js/catalog/*
+// hardware registry, plus saved-spots. Catalog literals live in src/catalog/*
 // (see those files for sourcing notes); the built-in + custom merge and the
-// compatibility predicate live in js/registry.js and are re-exported here so
+// compatibility predicate live in src/registry.js and are re-exported here so
 // existing import sites keep one address for domain data.
 
 import { get as storeGet, set as storeSet } from './store.js';

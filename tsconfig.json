@@ -18,14 +18,14 @@
   // new modules land here on arrival, and existing ones join as their types are
   // written. `npm run typecheck` is a gate, not a report.
   "include": [
-    "js/units.js",
-    "js/geo.js",
-    "js/store.js",
-    "js/catalog/batteries.js",
-    "js/catalog/drones.js",
-    "js/catalog/manufacturers.js",
-    "js/catalog/payloads.js",
-    "js/catalog/scenarios.js",
-    "js/catalog/weather.js"
+    "src/units.js",
+    "src/geo.js",
+    "src/store.js",
+    "src/catalog/batteries.js",
+    "src/catalog/drones.js",
+    "src/catalog/manufacturers.js",
+    "src/catalog/payloads.js",
+    "src/catalog/scenarios.js",
+    "src/catalog/weather.js"
   ]
 }

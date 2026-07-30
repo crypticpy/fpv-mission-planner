@@ -1,14 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { DRONES } from '../js/catalog/drones.js';
-import { BATTERIES } from '../js/catalog/batteries.js';
-import { planMission, U } from '../js/physics.js';
+import { DRONES } from '../src/catalog/drones.js';
+import { BATTERIES } from '../src/catalog/batteries.js';
+import { planMission, U } from '../src/physics.js';
 import {
   normalizeInstance, loadPackInstances, instancesForBattery, savePackInstance,
   deletePackInstance, deletePackInstancesFor, selectedInstanceId, setSelectedInstance,
   selectedInstance, instanceBattery, highCycleCount,
-} from '../js/packinstances.js';
+} from '../src/packinstances.js';
 
 // Same Map-backed localStorage stub the store, registry and logbook tests use:
 // store.js resolves globalThis.localStorage lazily on every call, so swapping

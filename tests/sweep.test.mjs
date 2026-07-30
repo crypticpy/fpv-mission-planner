@@ -4,8 +4,8 @@ import assert from 'node:assert/strict';
 import {
   SWEEP_STEP_DEG, REFINE_MAX_DEPTH, REFINE_MAX_RAYS,
   alphaOffAxis, adaptiveHalfSweep, radiusAtAlpha, fullCircle, polarAreaKm2,
-} from '../js/sweep.js';
-import { planMission, U } from '../js/physics.js';
+} from '../src/sweep.js';
+import { planMission, U } from '../src/physics.js';
 
 /* Phase 4 item 10: the footprint sweep refines itself across the collapse cliff
  * instead of drawing a 5°-wide ramp over it. Most of this is geometry over a

@@ -1,6 +1,6 @@
 // render/brief.js — the mission brief on screen and on paper (Phase 4 item 8).
 //
-// js/brief.js holds every number and every sentence; this module holds elements,
+// src/brief.js holds every number and every sentence; this module holds elements,
 // one inline SVG, and the open/close/print plumbing. The overlay and the print
 // view are the same DOM: what a pilot reads on a phone in the sun is exactly what
 // comes out of window.print(), which is the only way the two can't drift apart.

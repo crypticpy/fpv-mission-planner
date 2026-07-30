@@ -4,15 +4,15 @@ import assert from 'node:assert/strict';
 import {
   SHARE_VERSION, applyPlan, buildPayload, describePlan, planImport, planIsEmpty, planSkips,
   readPayload,
-} from '../js/share.js';
+} from '../src/share.js';
 import {
   allDrones,
   loadCustomBatteries, loadCustomDrones, loadCustomManufacturers,
-} from '../js/registry.js';
-import { fitForDrone, loadFlightLogs, logsForDrone } from '../js/flightlog.js';
+} from '../src/registry.js';
+import { fitForDrone, loadFlightLogs, logsForDrone } from '../src/flightlog.js';
 // The pilot-facing form's own mapping, for the same reason registry.test.mjs uses
 // it: the record shape these tests share is the record shape the UI writes.
-import { recordFromForm } from '../js/render/droneform.js';
+import { recordFromForm } from '../src/render/droneform.js';
 
 // Same Map-backed localStorage stub the store and registry tests use — store.js
 // resolves globalThis.localStorage lazily on every call, so swapping it in

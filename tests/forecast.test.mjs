@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { shapeForecast, envAtHour, goldenHour, nearestHourIndex } from '../js/weather.js';
+import { shapeForecast, envAtHour, goldenHour, nearestHourIndex } from '../src/weather.js';
 
 // Small hand-built Open-Meteo-shaped fixture, in the already-imperial units
 // the real request asks for (temperature_unit=fahrenheit, wind_speed_unit=mph).

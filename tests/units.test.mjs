@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { UNIT_SYSTEMS, unitSystem } from '../js/units.js';
+import { UNIT_SYSTEMS, unitSystem } from '../src/units.js';
 
 test('metric display conversions use km and km/h', () => {
   const metric = UNIT_SYSTEMS.metric;

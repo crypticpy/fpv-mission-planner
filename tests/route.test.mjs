@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { destination, distanceKm, bearingTo } from '../js/geo.js';
-import { planMission, legSolverFrom, U } from '../js/physics.js';
-import { planRoute } from '../js/route.js';
+import { destination, distanceKm, bearingTo } from '../src/geo.js';
+import { planMission, legSolverFrom, U } from '../src/physics.js';
+import { planRoute } from '../src/route.js';
 
 /* Phase 4 item 7: waypoint/dogleg routes and loiter-at-range.
  *
@@ -18,7 +18,7 @@ import { planRoute } from '../js/route.js';
 
 const AUSTIN = { lat: 30.2672, lng: -97.7431 };
 
-// MOZ7 V2 + NAV 5000 6S Li-Ion (mirrors js/catalog, same figures reserve.test.mjs uses).
+// MOZ7 V2 + NAV 5000 6S Li-Ion (mirrors src/catalog, same figures reserve.test.mjs uses).
 const moz7 = {
   dryMassG: 843, propDiaIn: 7.5, numRotors: 4, cdA: 0.042,
   etaProp: 0.55, avionicsW: 12, maxSpeedMs: 30.5, cruiseMs: 18,

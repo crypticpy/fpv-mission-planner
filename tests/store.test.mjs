@@ -21,7 +21,7 @@ function makeStorage({ throwOnSet = false } = {}) {
 // installed on globalThis.localStorage at that moment.
 let seq = 0;
 function freshStore() {
-  return import(`../js/store.js?fresh=${seq++}`);
+  return import(`../src/store.js?fresh=${seq++}`);
 }
 
 test('set/get round-trips a value under the fpv:v1: namespace', async () => {

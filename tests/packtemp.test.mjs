@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { DRONES, BATTERIES } from '../js/data.js';
-import { planMission, isColdPack, U } from '../js/physics.js';
+import { DRONES, BATTERIES } from '../src/data.js';
+import { planMission, isColdPack, U } from '../src/physics.js';
 
 /* Phase 4 item 3: the pack's temperature, apart from the air's.
  *
@@ -173,7 +173,7 @@ function makeStorage(session = undefined) {
   };
 }
 let seq = 0;
-const freshState = () => import(`../js/state.js?packtemp=${seq++}`);
+const freshState = () => import(`../src/state.js?packtemp=${seq++}`);
 
 // A blob this version would write, taken from the module itself rather than typed
 // out here, so it can't drift away from what saveSession() actually stores.

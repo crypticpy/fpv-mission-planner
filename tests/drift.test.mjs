@@ -1,14 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { DRONES } from '../js/catalog/drones.js';
-import { BATTERIES } from '../js/catalog/batteries.js';
+import { DRONES } from '../src/catalog/drones.js';
+import { BATTERIES } from '../src/catalog/batteries.js';
 import {
   airDensity, discAreaM2, powerAtSpeed, dischargeSim, dischargeToSoc, planMission, U,
-} from '../js/physics.js';
-import { saveFlightLog, fitForDrone, setCalibrationApplied, calibratedDrone } from '../js/flightlog.js';
-import { driftPoints, driftSummary, rangeBandKm } from '../js/drift.js';
-import { niceTicks } from '../js/charts.js';
+} from '../src/physics.js';
+import { saveFlightLog, fitForDrone, setCalibrationApplied, calibratedDrone } from '../src/flightlog.js';
+import { driftPoints, driftSummary, rangeBandKm } from '../src/drift.js';
+import { niceTicks } from '../src/charts.js';
 
 // §6.2's drift chart and hero band, against the same free ground truth the
 // solvers get: the model generates flights for an airframe that is *not* the

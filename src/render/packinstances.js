@@ -6,7 +6,7 @@
 // Its own module rather than more of render/controls.js, on the same seam
 // render/thrustfield.js took: this file owns the fold, its form, its list, and
 // the sentence the provenance footnote asks it for. The persistence and the
-// overlay live in js/packinstances.js and know nothing about the DOM.
+// overlay live in src/packinstances.js and know nothing about the DOM.
 //
 // What the fold deliberately does not do:
 //   - It does not derate capacity by cycle count. Cycles are shown, and a tired

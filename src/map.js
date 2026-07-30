@@ -133,8 +133,8 @@ function moveLaunch(latlng, { notify = true } = {}) {
 //
 // The waypoints and the mode are map-interaction state, held here beside `launch`
 // for the same reason: they are what the pilot pointed at. Every number derived
-// from them lives in js/route.js, and every sentence about them in
-// js/render/route.js — this file draws.
+// from them lives in src/route.js, and every sentence about them in
+// src/render/route.js — this file draws.
 //
 // Deliberately not persisted. A saved spot and a launch point are things a pilot
 // comes back to; a route is a sketch for one outing over one forecast, and
@@ -331,7 +331,7 @@ const COMPASS = { 0: 'N', 90: 'E', 180: 'S', 270: 'W', 360: 'N' };
 
 /**
  * Full overlay + chart render; rPlan is the dashboard planning-case result and
- * `link` the radio analysis of the outbound leg (js/rf.js via render/terrain.js),
+ * `link` the radio analysis of the outbound leg (src/rf.js via render/terrain.js),
  * or null when no terrain profile describes it.
  */
 export function renderMapView(rPlan, link = null, route = null) {

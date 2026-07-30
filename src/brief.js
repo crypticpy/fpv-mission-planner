@@ -9,7 +9,7 @@
 //
 // This module is the data: plan + route + link + footprint in, a fully formatted
 // brief structure out. Pure — no DOM, no state, no Leaflet — so the arithmetic
-// and the wording are node-testable and js/render/brief.js is left with nothing
+// and the wording are node-testable and src/render/brief.js is left with nothing
 // but elements and an SVG. It imports render/format.js the way app.js does: that
 // module is the display vocabulary, not a renderer, and a brief whose numbers are
 // formatted differently from the cards they came off would read as a second,
@@ -268,7 +268,7 @@ function checklist({ plan, clock, link, terrain, route, env, u, expert }) {
 /**
  * Build the whole brief.
  *
- * Required: `plan` (a planMission result), `units` (a js/units.js system) and
+ * Required: `plan` (a planMission result), `units` (a src/units.js system) and
  * `now`. Everything else is optional and simply drops its section — a brief
  * generated offline with no terrain profile, no route and no forecast hour is
  * still the artifact the pilot walks out with, which is the point of the feature.

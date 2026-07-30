@@ -1,5 +1,5 @@
 /* FPV Mission Planner — theme tokens have safe Night Ops fallbacks.
-   js/themes.js owns the preset definitions and applies the complete contract. */
+   src/themes.js owns the preset definitions and applies the complete contract. */
 
 :root {
   color-scheme: dark;

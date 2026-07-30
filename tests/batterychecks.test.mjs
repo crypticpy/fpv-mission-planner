@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { BATTERIES } from '../js/catalog/batteries.js';
-import { CHEMISTRY } from '../js/physics.js';
+import { BATTERIES } from '../src/catalog/batteries.js';
+import { CHEMISTRY } from '../src/physics.js';
 import {
   packCrossChecks, packIrFromCells, resolvePackIr, WH_PER_G_RANGE,
-} from '../js/render/batterychecks.js';
+} from '../src/render/batterychecks.js';
 
 // The form's own arithmetic, tested where it lives: these are the numbers the
 // pilot reads back while typing a pack in, and the bounds a typo has to trip.

@@ -3,7 +3,7 @@
 // the radio line of sight over it, the sentences under it, and the warnings the
 // verdict rail carries on both tabs.
 //
-// All the arithmetic lives in js/terrain.js and js/rf.js; this module owns the
+// All the arithmetic lives in src/terrain.js and src/rf.js; this module owns the
 // wording, the chart, and the one piece of policy a render module is the right
 // place for — deciding that a profile on screen is now describing the wrong
 // bearing.

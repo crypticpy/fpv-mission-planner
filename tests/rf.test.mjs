@@ -1,12 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { profileCoords, buildProfile } from '../js/terrain.js';
+import { profileCoords, buildProfile } from '../src/terrain.js';
 import {
   LINK_BANDS, LINK_BAND_DEFAULT, ANTENNA_HEIGHT_M, FRESNEL_CLEAR_FRAC,
   isLinkBand, linkBand, wavelengthM, fresnelRadiusM, earthBulgeM,
   linkProfile, bandReaches,
-} from '../js/rf.js';
+} from '../src/rf.js';
 
 /* Phase 4 item 6: the radio over the terrain profile.
  *
@@ -221,7 +221,7 @@ function makeStorage(session = undefined) {
 let seq = 0;
 async function freshState(storage) {
   globalThis.localStorage = storage;
-  return import(`../js/state.js?rf=${seq++}`);
+  return import(`../src/state.js?rf=${seq++}`);
 }
 async function savedBlob(mutate = (s) => s) {
   const ls = makeStorage();

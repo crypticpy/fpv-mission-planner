@@ -2,8 +2,8 @@
 // polyline the pilot drew on the map, the verdict against the same budget the
 // footprint ring is solved from, and how long they can hold station at the end.
 //
-// All the arithmetic is js/route.js; the waypoints themselves are map-interaction
-// state in js/map.js, beside the launch point. This module owns the wording and
+// All the arithmetic is src/route.js; the waypoints themselves are map-interaction
+// state in src/map.js, beside the launch point. This module owns the wording and
 // the one piece of policy a render module is the right place for: the route is an
 // expert feature, so beginner mode never sees a route at all — not the panel, not
 // the line on the map.

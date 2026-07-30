@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { DRONES } from '../js/catalog/drones.js';
-import { BATTERIES } from '../js/catalog/batteries.js';
-import { airDensity, discAreaM2, liftEnvelope, U } from '../js/physics.js';
-import { DRONE_FIELDS, validate, serialize, parse } from '../js/schema.js';
-import { parseThrustTable } from '../js/thrust.js';
+import { DRONES } from '../src/catalog/drones.js';
+import { BATTERIES } from '../src/catalog/batteries.js';
+import { airDensity, discAreaM2, liftEnvelope, U } from '../src/physics.js';
+import { DRONE_FIELDS, validate, serialize, parse } from '../src/schema.js';
+import { parseThrustTable } from '../src/thrust.js';
 
 // §6.1's escape hatch, in two halves: a tolerant parser, and the one number it
 // keeps overriding the momentum-theory lift ceiling. §7.4 rules out storing the

@@ -1,14 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { planMission, U } from '../js/physics.js';
-import { planRoute } from '../js/route.js';
-import { adaptiveHalfSweep, fullCircle, polarAreaKm2 } from '../js/sweep.js';
-import { destination } from '../js/geo.js';
-import { unitSystem } from '../js/units.js';
-import { DRONES } from '../js/catalog/drones.js';
-import { BATTERIES } from '../js/catalog/batteries.js';
-import { buildBrief, formatDecimal, formatDegMin, MAX_CHECKLIST, CARDINALS } from '../js/brief.js';
+import { planMission, U } from '../src/physics.js';
+import { planRoute } from '../src/route.js';
+import { adaptiveHalfSweep, fullCircle, polarAreaKm2 } from '../src/sweep.js';
+import { destination } from '../src/geo.js';
+import { unitSystem } from '../src/units.js';
+import { DRONES } from '../src/catalog/drones.js';
+import { BATTERIES } from '../src/catalog/batteries.js';
+import { buildBrief, formatDecimal, formatDegMin, MAX_CHECKLIST, CARDINALS } from '../src/brief.js';
 
 /* Phase 4 item 8: the exportable mission brief.
  *
@@ -21,7 +21,7 @@ import { buildBrief, formatDecimal, formatDegMin, MAX_CHECKLIST, CARDINALS } fro
  * checklist only says a thing when it is true of *this* flight.
  *
  * The SVG plate is deliberately absent from here — it is DOM, it lives in
- * js/render/brief.js, and it draws from the same footprint object this file
+ * src/render/brief.js, and it draws from the same footprint object this file
  * already exercises. */
 
 const AUSTIN = { lat: 30.2672, lng: -97.7431 };
@@ -62,7 +62,7 @@ function planFor(overrides = {}, envOverrides = {}) {
   return planMission({ ...base, courseDeg: base.env.windFromDeg });
 }
 
-/** The map's own footprint object, built the way js/map.js builds it. */
+/** The map's own footprint object, built the way src/map.js builds it. */
 function footprintFor(overrides = {}, envOverrides = {}) {
   const base = inputs(overrides, envOverrides);
   const cache = new Map();
