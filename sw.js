@@ -22,6 +22,7 @@ const PRECACHE_URLS = [
   'js/calibrate.js',
   'js/charts.js',
   'js/data.js',
+  'js/flightlog.js',
   'js/forms.js',
   'js/map.js',
   'js/physics.js',
@@ -45,6 +46,7 @@ const PRECACHE_URLS = [
   'js/render/dashboard.js',
   'js/render/dom.js',
   'js/render/droneform.js',
+  'js/render/flightlog.js',
   'js/render/forecast.js',
   'js/render/format.js',
   'js/render/live.js',
@@ -98,7 +100,9 @@ self.addEventListener('fetch', (event) => {
   // Weather API: network-first, cache fallback (keeps the last live payload).
   // Only OK responses overwrite the cached payload — a 429/500 must not
   // clobber the last-good weather the offline fallback exists to serve.
-  if (url.hostname === 'api.open-meteo.com') {
+  // Both Open-Meteo hosts: `api` for the forecast, `archive-api` for the hour a
+  // logged flight actually happened in.
+  if (url.hostname.endsWith('open-meteo.com')) {
     event.respondWith(
       fetch(request)
         .then((response) => {

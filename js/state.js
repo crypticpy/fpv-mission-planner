@@ -6,6 +6,7 @@ import {
   allBatteries, allManufacturers,
 } from './data.js';
 import { allDrones, compatible, compatibleBatteries as dronePacks } from './registry.js';
+import { calibratedDrone } from './flightlog.js';
 import { get as storeGet, set as storeSet } from './store.js';
 import { parallelBattery, U } from './physics.js';
 import { unitSystem } from './units.js';
@@ -95,9 +96,24 @@ export function restoreSession() {
 // Falls back to the first record the same way battery()/payload()/scenario() do:
 // deleting the custom drone that was selected must not leave the plan reading a
 // hole. The UI puts the rail back on a built-in; this is the net under it.
-export function drone() {
+//
+// The record as written down — catalog or pilot-authored, with nothing fitted on
+// top. Only the calibration UI wants this: it is the "0.55 (catalog)" half of
+// the status line, and the base the fit is solved against.
+export function catalogDrone() {
   const list = allDrones();
   return list.find(d => d.id === state.droneId) || list[0];
+}
+
+/**
+ * The record everything else plans with. When this airframe's flight log has
+ * earned a fit *and* the pilot has the switch on, etaProp and cdA come back as
+ * theirs instead of the catalog's — so planMission, every chart, and the
+ * comparison table see the calibrated rig without knowing calibration exists.
+ * Off by default at every tier below 'default'; see flightlog.appliedState().
+ */
+export function drone() {
+  return calibratedDrone(catalogDrone());
 }
 export function droneBatteries() {
   return dronePacks(drone());

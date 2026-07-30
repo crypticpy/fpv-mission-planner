@@ -1,16 +1,18 @@
 // forms.js — build a form out of a descriptor list, and read one back typed.
 // Generic on purpose: it knows descriptor shapes, never what the records mean.
 //
-// A form descriptor is a schema.js field descriptor plus six view-only
+// A form descriptor is a schema.js field descriptor plus seven view-only
 // extras — `placeholder`, `value` (prefill), `id` (when app code needs to
 // find the control again later), `list` (a `<datalist>` id for native
-// autocomplete on a text input), `help` (a line under the control) and `tag`
+// autocomplete on a text input), `pattern` (a native validation pattern for a
+// text field), `help` (a line under the control) and `tag`
 // (a small provenance chip beside it, addressable later as
 // `[data-tag-for="key"]` so a caller can show or hide it as the field's
 // provenance changes). Two structural entries: `{ grid: [...] }` wraps a run of
 // fields in the two-column `.form-grid` box, and `{ details: { summary, fields } }`
 // folds a run away behind a `<summary>` — an Advanced fold is one line of
-// descriptor, and the fields inside read back like any other.
+// descriptor, and the fields inside read back like any other. Both take an
+// optional `id`, so app code can show or hide the whole run.
 // Validation stays the browser's job: required/min/max/step ride on the inputs
 // as native attributes, so the pilot gets the platform's own error bubbles
 // before submit ever fires.
@@ -21,6 +23,11 @@
 // collects the checked subset back into an array the same way `tags` would.
 
 import { parse } from './schema.js';
+
+// Types that ride straight onto the input element. `date` and `time` are the
+// platform's own pickers — cheaper and more accessible than any widget, and
+// schema.parse reads them back as the strings they already are.
+const INPUT_TYPES = ['number', 'url', 'checkbox', 'date', 'time'];
 
 const flatten = (fields) => fields.flatMap(f => (
   f.grid ? flatten(f.grid)
@@ -62,12 +69,16 @@ function control(f, options) {
     return fs;
   }
   const input = document.createElement('input');
-  if (f.type === 'number' || f.type === 'url' || f.type === 'checkbox') input.type = f.type;
+  if (INPUT_TYPES.includes(f.type)) input.type = f.type;
   if (f.type === 'number') {
     if (f.min != null) input.min = f.min;
     if (f.max != null) input.max = f.max;
     if (f.step != null) input.step = f.step;
   }
+  // Native validation for a text field the browser has no type for — the OSD's
+  // `7:20` timer being the case in hand. Same discipline as min/max above: the
+  // platform's own error bubble, not a hand-rolled one.
+  if (f.pattern) input.pattern = f.pattern;
   if (f.placeholder) input.placeholder = f.placeholder;
   if (f.list) input.setAttribute('list', f.list);
   return input;
@@ -135,6 +146,10 @@ function section(fields, opts) {
     if (entry.grid) {
       const box = document.createElement('div');
       box.className = 'form-grid';
+      // Same `id` escape hatch a fold gets: app code that needs to show or hide
+      // a whole run of fields (a cruise leg's distance and wind, when the pilot
+      // is logging a hover test) has to be able to find the box.
+      if (entry.id) box.id = entry.id;
       for (const f of entry.grid) box.appendChild(field(f, opts));
       out.push(box);
       continue;

@@ -205,3 +205,18 @@ export const CLASSES = [
 export function classById(id) {
   return CLASSES.find(c => c.id === id);
 }
+
+/**
+ * Which template's sanity ranges judge a fit for this airframe. A pilot-added
+ * rig carries the `classId` it was built from; a built-in doesn't need one,
+ * because the class it anchors already names it in `anchoredBy` — so the
+ * moz7v2 → lr7 and cinelog30v3 → cinewhoop3 mapping is read off the table
+ * rather than kept as a second list that could drift away from it.
+ *
+ * Undefined when neither answers, which clampToClass reports as "this class
+ * carries no sanity range" instead of silently accepting the fit.
+ */
+export function classForDrone(drone) {
+  if (!drone) return undefined;
+  return classById(drone.classId) || CLASSES.find(c => c.anchoredBy === drone.id);
+}

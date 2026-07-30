@@ -1,5 +1,7 @@
-// weather.js — Open-Meteo live weather client (keyless, CORS-open), shared by
-// the Weather rail's Live mode and the map's launch-point button.
+// weather.js — Open-Meteo weather client (keyless, CORS-open), shared by the
+// Weather rail's Live mode, the map's launch-point button, and the flight log's
+// historical prefill. Two endpoints: /v1/forecast for now and the next three
+// days, and the ERA5 archive for an hour that has already happened.
 import { loadMapState } from './store.js';
 
 export const DEFAULT_LAUNCH = { lat: 30.2672, lng: -97.7431 }; // Austin
@@ -54,6 +56,54 @@ export async function fetchLiveEnv({ lat, lng }) {
   };
   if (Number.isFinite(data.elevation)) patch.elevFt = Math.round(data.elevation * 3.28084);
   return { patch, gust10Mph: Math.round(c.wind_gusts_10m || 0), forecast: shapeForecast(data) };
+}
+
+/**
+ * Wind and temperature at one hour that has already happened, from Open-Meteo's
+ * ERA5 reanalysis archive (keyless and CORS-open like the forecast endpoint, on
+ * a different host, and roughly a day behind — today's flight is not in it yet).
+ *
+ * `whenLocal` is a local wall-clock `YYYY-MM-DDTHH:mm` string, the same frame
+ * the logbook stores and the same frame `timezone=auto` answers in, so the hour
+ * is matched by string rather than by building a Date that would be parsed in
+ * the browser's zone instead of the launch site's.
+ *
+ * One difference from fetchLiveEnv worth knowing: the reanalysis publishes wind
+ * at 10 m and 100 m, not the forecast API's 80 m. This reads 100 m — the nearest
+ * level to the height the plan flies, and closer to it than the 10 m surface
+ * reading by a wide margin.
+ *
+ * Throws on network trouble, a malformed payload, or an hour the archive has no
+ * data for. Prefilling a form is a convenience, so every caller is expected to
+ * carry on without it.
+ */
+export async function fetchArchiveEnv({ lat, lng }, whenLocal) {
+  const stamp = String(whenLocal);
+  const date = stamp.slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(stamp)) throw new Error('bad timestamp');
+  const url = `https://archive-api.open-meteo.com/v1/archive?latitude=${lat.toFixed(4)}&longitude=${lng.toFixed(4)}`
+    + `&start_date=${date}&end_date=${date}`
+    + '&hourly=temperature_2m,relative_humidity_2m,wind_speed_100m,wind_direction_100m'
+    + '&timezone=auto&temperature_unit=fahrenheit&wind_speed_unit=mph';
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = await res.json();
+  const h = data && data.hourly;
+  if (!h || !Array.isArray(h.time)) throw new Error('malformed response');
+  const wanted = `${date}T${stamp.slice(11, 13)}:00`;
+  const i = h.time.indexOf(wanted);
+  // Number.isFinite, not global isFinite: a null from Open-Meteo means "no
+  // reading", and coercing it to 0 would prefill a fabricated dead calm.
+  if (i < 0 || !Number.isFinite(at(h.wind_speed_100m, i)) || !Number.isFinite(at(h.temperature_2m, i))) {
+    throw new Error('no archived weather for that hour yet');
+  }
+  return {
+    windMph: Math.round(h.wind_speed_100m[i]),
+    windFromDeg: numOrNull(h.wind_direction_100m, i, (v) => ((Math.round(v) % 360) + 360) % 360),
+    tempF: Math.round(h.temperature_2m[i]),
+    rhPct: numOrNull(h.relative_humidity_2m, i, Math.round),
+    elevM: Number.isFinite(data.elevation) ? data.elevation : null,
+  };
 }
 
 /**

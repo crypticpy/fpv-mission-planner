@@ -281,6 +281,31 @@ input[type="range"] { width: 100%; margin-top: 6px; accent-color: var(--series-1
   line-height: 1.4;
 }
 
+/* The calibration status line (§6.2), directly under the drone select: what the
+   catalog says, what this airframe's own flights say, and the switch. Bordered
+   rather than tinted — it is a claim about the numbers above it, and it should
+   read as a small aside rather than compete with the verdict card. */
+.calib-line {
+  margin: -2px 0 var(--sp-2);
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--series-2);
+  border-radius: 6px;
+  background: var(--surface-2);
+}
+.calib-fit {
+  margin: 0 0 4px;
+  color: var(--ink);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
+}
+.calib-line .check-row { margin: 2px 0; font-size: 11.5px; }
+.calib-note { margin: 4px 0 0; }
+/* A flight the model refused, in the logbook list — and the reason under it. */
+.calib-refused { color: var(--muted); }
+.calib-why { margin: 0 0 6px; }
+
 /* ---------- content ---------- */
 
 /* Holds the warnings banner plus both tab panels, so the banner survives a tab

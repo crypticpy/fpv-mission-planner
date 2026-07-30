@@ -22,6 +22,7 @@ import {
   buildAuthoringForms, BATTERY_FORM, MANUFACTURER_FORM,
 } from './render/controls.js';
 import { setupDroneForm, buildDroneForm } from './render/droneform.js';
+import { setupFlightLog, buildFlightLogForm } from './render/flightlog.js';
 import {
   resetPackCaches, renderWarnings, zeroRadiusNote, renderVerdict, renderNoBattery,
   renderStats, renderPowerCurve, renderSpeedTradeoff, renderProfile, renderWindSensitivity,
@@ -333,6 +334,9 @@ setupControls({ update });
 // The drone form re-picks the pack and the manufacturer filter after a save or a
 // delete, so it needs populateControls() as well as update().
 setupDroneForm({ update, populateControls });
+// Logging a flight can change what the airframe flies like, so the same pair:
+// the rail redraws its own status line and list, then the plan re-renders.
+setupFlightLog({ update, populateControls });
 setupLive({ update });
 setupForecast({ update, liveError });
 setupMapView({
@@ -350,6 +354,7 @@ setupShell({ setView });
 const bootView = restoreSession();
 buildAuthoringForms();
 buildDroneForm();
+buildFlightLogForm();
 populateControls();
 bind();
 if (bootView === 'map') setView('map'); // renders as a side effect

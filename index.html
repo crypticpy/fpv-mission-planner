@@ -24,7 +24,11 @@
 <header class="masthead">
   <div>
     <h1>FPV Mission Planner</h1>
-    <p class="masthead-sub">Energy, thrust &amp; wind model · MOZ7 V2 / Cinelog30 V3 · calibrated against logged flights</p>
+    <!-- Per-airframe honesty (§6.2): the calibration claim is scoped to the two
+         rigs it was earned on. Anything else — a class-template build, or a
+         built-in you have logged flights on — says so in the footnote under the
+         battery, which knows which airframe is selected. -->
+    <p class="masthead-sub">Energy, thrust &amp; wind model · calibrated against logged flights on the MOZ7 V2 and Cinelog30 V3 · other rigs are estimates until you log your own</p>
   </div>
   <div class="header-controls">
     <label class="header-select">Detail
@@ -58,6 +62,10 @@
       <label>Drone
         <select id="sel-drone"></select>
       </label>
+      <!-- What this airframe's own flights say about it, and the one switch that
+           applies them. Filled by render/flightlog.js; stays hidden until the
+           logbook has something to be honest about. -->
+      <div id="calib-line" class="calib-line full-only" hidden></div>
       <label>Battery manufacturer
         <select id="sel-manufacturer"></select>
       </label>
@@ -87,6 +95,15 @@
         <p id="drone-warn" class="drone-warn" role="status" hidden></p>
         <p id="drone-note" class="rail-note" role="status" hidden></p>
         <div id="drone-list"></div>
+      </details>
+      <details class="custom-batt full-only">
+        <summary>Log a flight</summary>
+        <!-- Generated from the descriptor in render/flightlog.js at boot. Thirty
+             seconds off the OSD and the charger; the solve comes back inline. -->
+        <form id="flightlog-form"></form>
+        <p id="flightlog-prefill" class="rail-note" role="status" hidden></p>
+        <p id="flightlog-result" class="drone-live" role="status" hidden></p>
+        <div id="flightlog-list"></div>
       </details>
       <details class="custom-batt full-only">
         <summary>Add a battery to compare</summary>

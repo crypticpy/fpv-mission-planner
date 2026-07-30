@@ -12,6 +12,7 @@ import {
 import { buildForm } from '../forms.js';
 import { classById } from '../catalog/classes.js';
 import { renderDroneForm } from './droneform.js';
+import { renderFlightLog } from './flightlog.js';
 import { f0, compass, surfaceMph, estimatedPhrase } from './format.js';
 import { $, fillSelect } from './dom.js';
 
@@ -98,6 +99,7 @@ export function populateControls() {
   renderManufacturerDatalist();
   renderFitsDrones();
   renderDroneForm();
+  renderFlightLog();
 }
 
 // The battery form's "only these drones" checklist is built at boot, before any
@@ -193,7 +195,18 @@ export function renderBatteryNote() {
   // running the table's guesses, and the plan under it says so rather than
   // reading like the calibrated built-ins.
   const d = drone();
-  if (d.custom && d.confidence !== 'measured') {
+  if (d.calibration) {
+    // The switch is on for this airframe, so the plan above is not the catalog's
+    // opinion any more — say whose it is, and how many flights bought it.
+    const { fields, nFlights } = d.calibration;
+    const which = fields.length === 2 ? 'efficiency and drag'
+      : fields[0] === 'etaProp' ? 'efficiency' : 'drag';
+    host.append(document.createTextNode(
+      `${d.name} is flying your own ${which}, fitted from ${nFlights} logged `
+      + `flight${nFlights === 1 ? '' : 's'} instead of `
+      + `${d.custom ? 'the class template' : 'the catalog’s numbers'}. `
+    ));
+  } else if (d.custom && d.confidence !== 'measured') {
     const cls = classById(d.classId);
     host.append(document.createTextNode(
       `${d.name}’s flight numbers are ${cls ? `${cls.label} ` : ''}class estimates, not measured — `
