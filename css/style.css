@@ -993,6 +993,45 @@ body {
 }
 .spot-dot:hover { opacity: 1; }
 
+/* ---------- route mode (Phase 4 item 7) ---------- */
+
+/* The toggle reads as held down while clicks are dropping waypoints — the map
+   behaves differently under it, and a button that changes what a click means has
+   to look latched. */
+.map-btn[aria-pressed="true"] {
+  color: var(--ink);
+  border-color: var(--series-2);
+  background: var(--button-hover);
+}
+/* Crosshair over the canvas for the same reason: this click places a point. */
+.map-canvas.route-mode .leaflet-container { cursor: crosshair; }
+
+/* Numbered waypoint pins, in the route's own color so the line and its turns
+   read as one object — and never the blue launch dot or the amber saved spot. */
+.route-dot {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--series-2);
+  border: 2px solid var(--marker-border);
+  box-shadow: 0 1px 4px var(--shadow);
+  color: var(--on-accent);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+/* The turn the get-home reserve is measured at — the one the pilot can't pick
+   out by eye, because it is the farthest point in energy and not in miles. */
+.route-dot-worst { background: var(--status-warning); box-shadow: 0 0 0 3px var(--shadow); }
+
+.route-verdict { font-size: 13px; color: var(--ink-2); margin-top: var(--sp-2); max-width: 78ch; }
+.route-note { color: var(--muted); font-size: 12px; margin-top: var(--sp-1); max-width: 78ch; }
+#route-caveat { margin-top: var(--sp-2); }
+.route-total td { border-bottom: none; color: var(--ink); font-weight: 600; }
+
 /* ---------- session planner ---------- */
 .sesh-head, .sesh-row {
   display: grid;

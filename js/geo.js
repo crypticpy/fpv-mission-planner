@@ -42,6 +42,26 @@ export function wrapBearing(deg) {
 }
 
 /**
+ * Initial great-circle bearing from one { lat, lng } to another, in degrees —
+ * the exact inverse of `destination()`, so a point placed on a course comes back
+ * reading that course. Route legs need it: the pilot drops a waypoint and the
+ * wind decomposition wants the heading they just drew.
+ *
+ * "Initial" is the honest word — a great circle's bearing turns as you fly it,
+ * and the reverse leg is not the forward bearing plus 180°. Over the few
+ * kilometres a battery buys, the meridian convergence is a few hundredths of a
+ * degree, far under the wind forecast's own resolution. Two identical points
+ * have no bearing at all; 0 comes back, which costs nothing on a zero-length leg.
+ */
+export function bearingTo(a, b) {
+  const la1 = a.lat * Math.PI / 180, la2 = b.lat * Math.PI / 180;
+  const dLng = (b.lng - a.lng) * Math.PI / 180;
+  const y = Math.sin(dLng) * Math.cos(la2);
+  const x = Math.cos(la1) * Math.sin(la2) - Math.sin(la1) * Math.cos(la2) * Math.cos(dLng);
+  return wrapBearing(Math.atan2(y, x) * 180 / Math.PI);
+}
+
+/**
  * Smallest absolute angle between two bearings, in degrees (0…180) — how far a
  * cached profile's bearing is from the one the plan now wants.
  */

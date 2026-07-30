@@ -485,7 +485,12 @@ function legVecsFromMode(mode, windMs) {
 // FROM (meteorological): courseDeg === windFromDeg is straight into the wind.
 // Snapping sub-nanoscale components keeps the cardinal cases bit-identical to
 // the discrete modes.
-function legVecsFromCourse(courseDeg, windFromDeg, windMs) {
+//
+// Exported for js/route.js (Phase 4 item 7), which decomposes the wind onto each
+// leg of a pilot-drawn polyline and must do it exactly the way the footprint
+// sweep does — a route that traces the out-and-back has to reproduce the ring's
+// own numbers, and it only can if both read the same decomposition.
+export function legVecsFromCourse(courseDeg, windFromDeg, windMs) {
   const d = (courseDeg - windFromDeg) * Math.PI / 180;
   const snap = (x) => Math.abs(x) < 1e-9 ? 0 : x;
   const head = snap(windMs * Math.cos(d));
@@ -504,6 +509,64 @@ function bestRangeSpeed(vec, vMax, pAt) {
     if (!best || whPerKm < best.whPerKm) best = { v, vg, whPerKm };
   }
   return best; // null → wind unbeatable at any speed
+}
+
+/**
+ * One leg of a mission against a given wind vector, as a closure over the cruise
+ * policy and the loaded speed envelope: `{ head, cross }` in m/s → `{ v, vg,
+ * whPerKm }`, or null when no airspeed holds that course.
+ *
+ * 'real' flies the airframe's calibrated hands-on cruise speed (like a pilot
+ * would), 'range' is the theoretical per-leg optimum, 'manual' a user-set
+ * airspeed. The scenario maneuvering burn scales the whole leg — it cancels out
+ * of the best-range argmin, so it is applied after speed selection, which is why
+ * planMission's `legs.pOut`/`pBack` stay steady-flight (power-curve markers have
+ * to sit on the curve) while `whPerKm` carries the overhead.
+ *
+ * A factory rather than a block inside planMission because js/route.js (Phase 4
+ * item 7) integrates a pilot-drawn polyline leg by leg and has to do it with the
+ * *same* solve: a route that traces the planned out-and-back reproduces that
+ * plan's numbers by identity, not by a second implementation agreeing with the
+ * first. `legSolverFrom()` below is that door in.
+ */
+function makeLegSolver({ flight, vMax, pAt, overheadF, cruiseMode, realVMs, manualVMs }) {
+  const fixedV = cruiseMode === 'manual' ? (manualVMs || 0)
+    : cruiseMode === 'real' ? Math.min(realVMs || 0, 0.95 * vMax)
+    : 0;
+  return (vec) => {
+    if (!flight.viable) return null;
+    let leg;
+    if (fixedV > 0) {
+      if (fixedV > vMax + 1e-9) return null;
+      const vg = groundSpeedVec(fixedV, vec.head, vec.cross);
+      leg = vg > 0.5 ? { v: fixedV, vg, whPerKm: pAt(fixedV) / (3.6 * vg) } : null;
+    } else {
+      leg = bestRangeSpeed(vec, vMax, pAt);
+    }
+    if (leg) leg.whPerKm *= overheadF;
+    return leg;
+  };
+}
+
+/**
+ * The leg solver a finished plan ran on, rebuilt from the plan and the inputs
+ * that produced it. Everything it needs is already on the result — the loaded
+ * speed ceiling, the lift verdict, the air/mass/drag config and the maneuvering
+ * burn — so this reconstructs the identical closure rather than a lookalike.
+ *
+ * Deliberately not a field on the plan: the result object is compared whole in
+ * several pinning tests, and a function on it is not data.
+ */
+export function legSolverFrom(plan, inp) {
+  return makeLegSolver({
+    flight: plan.flight,
+    vMax: plan.speedLimitMs,
+    pAt: (v) => powerAtSpeed(plan.cfg, v),
+    overheadF: plan.overheadF,
+    cruiseMode: inp.cruiseMode,
+    realVMs: inp.realVMs,
+    manualVMs: inp.manualVMs,
+  });
 }
 
 function bestEnduranceSpeed(vMax, pAt) {
@@ -636,32 +699,14 @@ export function planMission(inp) {
     }
   }
 
-  // Cruise speeds per leg. 'real' flies the airframe's calibrated hands-on
-  // cruise speed both ways (like a pilot would); 'range' is the theoretical
-  // per-leg optimum; 'manual' is a user-set airspeed.
+  // Cruise speeds per leg — see makeLegSolver() for what each mode means and why
+  // the maneuvering burn lands where it does.
   const endur = inp.lite ? null : bestEnduranceSpeed(vMax, pAt);
   const overheadF = Math.max(inp.overheadF ?? 1, 1);
-  const fixedV = inp.cruiseMode === 'manual' ? (inp.manualVMs || 0)
-    : inp.cruiseMode === 'real' ? Math.min(inp.realVMs || 0, 0.95 * vMax)
-    : 0;
-  // One leg of the mission against a given wind vector, at whatever cruise
-  // policy is in force. The scenario maneuvering burn scales the whole leg (it
-  // cancels out of the best-range argmin, so it's applied after speed
-  // selection). legs.pOut / legs.pBack stay steady-flight so power-curve
-  // markers sit on the curve; whPerKm and the discharge sim carry the overhead.
-  const solveLeg = (vec) => {
-    if (!flight.viable) return null;
-    let leg;
-    if (fixedV > 0) {
-      if (fixedV > vMax + 1e-9) return null;
-      const vg = groundSpeedVec(fixedV, vec.head, vec.cross);
-      leg = vg > 0.5 ? { v: fixedV, vg, whPerKm: pAt(fixedV) / (3.6 * vg) } : null;
-    } else {
-      leg = bestRangeSpeed(vec, vMax, pAt);
-    }
-    if (leg) leg.whPerKm *= overheadF;
-    return leg;
-  };
+  const solveLeg = makeLegSolver({
+    flight, vMax, pAt, overheadF,
+    cruiseMode: inp.cruiseMode, realVMs: inp.realVMs, manualVMs: inp.manualVMs,
+  });
   const legOut = solveLeg(vecOut);
   const legBack = solveLeg(vecBack);
 

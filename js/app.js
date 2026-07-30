@@ -41,6 +41,7 @@ import {
 import { setTurnaroundKm } from './terrain.js';
 import { isLinkBand } from './rf.js';
 import { isCruiseAlt, activeLevelPatch } from './windprofile.js';
+import { routePlan, renderRouteCard } from './render/route.js';
 import { renderSpots, bindSpots } from './render/spots.js';
 import { setupShare, bindShare } from './render/share.js';
 import { renderSessionPlanner } from './render/session.js';
@@ -114,7 +115,12 @@ function update() {
   // Render only the visible view: charts measure container width and freeze at
   // a fallback size when drawn inside a hidden container.
   if (state.view === 'map') {
-    renderMapView(r, link);
+    // The route (Phase 4 item 7) is integrated once and handed to both the map
+    // that draws it and the card that explains it, so the line and the verdict
+    // under it cannot disagree about whether it fits.
+    const route = routePlan(r);
+    renderMapView(r, link, route);
+    renderRouteCard(r, route);
     renderTerrainCard(r, link);
     return;
   }
@@ -459,6 +465,7 @@ setupTerrain({ update });
 setupMapView({
   missionInputs,
   units,
+  beginner,
   requestRender: update,
   goLive,
   onLaunchMove: (pt) => { if (state.weatherId === 'live') goLive(pt); },

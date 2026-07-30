@@ -15,17 +15,19 @@ const AUSTIN = { lat: 30.2672, lng: -97.7431 };
 
 const $ = id => document.getElementById(id);
 
-let deps = null; // injected by app.js: { missionInputs, units, requestRender, goLive, onLaunchMove }
+let deps = null; // injected by app.js: { missionInputs, units, beginner, requestRender, goLive, onLaunchMove }
 let map = null;
 let marker = null;
 let satLayer = null, osmLayer = null;
 let footReal = null, footBest = null, footCase = null;
 let legLine = null;    // the outbound leg the dashboard plans, and the terrain profile follows
 let legBlocked = null; // the part of it the radio can't see past (Phase 4 item 6)
+let routeLayers = [];  // the drawn route: casing, out legs, return leg, waypoint pins
 let windControl = null;
 let launch = null;       // { lat, lng } of the launch point
 let justDragged = false; // swallow the synthetic click Leaflet fires after a drag
 let justSpotClick = false; // same guard for a saved-spot marker hit
+let justWpClick = false;   // …and for a waypoint pin, which deletes on click
 let needsFit = false;    // fit map to footprint on next render
 let tileErrorShown = false;
 
@@ -83,7 +85,13 @@ function initMap() {
     setTimeout(() => { justDragged = false; }, 0);
     moveLaunch(marker.getLatLng());
   });
-  map.on('click', e => { if (!justDragged && !justSpotClick) moveLaunch(e.latlng); });
+  map.on('click', e => {
+    if (justDragged || justSpotClick || justWpClick) return;
+    // In route mode a click is a waypoint, not a new launch point: the pilot is
+    // drawing a line out of a spot they have already chosen.
+    if (routeActive()) addWaypoint(e.latlng);
+    else moveLaunch(e.latlng);
+  });
   map.on('moveend zoomend baselayerchange', persist);
   satLayer.on('tileerror', onTileError);
   osmLayer.on('tileerror', onTileError);
@@ -92,6 +100,11 @@ function initMap() {
   $('btn-locate').addEventListener('click', locate);
   $('btn-fit').addEventListener('click', () => { needsFit = true; deps.requestRender(); });
   $('btn-live-wx').addEventListener('click', () => deps.goLive({ ...launch }));
+  $('btn-route').addEventListener('click', () => setRouteMode(!routeOn));
+  $('btn-route-clear').addEventListener('click', () => {
+    waypoints = [];
+    deps.requestRender();
+  });
   initParticles();
 }
 
@@ -107,9 +120,59 @@ function moveLaunch(latlng, { notify = true } = {}) {
   launch = { lat: latlng.lat, lng: wrapLng(latlng.lng) };
   marker.setLatLng(launch);
   needsFit = true;
+  // A route is a line drawn out of one spot. Move the spot and the line describes
+  // a mission nobody is flying — every leg's heading, wind and energy was solved
+  // from the old launch point. Drop it rather than silently re-anchor it.
+  waypoints = [];
   persist();
   deps.requestRender();
   if (notify) deps.onLaunchMove?.({ ...launch }); // live weather refetches for the new spot
+}
+
+/* ---------- route mode (Phase 4 item 7) ---------- */
+//
+// The waypoints and the mode are map-interaction state, held here beside `launch`
+// for the same reason: they are what the pilot pointed at. Every number derived
+// from them lives in js/route.js, and every sentence about them in
+// js/render/route.js — this file draws.
+//
+// Deliberately not persisted. A saved spot and a launch point are things a pilot
+// comes back to; a route is a sketch for one outing over one forecast, and
+// restoring last week's dogleg under today's wind would be a plan nobody made.
+
+let routeOn = false;
+let waypoints = [];
+
+/* Route mode is an expert affordance, so beginner mode has none of it: not the
+   button, not the crosshair, and not the click that drops a waypoint. Asking
+   here rather than latching the flag off means a pilot who drops to beginner to
+   show someone the plan gets their route back when they switch out again — and
+   in the meantime a map click still moves the launch pin, which is the only
+   thing a beginner-mode click has ever meant. */
+const routeActive = () => routeOn && !deps.beginner();
+
+/** What the route panel and the drawing pass both read. */
+export function routeState() {
+  return {
+    on: routeActive(),
+    launch: launch ? { ...launch } : null,
+    waypoints: waypoints.map(w => ({ ...w })),
+  };
+}
+
+export function setRouteMode(on) {
+  routeOn = !!on;
+  deps.requestRender();
+}
+
+function addWaypoint(latlng) {
+  waypoints = [...waypoints, { lat: latlng.lat, lng: wrapLng(latlng.lng) }];
+  deps.requestRender();
+}
+
+function removeWaypoint(i) {
+  waypoints = waypoints.filter((_, k) => k !== i);
+  deps.requestRender();
 }
 
 /* The weather rail moves the launch point too; it handles its own refetch, so
@@ -259,7 +322,7 @@ const COMPASS = { 0: 'N', 90: 'E', 180: 'S', 270: 'W', 360: 'N' };
  * `link` the radio analysis of the outbound leg (js/rf.js via render/terrain.js),
  * or null when no terrain profile describes it.
  */
-export function renderMapView(rPlan, link = null) {
+export function renderMapView(rPlan, link = null, route = null) {
   if (!deps) return;
   if (!map) initMap();
   map.invalidateSize({ pan: false });
@@ -341,6 +404,8 @@ export function renderMapView(rPlan, link = null) {
     }
   }
 
+  drawRoute(route);
+
   if (needsFit) {
     needsFit = false;
     const target = footReal || footBest;
@@ -399,6 +464,64 @@ export function renderMapView(rPlan, link = null) {
   $('chart-bearing').dataset.flightMessage = rPlan.flight.code === 'no_lift'
     ? 'WILL NOT FLY · footprint unavailable'
     : '';
+}
+
+/* ---------- route overlay (Phase 4 item 7) ---------- */
+
+/**
+ * Draw the route over the footprint: the out legs solid, the return home dashed
+ * because it is the line the aircraft flies when something goes wrong rather than
+ * one the pilot drew, and a numbered pin on every waypoint. Colored by the
+ * verdict — a route the budget can't cover is drawn in the critical color, so the
+ * map agrees with the panel below it without anyone reading the panel.
+ *
+ * `route` is null whenever there is nothing to draw (mode off, no waypoints, or
+ * beginner mode), and this clears back to a bare footprint.
+ */
+function drawRoute(route) {
+  for (const l of routeLayers) l.remove();
+  routeLayers = [];
+  const on = routeActive();
+  const btn = $('btn-route');
+  btn.setAttribute('aria-pressed', String(on));
+  btn.textContent = on ? 'Route · on' : 'Route';
+  $('btn-route-clear').hidden = !on || waypoints.length === 0;
+  $('map-canvas').classList.toggle('route-mode', on);
+  if (!route || route.empty) return;
+
+  const ll = (p) => [p.lat, p.lng];
+  const color = route.fits === false ? 'var(--status-critical)' : 'var(--series-2)';
+  const outPts = route.points.map(ll);
+  const homePts = [ll(route.points[route.points.length - 1]), ll(route.points[0])];
+  // Same casing trick the planned ring uses: a dark stroke under the line keeps
+  // it readable over bright satellite imagery.
+  routeLayers.push(L.polyline(outPts, {
+    interactive: false, color: 'var(--map-casing)', weight: 7, opacity: 0.6,
+  }).addTo(map));
+  routeLayers.push(L.polyline(outPts, {
+    interactive: false, color, weight: 3.5, opacity: 1,
+  }).addTo(map));
+  routeLayers.push(L.polyline(homePts, {
+    interactive: false, color, weight: 2.5, dashArray: '7 6', opacity: 0.95,
+  }).addTo(map));
+
+  route.points.slice(1).forEach((p, i) => {
+    const worst = route.worst && route.worst.index === i;
+    const icon = L.divIcon({
+      className: 'route-marker',
+      html: `<div class="route-dot${worst ? ' route-dot-worst' : ''}">${i + 1}</div>`,
+      iconSize: [20, 20], iconAnchor: [10, 10],
+    });
+    const m = L.marker(ll(p), { icon, title: `Waypoint ${i + 1} — click to remove` }).addTo(map);
+    m.on('click', () => {
+      // Leaflet can still surface the map click behind a marker hit, and in route
+      // mode that would drop a new waypoint on the one just deleted.
+      justWpClick = true;
+      setTimeout(() => { justWpClick = false; }, 0);
+      removeWaypoint(i);
+    });
+    routeLayers.push(m);
+  });
 }
 
 /* ---------- wind particles ---------- */

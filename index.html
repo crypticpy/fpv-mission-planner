@@ -394,6 +394,12 @@
           <button id="btn-locate" class="map-btn" type="button">My location</button>
           <button id="btn-fit" class="map-btn" type="button">Fit view</button>
           <button id="btn-live-wx" class="map-btn" type="button">Live weather here</button>
+          <!-- Route mode (Phase 4 item 7): clicks drop waypoints instead of
+               moving the launch pin. Expert-only — beginner mode keeps the one
+               question the ring answers. -->
+          <button id="btn-route" class="map-btn full-only" type="button" aria-pressed="false"
+                  aria-controls="route-card">Route</button>
+          <button id="btn-route-clear" class="map-btn full-only" type="button" hidden>Clear route</button>
         </div>
       </div>
       <p class="card-sub">Out-and-back turnaround envelope from the launch point — click or drag the map to move it.
@@ -402,6 +408,32 @@
       <div id="map-canvas" class="map-canvas"></div>
       <p id="wx-note" class="wx-note" hidden></p>
     </section>
+    <!-- The route the pilot drew (Phase 4 item 7). The ring answers "how far out
+         and straight back"; this answers "can I fly out along the river, cut to
+         the ridge, and hold there while I film it". Same energy, same landing
+         floor, same get-home reserve — integrated along a polyline instead of
+         solved for a radius. Expert-only, and up only while route mode is on. -->
+    <section class="card full-only" id="route-card" hidden>
+      <h3>Route and loiter</h3>
+      <p class="card-sub">Waypoints out from the launch pin, then the straight line home from the last one.
+        Per-leg wind, ground speed and energy, against the same budget the ring is solved from.</p>
+      <p id="route-empty" class="empty-note" hidden></p>
+      <div id="route-table-wrap" class="table-wrap" hidden>
+        <table>
+          <thead>
+            <tr>
+              <th>Leg</th><th>Distance</th><th>Course</th><th>Wind on the leg</th>
+              <th>Airspeed</th><th>Over ground</th><th>Time</th><th>Energy</th>
+            </tr>
+          </thead>
+          <tbody id="route-rows"></tbody>
+        </table>
+      </div>
+      <p id="route-verdict" class="route-verdict" role="status"></p>
+      <p id="route-loiter" class="route-note" role="status"></p>
+      <p id="route-caveat" class="footnote"></p>
+    </section>
+
     <section class="card spots-card">
       <div class="card-head"><h3>Saved spots</h3></div>
       <p class="card-sub">Your launch points, kept — with the elevation and rig you flew there. Fly here moves the pin;
