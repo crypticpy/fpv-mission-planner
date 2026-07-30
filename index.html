@@ -198,6 +198,14 @@
         <label><span id="gust-label">Gusts (mph)</span> <input id="in-gust" type="number" step="1" min="0" max="70"></label>
         <label>Wind from (°) <input id="in-winddir" type="number" step="5" min="0" max="359"></label>
       </div>
+      <!-- Which level of the wind profile to plan on (Phase 4 item 9). Open-Meteo
+           returns 10/80/120/180 m in the same call the app already makes; the
+           planner used to read 80 m and throw the rest away. 80 m stays the
+           default, so choosing nothing changes nothing, and beginner mode pins it
+           there. Also the altitude the terrain card measures clearance against. -->
+      <label class="full-only">Cruise altitude — which wind to plan on
+        <select id="sel-cruise-alt" aria-describedby="wind-note"></select>
+      </label>
       <p id="wind-note" class="rail-note wind-note"></p>
       <!-- The gust conservatism knob (Phase 4 item 4): the planning wind is the
            average plus this share of the gust spread. Hardcoded at 35% and
@@ -404,6 +412,21 @@
       <div class="tile" id="tile-crosswind"><p class="tile-label">Crosswind reach</p><p class="tile-value">—</p><p class="tile-sub"></p></div>
       <div class="tile" id="tile-area"><p class="tile-label">Footprint area</p><p class="tile-value">—</p><p class="tile-sub"></p></div>
       <div class="tile" id="tile-aloft"><p class="tile-label">Time aloft</p><p class="tile-value">—</p><p class="tile-sub"></p></div>
+    </section>
+
+    <!-- The ground under the outbound leg (Phase 4 item 5). The model plans at one
+         elevation and a Hill Country mission climbs, so the plan runs the
+         turnaround's density altitude and this card shows what the ground did to
+         get there. Expert-only: the clearance warning it produces rides the
+         verdict rail on both tabs, which is the part a beginner needs. -->
+    <section class="card full-only" id="terrain-card">
+      <h3>Terrain along the outbound leg</h3>
+      <p class="card-sub">Ground elevation and clearance out to the turnaround, on the course this plan
+        flies — the dashed line is the altitude you said you'd cruise at, held from the launch point</p>
+      <p id="terrain-empty" class="empty-note" hidden></p>
+      <div id="legend-terrain" class="viz-legend"></div>
+      <div id="chart-terrain" class="chart"></div>
+      <p id="terrain-note" class="rail-note" role="status"></p>
     </section>
 
     <section class="card">

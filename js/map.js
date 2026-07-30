@@ -8,9 +8,10 @@ import { planMission } from './physics.js';
 import { loadMapState, saveMapState } from './store.js';
 import { lineChart, legend } from './charts.js';
 import { adaptiveHalfSweep, radiusAtAlpha, fullCircle, polarAreaKm2 } from './sweep.js';
+import { destination, wrapLng } from './geo.js';
+import { plannedCourseDeg } from './terrain.js';
 
 const AUSTIN = { lat: 30.2672, lng: -97.7431 };
-const EARTH_R_KM = 6371;
 
 const $ = id => document.getElementById(id);
 
@@ -19,6 +20,7 @@ let map = null;
 let marker = null;
 let satLayer = null, osmLayer = null;
 let footReal = null, footBest = null, footCase = null;
+let legLine = null; // the outbound leg the dashboard plans, and the terrain profile follows
 let windControl = null;
 let launch = null;       // { lat, lng } of the launch point
 let justDragged = false; // swallow the synthetic click Leaflet fires after a drag
@@ -187,35 +189,6 @@ function wxNote(msg) {
   el.hidden = !msg;
 }
 
-/* ---------- geometry ---------- */
-
-function wrapLng(lng) {
-  return ((lng % 360) + 540) % 360 - 180;
-}
-
-/** Great-circle distance between two { lat, lng } points, in km. */
-export function distanceKm(a, b) {
-  const dLat = (b.lat - a.lat) * Math.PI / 180;
-  const dLng = (b.lng - a.lng) * Math.PI / 180;
-  const la1 = a.lat * Math.PI / 180, la2 = b.lat * Math.PI / 180;
-  const h = Math.sin(dLat / 2) ** 2 + Math.cos(la1) * Math.cos(la2) * Math.sin(dLng / 2) ** 2;
-  return 2 * EARTH_R_KM * Math.asin(Math.min(1, Math.sqrt(h)));
-}
-
-// Spherical destination point from launch along a bearing.
-function destination(lat, lng, bearingDeg, distKm) {
-  const br = bearingDeg * Math.PI / 180;
-  const d = distKm / EARTH_R_KM;
-  const la1 = lat * Math.PI / 180, lo1 = lng * Math.PI / 180;
-  const sinLa2 = Math.sin(la1) * Math.cos(d) + Math.cos(la1) * Math.sin(d) * Math.cos(br);
-  const la2 = Math.asin(sinLa2);
-  const lo2 = lo1 + Math.atan2(
-    Math.sin(br) * Math.sin(d) * Math.cos(la1),
-    Math.cos(d) - Math.sin(la1) * sinLa2,
-  );
-  return [la2 * 180 / Math.PI, wrapLng(lo2 * 180 / Math.PI)];
-}
-
 /* ---------- footprint sweep ---------- */
 
 // Half-sweep 0…180° off the wind axis, refined across the collapse cliff by
@@ -336,6 +309,20 @@ export function renderMapView(rPlan) {
     }
   }
 
+  // The one bearing the terrain profile describes (Phase 4 item 5): the outbound
+  // leg this plan flies, drawn so the elevation card below is about a line the
+  // pilot can see rather than a compass number they have to imagine.
+  if (legLine) { legLine.remove(); legLine = null; }
+  const plannedCourse = plannedCourseDeg(windFrom, base.env.windMode);
+  if (rPlan.radiusKm > 0) {
+    legLine = L.polyline([
+      [launch.lat, launch.lng],
+      destination(launch.lat, launch.lng, plannedCourse, rPlan.radiusKm),
+    ], {
+      interactive: false, color: 'var(--series-4)', weight: 2.5, dashArray: '2 6', opacity: 0.95,
+    }).addTo(map);
+  }
+
   if (needsFit) {
     needsFit = false;
     const target = footReal || footBest;
@@ -374,8 +361,7 @@ export function renderMapView(rPlan) {
       pts: Array.from({ length: 361 }, (_, c) => ({ x: c, y: u.distanceFromKm(bestByCourse[c % 360]) })),
     },
   ];
-  const plannedC = base.env.windMode === 'tailOut' ? downC
-    : base.env.windMode === 'cross' ? (upC + 90) % 360 : upC;
+  const plannedC = plannedCourse;
   const markers = [
     { x: upC, y: u.distanceFromKm(realByCourse[upC]), color: 'var(--series-2)', label: 'upwind' },
     { x: downC, y: u.distanceFromKm(realByCourse[downC]), color: 'var(--series-2)', label: 'downwind', labelBelow: true },

@@ -10,6 +10,9 @@ import {
   manufacturer, loadoutBattery, packTemp, EXPERT_CRUISE_MODES,
 } from '../state.js';
 import { GUST_FACTOR_DEFAULT, isColdPack, U } from '../physics.js';
+import {
+  CRUISE_ALTS_M, CRUISE_ALT_DEFAULT_M, activeWindAt, launchWind,
+} from '../windprofile.js';
 import { deletePackInstancesFor } from '../packinstances.js';
 import { buildForm } from '../forms.js';
 import { classById } from '../catalog/classes.js';
@@ -44,9 +47,25 @@ function configureNumericInput(input, config, value) {
  */
 export function renderWindNotes() {
   const u = units();
-  $('wind-note').textContent =
-    `The plan flies the 80 m wind — ${f0(u.speedFromMph(state.env.windMph))} ${u.speedUnit} from ${state.env.windFromDeg}° (${compass(state.env.windFromDeg)}). `
-    + `At the launch point you’ll feel roughly half of it, about ${f0(u.speedFromMph(surfaceMph(state.env.windMph)))} ${u.speedUnit}.`;
+  const alt = state.cruiseAltM;
+  const spd = (mph) => `${f0(u.speedFromMph(mph))} ${u.speedUnit}`;
+  // Which level the figure on the rail is, said out loud (Phase 4 item 9): the
+  // same 14 mph means two different missions at 10 m and at 180 m, and until this
+  // control existed the answer was always 80 m whether anyone knew it or not.
+  const level = activeWindAt(alt);
+  const lead = `The plan flies the ${alt} m wind — ${spd(state.env.windMph)} `
+    + `from ${state.env.windFromDeg}° (${compass(state.env.windFromDeg)})`
+    + (level && level.windMph === state.env.windMph ? ' — forecast for that height. ' : '. ');
+  // The launch and the landing happen at 10 m whatever the cruise level is, so
+  // that number stays on screen: a measured reading when the forecast gave us
+  // one, and otherwise the rule of thumb this line has always printed.
+  const surface = launchWind(state.env.windMph);
+  const tail = alt === 10
+    ? 'That is the surface wind — climb-out, cruise and landing are all in the same air.'
+    : surface.measured
+      ? `Launch and landing happen in the 10 m wind, ${spd(surface.mph)}.`
+      : `At the launch point you’ll feel roughly half of it, about ${spd(surfaceMph(state.env.windMph))}.`;
+  $('wind-note').textContent = lead + tail;
   // The gust blend, and the honest caveat on it: the gust figure Open-Meteo
   // publishes is a 10 m reading, while the wind the plan flies is the 80 m one,
   // so the spread being blended is not measured in the air the aircraft is in.
@@ -56,8 +75,10 @@ export function renderWindNotes() {
   $('gustf-note').textContent =
     `Planning wind ${f0(u.speedFromMph(planningMph))} ${u.speedUnit} — the average plus `
     + `${state.gustFactorPct}% of the way up to the gusts. 0% plans the average, 100% plans the full gust. `
-    + 'Note the mismatch: gusts are measured at 10 m, near the ground, while the plan flies the 80 m wind — '
-    + 'so this spread is borrowed from lower air than the drone is in.';
+    + (alt === 10
+      ? 'Gusts are measured at 10 m, which is the level this plan is flying — for once the two agree.'
+      : `Note the mismatch: gusts are measured at 10 m, near the ground, while the plan flies the ${alt} m `
+        + 'wind — so this spread is borrowed from lower air than the drone is in.');
 }
 
 /**
@@ -104,6 +125,10 @@ export function populateControls() {
   if (beginner() && EXPERT_CRUISE_MODES.includes(state.cruiseMode)) state.cruiseMode = 'real';
   if (beginner() && state.parallelPacks) state.parallelPacks = false;
   if (beginner()) state.gustFactorPct = GUST_FACTOR_DEFAULT * 100;
+  // Same rule again: a cruise altitude the pilot cannot see is one they cannot put
+  // back, so beginner mode plans the level the app has always planned. app.js puts
+  // that level's wind back on the rail when the toggle moves.
+  if (beginner()) state.cruiseAltM = CRUISE_ALT_DEFAULT_M;
   // Same rule: a pack temperature the pilot cannot see is a pack temperature they
   // cannot put back, so beginner mode always plans the pack at air temperature.
   if (beginner()) state.packTempF = null;
@@ -150,6 +175,19 @@ export function populateControls() {
   $('wind-label').textContent = `Wind aloft (${u.speedUnit})`;
   $('gust-label').textContent = `Gusts (${u.speedUnit})`;
   $('in-winddir').value = state.env.windFromDeg;
+  // The wind at each height the forecast published, on the option itself — like
+  // the scenario select's cruise speeds, the number that decides the choice is in
+  // front of the pilot before they make it. Bare heights until a live fetch has
+  // a profile to put there.
+  fillSelect($('sel-cruise-alt'), CRUISE_ALTS_M.map(m => {
+    const lvl = activeWindAt(m);
+    return {
+      value: String(m),
+      label: lvl
+        ? `${m} m · ${f0(u.speedFromMph(lvl.windMph))} ${u.speedUnit} from ${compass(lvl.windFromDeg)}`
+        : `${m} m`,
+    };
+  }), String(state.cruiseAltM));
   $('in-gustf').value = state.gustFactorPct;
   renderWindNotes();
   renderPackTempNote();

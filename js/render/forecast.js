@@ -1,6 +1,7 @@
 // render/forecast.js — the hourly scrubber: audition a forecast hour, and the
 // launch/turn/land clock plan against the light that hour has left.
 import { envAtHour, goldenHour, nearestHourIndex } from '../weather.js';
+import { activeLevelPatch } from '../windprofile.js';
 import { state, units } from '../state.js';
 import { f0, compass } from './format.js';
 import { $ } from './dom.js';
@@ -107,9 +108,12 @@ function applyForecastHour() {
   const hours = forecastHours();
   if (!hours) return;
   const i = selectedIdx(hours);
+  // Whichever step is showing, the wind comes off the cruise altitude the pilot
+  // picked (Phase 4 item 9): the Now step off the current-conditions profile the
+  // live fetch latched, the other hours off that hour's own profile.
   const patch = (i === nowIdx(hours) && fcPatch)
-    ? fcPatch
-    : envAtHour(fcForecast, hours[i].time);
+    ? { ...fcPatch, ...(activeLevelPatch(state.cruiseAltM) || {}) }
+    : envAtHour(fcForecast, hours[i].time, state.cruiseAltM);
   if (patch) state.env = { ...state.env, ...definedOnly(patch) };
   populateControls();
   deps.update();
@@ -119,6 +123,18 @@ function applyForecastHour() {
 export function setForecastHour(i) {
   fcIdx = i;
   applyForecastHour();
+}
+
+/**
+ * Re-plan the hour already on screen — the cruise-altitude control's hook, so
+ * changing levels while auditioning Saturday at 3 re-reads *that* hour's profile
+ * rather than dropping back to now. False when there is no forecast to re-read
+ * (preset sky, failed fetch), which leaves the caller to apply the level itself.
+ */
+export function reapplyForecastHour() {
+  if (!forecastHours()) return false;
+  applyForecastHour();
+  return true;
 }
 
 /**

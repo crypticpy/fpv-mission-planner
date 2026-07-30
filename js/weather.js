@@ -3,6 +3,7 @@
 // historical prefill. Two endpoints: /v1/forecast for now and the next three
 // days, and the ERA5 archive for an hour that has already happened.
 import { loadMapState } from './store.js';
+import { CRUISE_ALTS_M, levelWindPatch } from './windprofile.js';
 
 export const DEFAULT_LAUNCH = { lat: 30.2672, lng: -97.7431 }; // Austin
 export const DEFAULT_LAUNCH_NAME = 'Austin, TX';
@@ -23,17 +24,28 @@ export function isDefaultLaunch(pt = launchPoint()) {
     && Math.abs(pt.lng - DEFAULT_LAUNCH.lng) < 1e-4;
 }
 
+// Every level's speed/direction pair, as request variables. One call carries the
+// whole profile (Phase 4 item 9) — there was never a second request to make.
+const LEVEL_VARS = CRUISE_ALTS_M
+  .flatMap(m => [`wind_speed_${m}m`, `wind_direction_${m}m`])
+  .join(',');
+
 /**
- * Fetch current conditions for a point. Returns { patch, gust10Mph, forecast }
- * where patch is ready to merge into state.env and forecast is the shaped
- * hourly/daily outlook (see shapeForecast). Throws on network/malformed data.
+ * Fetch current conditions for a point. Returns
+ * { patch, gust10Mph, levels, forecast } where patch is ready to merge into
+ * state.env, levels is the wind at each of CRUISE_ALTS_M (see windprofile.js)
+ * and forecast is the shaped hourly/daily outlook (see shapeForecast). Throws on
+ * network/malformed data.
  */
 export async function fetchLiveEnv({ lat, lng }) {
-  // 80 m wind, not 10 m: FPV cruise happens at 30–120 m AGL, where the wind
-  // typically runs well above the surface reading. Gusts only exist at 10 m.
+  // The patch is still built from the 80 m wind: FPV cruise happens at 30–120 m
+  // AGL, where the wind runs well above the surface reading, and 80 m is the
+  // level every plan in this app's history has flown. The other levels ride
+  // along for the cruise-altitude control to select between; gusts only exist at
+  // 10 m at any of them.
   const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(4)}&longitude=${lng.toFixed(4)}`
-    + '&current=temperature_2m,relative_humidity_2m,wind_speed_80m,wind_direction_80m,wind_gusts_10m'
-    + '&hourly=wind_speed_80m,wind_direction_80m,wind_gusts_10m,temperature_2m,relative_humidity_2m,precipitation_probability'
+    + `&current=temperature_2m,relative_humidity_2m,wind_gusts_10m,${LEVEL_VARS}`
+    + `&hourly=wind_gusts_10m,temperature_2m,relative_humidity_2m,precipitation_probability,${LEVEL_VARS}`
     + '&daily=sunrise,sunset,wind_speed_10m_max,wind_gusts_10m_max,precipitation_probability_max'
     + '&forecast_days=3&timezone=auto'
     + '&temperature_unit=fahrenheit&wind_speed_unit=mph';
@@ -55,7 +67,29 @@ export async function fetchLiveEnv({ lat, lng }) {
     windFromDeg: ((Math.round(c.wind_direction_80m) % 360) + 360) % 360,
   };
   if (Number.isFinite(data.elevation)) patch.elevFt = Math.round(data.elevation * 3.28084);
-  return { patch, gust10Mph: Math.round(c.wind_gusts_10m || 0), forecast: shapeForecast(data) };
+  return {
+    patch,
+    gust10Mph: Math.round(c.wind_gusts_10m || 0),
+    levels: levelsFrom(c),
+    forecast: shapeForecast(data),
+  };
+}
+
+/**
+ * The wind at each published level out of one Open-Meteo block — the `current`
+ * object, or an `hourly` block read at index `i`. Per-level nulls are dropped
+ * rather than coerced (a missing level means the control offers it and the plan
+ * stays where it was, not a fabricated dead calm at that height).
+ */
+function levelsFrom(block, i = null) {
+  const out = {};
+  for (const m of CRUISE_ALTS_M) {
+    const v = i == null ? block[`wind_speed_${m}m`] : at(block[`wind_speed_${m}m`], i);
+    const d = i == null ? block[`wind_direction_${m}m`] : at(block[`wind_direction_${m}m`], i);
+    if (!Number.isFinite(v) || !Number.isFinite(d)) continue;
+    out[m] = { windMph: Math.round(v), windFromDeg: ((Math.round(d) % 360) + 360) % 360 };
+  }
+  return out;
 }
 
 /**
@@ -137,6 +171,12 @@ export function shapeForecast(apiJson) {
     tempF: numOrNull(h.temperature_2m, i, Math.round),
     rhPct: numOrNull(h.relative_humidity_2m, i, Math.round),
     precipPct: numOrNull(h.precipitation_probability, i, Math.round),
+    // The whole wind profile for this hour, and the raw 10 m gust the level the
+    // pilot picks gets re-floored onto (Phase 4 item 9). windMph/windFromDeg/
+    // gustMph above stay the 80 m figures, so an hour read without asking for a
+    // level is the hour this app has always shown.
+    levels: levelsFrom(h, i),
+    gust10Mph: numOrNull(h.wind_gusts_10m, i, Math.round),
   })) : [];
   const days = (d && Array.isArray(d.time)) ? d.time.map((date, i) => ({
     date,
@@ -202,15 +242,22 @@ export function nearestHourIndex(forecast, when) {
  * usable hours. `when` may be a Date or anything `new Date()` accepts.
  * Individual fields may be null where Open-Meteo reported a gap — callers
  * merging this into a live env must drop those rather than write a null.
+ *
+ * `altM` picks which level of the hour's wind profile the patch carries (Phase 4
+ * item 9); it defaults to the 80 m wind this function has always returned, and
+ * an hour with no reading at the requested level falls back to it too — a gap in
+ * one level is not a reason to hand back a different hour's sky.
  */
-export function envAtHour(forecast, when) {
+export function envAtHour(forecast, when, altM = 80) {
   const i = nearestHourIndex(forecast, when);
   if (i < 0) return null;
   const best = forecast.hours[i];
+  const level = altM === 80 ? null : levelWindPatch(best.levels, altM, best.gust10Mph);
   return {
-    windMph: best.windMph,
-    windFromDeg: best.windFromDeg,
-    gustMph: best.gustMph,
+    windMph: level ? level.windMph : best.windMph,
+    windFromDeg: level ? level.windFromDeg : best.windFromDeg,
+    // The chosen level's gust floor, or the 80 m one this hour was shaped with.
+    gustMph: level ? Math.max(level.gustMph, 0) : best.gustMph,
     tempF: best.tempF,
     rhPct: best.rhPct,
   };

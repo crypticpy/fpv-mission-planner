@@ -96,9 +96,10 @@ they just won't load offline.
 5. **Mission** — planning wind = average + a share of the gust spread, set by
    **How much of the gusts to plan for** (default 35%, expert view only; the
    rail states the planning wind it produces). Be aware of what the blend
-   mixes: Open-Meteo publishes gusts at 10 m and sustained wind at 80 m, so the
-   spread is borrowed from lower air than the aircraft is in — the control's
-   note says so. **Weather** (place + season presets) is separate from the
+   mixes: Open-Meteo publishes gusts at 10 m only, while the sustained wind is
+   read at your cruise altitude, so the spread is borrowed from lower air than
+   the aircraft is in — the control's note says so, and the gust is floored at
+   the sustained wind so it can never be reported below the air it rides on. **Weather** (place + season presets) is separate from the
    **scenario** (how you fly): each scenario sets a realistic cruise speed as a
    fraction of the airframe's calibrated hands-on cruise (MOZ7 ~40 mph,
    Cinelog ~20 mph) and a maneuvering burn multiplier (+5% steady cruise up to
@@ -199,12 +200,20 @@ at the launch point from [Open-Meteo](https://open-meteo.com/) (free, no key)
 and shows what it's using in the weather rail; picking a preset (for future
 planning) or editing any weather field drops out of live mode, and the Live
 button — or the map's "Live weather here" — brings it back. Moving the launch
-point while live refetches automatically. It uses **80 m wind**, not the usual
-10 m surface wind — FPV cruise happens at 30–120 m AGL, and surface wind reads
-roughly half of what you'll actually fight up there. Gusts are only published at
-10 m, so treat the gust figure as a floor. Elevation comes from Open-Meteo's
-90 m digital elevation model. If the fetch fails you keep the last values and
-can plan on presets.
+point while live refetches automatically. It uses **80 m wind** by default, not
+the usual 10 m surface wind — FPV cruise happens at 30–120 m AGL, and surface
+wind reads roughly half of what you'll actually fight up there. Gusts are only
+published at 10 m, so treat the gust figure as a floor. Elevation comes from
+Open-Meteo's 90 m digital elevation model. If the fetch fails you keep the last
+values and can plan on presets.
+
+The same request carries the whole **wind profile** — 10, 80, 120 and 180 m —
+and the *Cruise altitude* selector (full detail mode) picks which level the plan
+flies. Wind climbs with height, so the level you choose is a real difference in
+range, not a caption: the rail names it, the forecast scrubber re-reads the hour
+you're auditioning at that level, and the 10 m figure stays on screen beside it
+because launch and landing happen in the surface wind whatever you cruise in.
+Beginner mode pins it back to 80 m.
 
 Animated **wind particles** drift across the map in the direction the air is
 moving (the footprint's `windFromDeg` + 180°), faster in stronger wind. They're
@@ -215,6 +224,24 @@ Base layers: Esri World Imagery (satellite — Source: Esri, Vantor, Earthstar
 Geographics, and the GIS User Community) and OpenStreetMap streets
 (© OpenStreetMap contributors). Tiles load from the providers' free endpoints;
 the footprint still renders if tiles fail in the field.
+
+## Terrain along the outbound leg
+
+A mission over hill country climbs, and the model plans at one elevation. The
+Map tab profiles the **ground under the outbound leg** — one batched Open-Meteo
+elevation request, 28 samples along the course the plan actually flies (into the
+wind, downwind, or the cross leg, whichever the relative wind mode says) — and
+plans the air at the **turnaround**, not at the launch point. That is where the
+thrust margin is thinnest and where a get-home has to start, so the density
+altitude on the dashboard is the turnaround's.
+
+The chart draws the ground against the altitude you said you'd cruise at, held
+from the launch point (which is what an OSD altitude reading is), and a warning
+fires when rising ground eats that clearance — *the ridge 4 km out is higher
+than your cruise altitude*. A preset sky keeps its own elevation: if the rail
+says 10,000 ft and the pin is in Austin, the profile is drawn but the plan stays
+on the scenario you asked for. Offline, or anywhere the request fails, the
+planner falls back to the launch elevation and everything else is unaffected.
 
 ## Planning ahead
 
@@ -413,6 +440,11 @@ from one they typed in.
   multiplier is a flat average for the pattern — a single sustained dive-and-punch
   sequence can transiently pull far beyond it, which is what the landing reserve
   is for.
-- Wind is treated as uniform along the route; mountain rotor and valley
-  acceleration are very much not uniform.
+- Wind is treated as uniform along the route — one level, one direction, all the
+  way out and back; mountain rotor and valley acceleration are very much not
+  uniform.
+- The terrain profile is a bare-earth elevation model. It knows nothing about
+  trees, towers, wires or buildings, and the density altitude it feeds the model
+  is the turnaround's — a ridge higher than the turnaround is drawn and warned
+  about, but the plan is not flown over it.
 - It's a planning estimate, not an RTH guarantee. Fly with margin.

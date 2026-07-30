@@ -6,7 +6,8 @@ import {
   fetchLiveEnv, launchPoint, isDefaultLaunch, DEFAULT_LAUNCH_NAME,
 } from '../weather.js';
 import { state, units } from '../state.js';
-import { f0, compass, surfaceMph } from './format.js';
+import { setWindLevels, activeWindAt, activeLevelPatch, launchWind } from '../windprofile.js';
+import { f0, compass } from './format.js';
 import { $ } from './dom.js';
 import { populateControls } from './controls.js';
 import { setForecast } from './forecast.js';
@@ -38,10 +39,21 @@ function liveStatusText() {
   if (liveFetching || !liveData) return `${where}\nFetching live weather at the launch point…`;
   const u = units();
   const p = liveData.patch;
+  // The conditions this fetch found, read at the height the plan is flying
+  // (Phase 4 item 9) — from the profile rather than the patch, so switching
+  // levels moves this line without refetching. Without a profile it stays the
+  // one wind the fetch returned, which is what it always was.
+  const aloft = activeWindAt(state.cruiseAltM)
+    || { windMph: p.windMph, windFromDeg: p.windFromDeg };
+  // …and whether the surface number beside it was measured at 10 m or is the
+  // old halve-it rule of thumb.
+  const surface = launchWind(aloft.windMph);
+  const surfaceFig = f0(u.speedFromMph(surface.mph));
   return `${where}\n`
-    + `surface ~${f0(u.speedFromMph(surfaceMph(p.windMph)))} / aloft ${f0(u.speedFromMph(p.windMph))} ${u.speedUnit} `
-    + `from ${p.windFromDeg}° (${compass(p.windFromDeg)}) · `
-    + `gusts ${f0(u.speedFromMph(Math.max(liveData.gust10Mph, p.windMph)))} ${u.speedUnit} · `
+    + `${surface.measured ? `10 m ${surfaceFig}` : `surface ~${surfaceFig}`}`
+    + ` / ${state.cruiseAltM} m ${f0(u.speedFromMph(aloft.windMph))} ${u.speedUnit} `
+    + `from ${aloft.windFromDeg}° (${compass(aloft.windFromDeg)}) · `
+    + `gusts ${f0(u.speedFromMph(Math.max(liveData.gust10Mph, aloft.windMph)))} ${u.speedUnit} · `
     + `${p.tempF}°F · ${p.rhPct}% humidity · fetched ${liveData.at}`;
 }
 
@@ -98,17 +110,29 @@ export async function goLive(pt) {
   populateControls();
   deps.update();
   try {
-    const { patch, gust10Mph, forecast } = await fetchLiveEnv(pt ?? launchPoint());
+    const { patch, gust10Mph, levels, forecast } = await fetchLiveEnv(pt ?? launchPoint());
     if (seq !== liveSeq || state.weatherId !== 'live') return; // superseded meanwhile
-    state.env = { ...state.env, ...patch };
+    // The whole wind profile, latched before the patch is applied so the level the
+    // pilot picked is the one that lands on the rail (Phase 4 item 9).
+    setWindLevels(levels, gust10Mph);
+    const planned = { ...patch, ...(activeLevelPatch(state.cruiseAltM) || {}) };
+    state.env = { ...state.env, ...planned };
+    // The scrubber keeps the raw current-conditions patch: its Now step re-applies
+    // whichever level is selected at the time, so stashing a level-shifted patch
+    // here would bake today's choice into tomorrow's hour.
     setForecast(forecast, patch); // hourly scrubber + sun times for this launch point
     liveData = {
+      // The raw fetch, not the level-shifted copy: the status line reads its own
+      // level off the profile, so this stays a record of what came back.
       patch, gust10Mph,
       at: new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }),
     };
   } catch (err) {
     if (seq !== liveSeq || state.weatherId !== 'live') return;
     liveErr = err.message;
+    // A failed refetch must not leave the previous point's wind profile behind as
+    // if it described this one — the same rule the forecast strip follows.
+    setWindLevels(null, null);
   } finally {
     if (seq === liveSeq) {
       liveFetching = false;

@@ -14,6 +14,11 @@ export const UNIT_SYSTEMS = {
     speedUnit: 'mph',
     burnUnit: 'Wh/mi',
     areaUnit: 'mi²',
+    // Altitudes and elevations, which this app has always shown in feet on the
+    // imperial side (the rail's elevation field, the density-altitude tile) — the
+    // terrain profile reads them out of the model in metres and needs the pair.
+    altUnit: 'ft',
+    altFromM: m => m / 0.3048,
     distanceFromKm: km => km * MILES_PER_KM,
     distanceToKm: mi => mi / MILES_PER_KM,
     areaFromKm2: km2 => km2 * SQMI_PER_SQKM,
@@ -34,6 +39,8 @@ export const UNIT_SYSTEMS = {
     speedUnit: 'km/h',
     burnUnit: 'Wh/km',
     areaUnit: 'km²',
+    altUnit: 'm',
+    altFromM: m => m,
     distanceFromKm: km => km,
     distanceToKm: km => km,
     areaFromKm2: km2 => km2,

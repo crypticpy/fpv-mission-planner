@@ -11,6 +11,8 @@ import { instanceBattery } from './packinstances.js';
 import { get as storeGet, set as storeSet } from './store.js';
 import { parallelBattery, GUST_FACTOR_DEFAULT, U } from './physics.js';
 import { unitSystem } from './units.js';
+import { CRUISE_ALTS_M, CRUISE_ALT_DEFAULT_M } from './windprofile.js';
+import { planElevM } from './terrain.js';
 
 export const state = {
   view: 'dash', // 'dash' | 'map'
@@ -41,6 +43,12 @@ export const state = {
   // that records what the bench was at when the charger measured the pack's
   // resistance. This is how warm the pack is when it leaves the ground.
   packTempF: null,
+  // Which level of the wind profile the plan flies, in m AGL (Phase 4 item 9).
+  // 80 m is what every plan before this control existed flew, so leaving it alone
+  // changes nothing; the other levels come off the same forecast call. Doubles as
+  // the altitude the terrain profile measures clearance against (item 5).
+  // Expert-only; beginner mode pins it back to 80.
+  cruiseAltM: CRUISE_ALT_DEFAULT_M,
   cruiseMode: 'real',
   manualMph: 40,
   speedMetric: 'radius',
@@ -121,6 +129,12 @@ export function restoreSession() {
   const packTemp = s.packTempF === undefined || s.packTempF === null ? null
     : num(s.packTempF, PACK_TEMP_RANGE_F[0], PACK_TEMP_RANGE_F[1]) ? s.packTempF
     : false;
+  // Same migration tolerance as the two above: a blob written before the
+  // cruise-altitude control existed gets the level the app has always flown, and
+  // only a level the select could never show voids the blob.
+  const cruiseAlt = s.cruiseAltM === undefined ? CRUISE_ALT_DEFAULT_M
+    : CRUISE_ALTS_M.includes(s.cruiseAltM) ? s.cruiseAltM
+    : null;
   // allDrones(), not the catalog: a rig the pilot added themselves has to survive
   // a reload exactly like a built-in, and store.js is import-time safe so the
   // custom records are readable this early in boot.
@@ -145,6 +159,7 @@ export function restoreSession() {
     && ['headOut', 'tailOut', 'cross'].includes(env.windMode)
     && typeof s.parallelPacks === 'boolean'
     && num(s.extraG, 0, 500) && landFloor !== null && gustFactor !== null && packTemp !== false
+    && cruiseAlt !== null
     && num(s.manualMph, 5, 120)
     && num(env.elevFt, -1500, 30000) && num(env.tempF, -60, 140) && num(env.rhPct, 0, 100)
     && num(env.windMph, 0, 120) && num(env.gustMph, 0, 160) && num(env.windFromDeg, 0, 359);
@@ -154,6 +169,7 @@ export function restoreSession() {
     parallelPacks: s.parallelPacks, payloadId: s.payloadId, extraG: s.extraG,
     weatherId: s.weatherId, scenarioId: s.scenarioId,
     landFloorPct: landFloor, gustFactorPct: gustFactor, packTempF: packTemp,
+    cruiseAltM: cruiseAlt,
     cruiseMode: s.cruiseMode, manualMph: s.manualMph, speedMetric: s.speedMetric,
     detail: ['full', 'beginner'].includes(s.detail) ? s.detail : 'full',
     env: {
@@ -237,7 +253,14 @@ export function loadoutBattery(batt = battery()) {
   });
 }
 
-export function missionInputs(batt = battery(), envOverride = null) {
+/**
+ * The inputs one planMission() call takes, assembled from the rail.
+ *
+ * `terrain: false` opts out of the turnaround-elevation substitution below — the
+ * probe pass that discovers how far out the plan turns around has to run at the
+ * launch elevation, or it would be reading a turnaround it hasn't found yet.
+ */
+export function missionInputs(batt = battery(), envOverride = null, { terrain = true } = {}) {
   const env = envOverride || state.env;
   const configuredBatt = loadoutBattery(batt);
   return {
@@ -247,7 +270,13 @@ export function missionInputs(batt = battery(), envOverride = null) {
     payloadCdA: payload().cdA,
     extraG: state.extraG,
     env: {
-      elevM: U.ftToM(env.elevFt),
+      // Density altitude at the turnaround, not at the launch point (Phase 4
+      // item 5): a mission that climbs 300 m into the Hill Country is planning
+      // thinner air than the pilot is standing in, and the turnaround is where
+      // the thrust margin has to hold. Falls back to the rail's own elevation
+      // whenever no terrain profile describes this launch point — which is every
+      // offline flight, and every plan this app made before the profile existed.
+      elevM: terrain ? planElevM(env.elevFt) : U.ftToM(env.elevFt),
       tempC: U.fToC(env.tempF),
       rhPct: env.rhPct,
       windAvgMs: U.mphToMs(env.windMph),

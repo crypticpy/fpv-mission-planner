@@ -32,7 +32,14 @@ import {
 } from './render/dashboard.js';
 import { renderComparison } from './render/comparison.js';
 import { setupLive, goLive, useMyLocation, updateLiveUI, liveError } from './render/live.js';
-import { setupForecast, renderForecastStrip, setForecastHour } from './render/forecast.js';
+import {
+  setupForecast, renderForecastStrip, setForecastHour, reapplyForecastHour,
+} from './render/forecast.js';
+import {
+  setupTerrain, refreshTerrain, terrainWarnings, renderTerrainCard,
+} from './render/terrain.js';
+import { setTurnaroundKm } from './terrain.js';
+import { isCruiseAlt, activeLevelPatch } from './windprofile.js';
 import { renderSpots, bindSpots } from './render/spots.js';
 import { setupShare, bindShare } from './render/share.js';
 import { renderSessionPlanner } from './render/session.js';
@@ -57,6 +64,14 @@ function update() {
   // its own control: a rig with no compatible pack still has a rail the pilot can
   // tick the pack-temperature box on.
   renderPackTempNote();
+  // Terrain (Phase 4 item 5) plans on the air at the turnaround, not the air at
+  // the launch point — and how far out the turnaround is depends, weakly, on that
+  // same air. Probe once at the rail's own elevation, latch the radius, and let
+  // the real plan read the ground under it. Without a fetched profile planElevM()
+  // hands back the rail elevation and this pass changes nothing.
+  setTurnaroundKm(planMission({
+    ...missionInputs(battery(), null, { terrain: false }), lite: true,
+  }).radiusKm);
   const r = planMission(missionInputs());
   // Handled, not thrown: with no pack there is no plan, and every render below
   // this line reads one. Say it in the verdict card and stop here.
@@ -65,6 +80,11 @@ function update() {
     return;
   }
   document.body.dataset.plan = 'ok'; // undoes renderNoBattery()'s panel blackout
+  // Ask for the ground along the leg this plan actually flies (debounced, and a
+  // no-op while the profile on hand still answers the question). Its callouts
+  // join the model's own on the verdict rail, which shows on both tabs.
+  refreshTerrain(r.radiusKm);
+  r.warnings.push(...terrainWarnings(r));
   const stranded = zeroRadiusNote(r);
   if (stranded) {
     // physics.js emits one generic line for this case; swap in the version that
@@ -89,6 +109,7 @@ function update() {
   // a fallback size when drawn inside a hidden container.
   if (state.view === 'map') {
     renderMapView(r);
+    renderTerrainCard(r);
     return;
   }
   renderStats(r);
@@ -141,6 +162,26 @@ function clearSwapNotice() {
   el.hidden = true;
 }
 
+/**
+ * Move the plan onto another level of the wind profile (Phase 4 item 9), and
+ * re-plan for it.
+ *
+ * In live mode the hourly scrubber owns the sky, so it re-reads whichever hour is
+ * on screen at the new level; with no forecast behind it the level applies to the
+ * current-conditions patch instead. A preset or hand-entered wind is left exactly
+ * as typed — that is a number the pilot chose, not a profile to index into.
+ */
+function setCruiseAlt(m) {
+  state.cruiseAltM = m;
+  if (reapplyForecastHour()) return; // re-plans on its own
+  if (state.weatherId === 'live') {
+    const patch = activeLevelPatch(m);
+    if (patch) state.env = { ...state.env, ...patch };
+  }
+  populateControls();
+  update();
+}
+
 function bind() {
   $('tab-dash').addEventListener('click', () => setView('dash'));
   $('tab-map').addEventListener('click', () => setView('map'));
@@ -155,8 +196,12 @@ function bind() {
     state.detail = ['full', 'beginner'].includes(e.target.value) ? e.target.value : 'full';
     // populateControls() stamps the body attribute the CSS reads, rebuilds the
     // cruise options, and resets an expert cruise mode that just went off screen.
+    const prevAlt = state.cruiseAltM;
     populateControls();
-    update();
+    // Beginner mode pins the cruise altitude back to the default, and the wind on
+    // the rail has to follow it off the level that just went off screen.
+    if (state.cruiseAltM !== prevAlt) setCruiseAlt(state.cruiseAltM);
+    else update();
   });
   $('sel-units').addEventListener('change', e => {
     state.units = e.target.value;
@@ -230,6 +275,11 @@ function bind() {
     });
   }
   $('sel-windmode').addEventListener('change', e => { state.env.windMode = e.target.value; update(); });
+  $('sel-cruise-alt').addEventListener('change', e => {
+    const m = +e.target.value;
+    if (!isCruiseAlt(m)) return; // a select value from nowhere is not a level
+    setCruiseAlt(m);
+  });
   $('in-reserve').addEventListener('input', e => {
     state.landFloorPct = +e.target.value;
     $('reserve-val').textContent = `${state.landFloorPct}%`;
@@ -391,6 +441,10 @@ setupCalibration({ update, populateControls });
 setupShare({ update, populateControls });
 setupLive({ update });
 setupForecast({ update, liveError });
+// The terrain fetch lands after the render that asked for it, so it needs a way
+// back in — the profile, the clearance warnings and the density altitude all
+// change when it does.
+setupTerrain({ update });
 setupMapView({
   missionInputs,
   units,
