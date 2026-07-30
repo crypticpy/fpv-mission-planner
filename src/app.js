@@ -42,6 +42,12 @@ import { setTurnaroundKm } from './terrain.js';
 import { isLinkBand } from './rf.js';
 import { isCruiseAlt, activeLevelPatch } from './windprofile.js';
 import { routePlan, renderRouteCard } from './render/route.js';
+import {
+  setupMissionBridge, openMissionBridge, syncMissionFromRail, missionWaypoints,
+  addWaypoint, moveWaypoint, removeWaypoint, clearRoute,
+} from './mission-bridge.js';
+import { setupMissionRail, railPort } from './mission-rail.js';
+import { renderMissions, renderMissionStorage, bindMissions } from './render/missions.js';
 import { setupBrief, bindBrief } from './render/brief.js';
 import { renderSpots, bindSpots } from './render/spots.js';
 import { setupShare, bindShare } from './render/share.js';
@@ -68,6 +74,11 @@ function update() {
     fillSelect($('sel-battery'), batts.map(b => ({ value: b.id, label: `${b.name} · ${b.massG} g` })), state.batteryId);
   }
   saveSession();
+  // The launch point still lives on the rail while M1's bridge is in place, and
+  // this is the single place it reaches the mission document: every control that
+  // can move it — the pin, a saved spot, live weather's elevation — has already
+  // passed through here by the time this line runs. Quiet when nothing moved.
+  syncMissionFromRail();
   resetPackCaches();
   const sc = scenario();
   // The speed now rides on the option itself, so this line carries what the
@@ -429,6 +440,7 @@ function bind() {
 
   $('in-forecast-hour').addEventListener('input', e => setForecastHour(+e.target.value));
   bindSpots();
+  bindMissions();
   bindBrief();
   // An import adds rigs, packs and flights all at once, so the Share fold needs
   // the same pair the authoring forms do: rebuild the rail, then re-plan.
@@ -485,6 +497,22 @@ setupMapView({
   requestRender: update,
   goLive,
   onLaunchMove: (pt) => { if (state.weatherId === 'live') goLive(pt); },
+  // The route belongs to the mission document now (ADR 0002): the map draws what
+  // it reads back through here, and every edit it makes is a command.
+  routeWaypoints: missionWaypoints,
+  onAddWaypoint: addWaypoint,
+  onMoveWaypoint: moveWaypoint,
+  onRemoveWaypoint: removeWaypoint,
+  onClearRoute: clearRoute,
+});
+// The mission document and the rail adapter that keeps the launch point in step
+// with it for one milestone (src/mission-bridge.js's header has the whole story).
+setupMissionRail({ populateControls });
+setupMissionBridge({
+  rail: railPort,
+  requestRender: update,
+  onMissionChanged: renderMissions,
+  onStorage: renderMissionStorage,
 });
 setupThemes(() => {
   hideTooltip();
@@ -505,3 +533,10 @@ if (bootView === 'map') setView('map'); // renders as a side effect
 // but a saved preset or hand-entered weather must not be overwritten by it.
 if (state.weatherId === 'live') goLive();
 else if (bootView !== 'map') update();
+// Last, and deliberately not awaited: opening the repository is a round trip to
+// IndexedDB, and the first render must not wait on it. The bridge restores the
+// launch point and the route from the saved mission and asks for its own render
+// when it lands.
+openMissionBridge().catch((e) => {
+  console.error('The mission repository could not be opened.', e);
+});

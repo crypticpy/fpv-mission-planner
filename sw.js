@@ -26,7 +26,7 @@
 // Paths are relative to this file's scope (the app can live at "/" locally
 // or at a GitHub Pages subpath) — never use a leading "/".
 
-const CACHE_NAME = 'fpv-shell-v2';
+const CACHE_NAME = 'fpv-shell-v3';
 
 const PRECACHE_URLS = [
   '.',
@@ -43,6 +43,8 @@ const PRECACHE_URLS = [
   'src/forms.js',
   'src/geo.js',
   'src/map.js',
+  'src/mission-bridge.js',
+  'src/mission-rail.js',
   'src/packinstances.js',
   'src/physics.js',
   'src/registry.js',
@@ -60,6 +62,13 @@ const PRECACHE_URLS = [
   'src/units.js',
   'src/weather.js',
   'src/windprofile.js',
+  'src/domain/mission/altitude.js',
+  'src/domain/mission/mission-migrations.js',
+  'src/domain/mission/mission-reducer.js',
+  'src/domain/mission/mission-schema.js',
+  'src/infrastructure/persistence/indexeddb-store.js',
+  'src/infrastructure/persistence/memory-store.js',
+  'src/infrastructure/persistence/mission-repository.js',
   'src/catalog/classes.js',
   'src/catalog/drones.js',
   'src/catalog/manufacturers.js',
@@ -79,6 +88,7 @@ const PRECACHE_URLS = [
   'src/render/forecast.js',
   'src/render/format.js',
   'src/render/live.js',
+  'src/render/missions.js',
   'src/render/packinstances.js',
   'src/render/route.js',
   'src/render/session.js',

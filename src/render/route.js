@@ -109,8 +109,8 @@ export function renderRouteCard(r, route) {
     caveat.textContent = '';
     empty.hidden = false;
     empty.textContent = 'Route mode is on — click the map to drop waypoints. The first leg runs from the '
-      + 'launch pin, and the last one is the straight line home from wherever you stop. Click a waypoint '
-      + 'pin to take it back off.';
+      + 'launch pin, and the last one is the straight line home from wherever you stop. Drag a waypoint '
+      + 'pin to move it, click it to take it back off.';
     return;
   }
   empty.hidden = true;

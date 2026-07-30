@@ -33,6 +33,12 @@
     "src/domain/mission/altitude.js",
     "src/infrastructure/persistence/mission-repository.js",
     "src/infrastructure/persistence/indexeddb-store.js",
-    "src/infrastructure/persistence/memory-store.js"
+    "src/infrastructure/persistence/memory-store.js",
+    // The mission bridge reaches the rail through an injected port rather than by
+    // importing src/state.js, which is exactly what keeps it checkable here while
+    // the rail modules are still untyped. Its two companions — src/mission-rail.js
+    // and src/render/missions.js — import those rail modules and cannot join until
+    // they are typed (M2).
+    "src/mission-bridge.js"
   ]
 }

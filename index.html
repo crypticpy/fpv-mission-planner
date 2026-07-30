@@ -281,6 +281,26 @@
       <label id="speed-row" class="full-only" hidden>Airspeed <span id="speed-val" class="range-val"></span>
         <input id="in-speed" type="range" min="10" max="65" step="1">
       </label>
+      <!-- The mission document (ADR 0002): the launch point and the route the
+           pilot drew, saved in IndexedDB and reopened on the next visit. The
+           fold is the whole of its UI — everything inside it goes through
+           src/mission-bridge.js, which is the only writer of the document. -->
+      <details id="mission-fold" class="custom-batt">
+        <summary>Missions</summary>
+        <label>This mission
+          <input id="mission-title" type="text" maxlength="80" autocomplete="off"
+                 aria-describedby="mission-note">
+        </label>
+        <div class="custom-row">
+          <button id="btn-mission-copy" class="map-btn" type="button">Save as copy</button>
+        </div>
+        <label>Open a mission file
+          <input id="mission-file" type="file" accept="application/json,.json">
+        </label>
+        <p id="mission-note" class="rail-note" role="status" hidden></p>
+        <p id="mission-storage" class="rail-note" role="status" hidden></p>
+        <div id="mission-list" class="spots-list"></div>
+      </details>
     </section>
   </aside>
 

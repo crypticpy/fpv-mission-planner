@@ -15,7 +15,11 @@ const AUSTIN = { lat: 30.2672, lng: -97.7431 };
 
 const $ = id => document.getElementById(id);
 
-let deps = null; // injected by app.js: { missionInputs, units, beginner, requestRender, goLive, onLaunchMove }
+// Injected by app.js: { missionInputs, units, beginner, requestRender, goLive,
+// onLaunchMove } plus the route port — { routeWaypoints, onAddWaypoint,
+// onMoveWaypoint, onRemoveWaypoint, onClearRoute } — which is how this file
+// reads and edits a route it no longer owns (see the route-mode section below).
+let deps = null;
 let map = null;
 let marker = null;
 let satLayer = null, osmLayer = null;
@@ -100,10 +104,12 @@ function initMap() {
   $('btn-locate').addEventListener('click', locate);
   $('btn-fit').addEventListener('click', () => { needsFit = true; deps.requestRender(); });
   $('btn-live-wx').addEventListener('click', () => deps.goLive({ ...launch }));
-  $('btn-route').addEventListener('click', () => setRouteMode(!routeOn));
+  $('btn-route').addEventListener('click', () => setRouteMode(!routeModeOn()));
   $('btn-route-clear').addEventListener('click', () => {
-    waypoints = [];
-    deps.requestRender();
+    // Clearing is not leaving route mode — the pilot is starting the line again,
+    // and the mode has to survive the route going empty under it.
+    routeOn = true;
+    deps.onClearRoute();
   });
   initParticles();
 }
@@ -120,28 +126,40 @@ function moveLaunch(latlng, { notify = true } = {}) {
   launch = { lat: latlng.lat, lng: wrapLng(latlng.lng) };
   marker.setLatLng(launch);
   needsFit = true;
-  // A route is a line drawn out of one spot. Move the spot and the line describes
-  // a mission nobody is flying — every leg's heading, wind and energy was solved
-  // from the old launch point. Drop it rather than silently re-anchor it.
-  waypoints = [];
+  // The route survives (ADR 0002). Moving the pin used to throw the waypoints
+  // away; it is now a `setLaunch` command on the mission document — raised by
+  // the render pass this triggers, which is the one place every launch change in
+  // the app passes through — and the waypoints keep their absolute coordinates.
+  // What the document drops is the *resolved* altitude behind each leg, because
+  // the new site's elevation is not the old one's.
   persist();
   deps.requestRender();
   if (notify) deps.onLaunchMove?.({ ...launch }); // live weather refetches for the new spot
 }
 
-/* ---------- route mode (Phase 4 item 7) ---------- */
+/* ---------- route mode (Phase 4 item 7; M1b moved the route itself out) ------ */
 //
-// The waypoints and the mode are map-interaction state, held here beside `launch`
-// for the same reason: they are what the pilot pointed at. Every number derived
-// from them lives in src/route.js, and every sentence about them in
-// src/render/route.js — this file draws.
+// The waypoints are no longer held here. They live in the mission document
+// (ADR 0002), which is why they now survive a reload and a launch-point move:
+// this file raises `addWaypoint` / `moveWaypoint` / `removeWaypoint` through its
+// injected deps and reads the result back through `deps.routeWaypoints()`. Every
+// number derived from them still lives in src/route.js, every sentence about
+// them in src/render/route.js — this file draws and handles the pointer.
 //
-// Deliberately not persisted. A saved spot and a launch point are things a pilot
-// comes back to; a route is a sketch for one outing over one forecast, and
-// restoring last week's dogleg under today's wind would be a plan nobody made.
+// The *mode* stays here, because it is a view preference rather than part of the
+// plan: which pilot has the route tool open says nothing about the mission.
+// It is tri-state. `null` means "follow the document" — a restored mission with
+// waypoints comes back with its route visible, which is the whole point of
+// persisting it, and an empty one does not put the map into an editing mode
+// nobody asked for. The first deliberate route gesture latches a real boolean,
+// and from there the pilot's choice sticks for the session.
 
-let routeOn = false;
-let waypoints = [];
+let routeOn = null;
+
+/** The route port, tolerant of a boot render before the mission document exists. */
+const routeWaypoints = () => deps.routeWaypoints?.() ?? [];
+
+const routeModeOn = () => (routeOn === null ? routeWaypoints().length > 0 : routeOn);
 
 /* Route mode is an expert affordance, so beginner mode has none of it: not the
    button, not the crosshair, and not the click that drops a waypoint. Asking
@@ -149,14 +167,18 @@ let waypoints = [];
    show someone the plan gets their route back when they switch out again — and
    in the meantime a map click still moves the launch pin, which is the only
    thing a beginner-mode click has ever meant. */
-const routeActive = () => routeOn && !deps.beginner();
+const routeActive = () => routeModeOn() && !deps.beginner();
 
-/** What the route panel and the drawing pass both read. */
+/**
+ * What the route panel and the drawing pass both read. The waypoints carry their
+ * document ids so a pin can name itself in the command it raises; src/route.js
+ * and src/render/route.js read nothing but lat/lng off them.
+ */
 export function routeState() {
   return {
     on: routeActive(),
     launch: launch ? { ...launch } : null,
-    waypoints: waypoints.map(w => ({ ...w })),
+    waypoints: routeWaypoints().map(w => ({ ...w })),
   };
 }
 
@@ -166,13 +188,18 @@ export function setRouteMode(on) {
 }
 
 function addWaypoint(latlng) {
-  waypoints = [...waypoints, { lat: latlng.lat, lng: wrapLng(latlng.lng) }];
-  deps.requestRender();
+  routeOn = true;
+  deps.onAddWaypoint({ lat: latlng.lat, lng: wrapLng(latlng.lng) });
 }
 
-function removeWaypoint(i) {
-  waypoints = waypoints.filter((_, k) => k !== i);
-  deps.requestRender();
+function removeWaypoint(id) {
+  routeOn = true;
+  deps.onRemoveWaypoint(id);
+}
+
+function moveWaypoint(id, latlng) {
+  routeOn = true;
+  deps.onMoveWaypoint(id, { lat: latlng.lat, lng: wrapLng(latlng.lng) });
 }
 
 /* The weather rail moves the launch point too; it handles its own refetch, so
@@ -505,10 +532,11 @@ function drawRoute(route) {
   for (const l of routeLayers) l.remove();
   routeLayers = [];
   const on = routeActive();
+  const wps = routeWaypoints();
   const btn = $('btn-route');
   btn.setAttribute('aria-pressed', String(on));
   btn.textContent = on ? 'Route · on' : 'Route';
-  $('btn-route-clear').hidden = !on || waypoints.length === 0;
+  $('btn-route-clear').hidden = !on || wps.length === 0;
   $('map-canvas').classList.toggle('route-mode', on);
   if (!route || route.empty) return;
 
@@ -528,20 +556,36 @@ function drawRoute(route) {
     interactive: false, color, weight: 2.5, dashArray: '7 6', opacity: 0.95,
   }).addTo(map));
 
+  // The pins are indexed the same way the route is: points[0] is the launch, so
+  // points[i + 1] and waypoints[i] are the same place — both come off the same
+  // document in the same pass.
   route.points.slice(1).forEach((p, i) => {
+    const id = wps[i]?.id;
+    if (!id) return;
     const worst = route.worst && route.worst.index === i;
     const icon = L.divIcon({
       className: 'route-marker',
       html: `<div class="route-dot${worst ? ' route-dot-worst' : ''}">${i + 1}</div>`,
       iconSize: [20, 20], iconAnchor: [10, 10],
     });
-    const m = L.marker(ll(p), { icon, title: `Waypoint ${i + 1} — click to remove` }).addTo(map);
+    const m = L.marker(ll(p), {
+      icon, draggable: true, title: `Waypoint ${i + 1} — drag to move, click to remove`,
+    }).addTo(map);
+    m.on('dragend', () => {
+      // Same synthetic-click swallow the launch pin uses, and for the same
+      // reason twice over: the click behind a drag would delete what was moved.
+      justDragged = true;
+      justWpClick = true;
+      setTimeout(() => { justDragged = false; justWpClick = false; }, 0);
+      moveWaypoint(id, m.getLatLng());
+    });
     m.on('click', () => {
+      if (justDragged) return; // the click a drag leaves behind is not a delete
       // Leaflet can still surface the map click behind a marker hit, and in route
       // mode that would drop a new waypoint on the one just deleted.
       justWpClick = true;
       setTimeout(() => { justWpClick = false; }, 0);
-      removeWaypoint(i);
+      removeWaypoint(id);
     });
     routeLayers.push(m);
   });
