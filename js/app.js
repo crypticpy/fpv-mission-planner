@@ -36,9 +36,10 @@ import {
   setupForecast, renderForecastStrip, setForecastHour, reapplyForecastHour,
 } from './render/forecast.js';
 import {
-  setupTerrain, refreshTerrain, terrainWarnings, renderTerrainCard,
+  setupTerrain, refreshTerrain, terrainWarnings, renderTerrainCard, linkStats, linkWarnings,
 } from './render/terrain.js';
 import { setTurnaroundKm } from './terrain.js';
+import { isLinkBand } from './rf.js';
 import { isCruiseAlt, activeLevelPatch } from './windprofile.js';
 import { renderSpots, bindSpots } from './render/spots.js';
 import { setupShare, bindShare } from './render/share.js';
@@ -85,6 +86,11 @@ function update() {
   // join the model's own on the verdict rail, which shows on both tabs.
   refreshTerrain(r.radiusKm);
   r.warnings.push(...terrainWarnings(r));
+  // The radio over that same ground (Phase 4 item 6). Computed once and handed to
+  // everything that draws it, so the warning, the chart and the map's outbound leg
+  // cannot disagree about where the link quits.
+  const link = linkStats(r);
+  r.warnings.push(...linkWarnings(r, link));
   const stranded = zeroRadiusNote(r);
   if (stranded) {
     // physics.js emits one generic line for this case; swap in the version that
@@ -108,8 +114,8 @@ function update() {
   // Render only the visible view: charts measure container width and freeze at
   // a fallback size when drawn inside a hidden container.
   if (state.view === 'map') {
-    renderMapView(r);
-    renderTerrainCard(r);
+    renderMapView(r, link);
+    renderTerrainCard(r, link);
     return;
   }
   renderStats(r);
@@ -279,6 +285,11 @@ function bind() {
     const m = +e.target.value;
     if (!isCruiseAlt(m)) return; // a select value from nowhere is not a level
     setCruiseAlt(m);
+  });
+  $('sel-link-band').addEventListener('change', e => {
+    if (!isLinkBand(e.target.value)) return; // a select value from nowhere is not a band
+    state.linkBand = e.target.value;
+    update();
   });
   $('in-reserve').addEventListener('input', e => {
     state.landFloorPct = +e.target.value;

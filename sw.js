@@ -30,6 +30,7 @@ const PRECACHE_URLS = [
   'js/packinstances.js',
   'js/physics.js',
   'js/registry.js',
+  'js/rf.js',
   'js/schema.js',
   'js/share.js',
   'js/shell.js',

@@ -13,6 +13,7 @@ import { parallelBattery, GUST_FACTOR_DEFAULT, U } from './physics.js';
 import { unitSystem } from './units.js';
 import { CRUISE_ALTS_M, CRUISE_ALT_DEFAULT_M } from './windprofile.js';
 import { planElevM } from './terrain.js';
+import { LINK_BAND_DEFAULT, isLinkBand } from './rf.js';
 
 export const state = {
   view: 'dash', // 'dash' | 'map'
@@ -49,6 +50,12 @@ export const state = {
   // the altitude the terrain profile measures clearance against (item 5).
   // Expert-only; beginner mode pins it back to 80.
   cruiseAltM: CRUISE_ALT_DEFAULT_M,
+  // Which radio the Fresnel clearance over the terrain profile is computed for
+  // (Phase 4 item 6). 5.8 GHz is the O4's high band — the video the pilot is
+  // actually flying by — and the card quotes the other two beside it, because the
+  // fatter low-band zone breaks first geometrically while the low-band link is the
+  // more robust one in the air. Expert-only; beginner mode pins it back.
+  linkBand: LINK_BAND_DEFAULT,
   cruiseMode: 'real',
   manualMph: 40,
   speedMetric: 'radius',
@@ -135,6 +142,12 @@ export function restoreSession() {
   const cruiseAlt = s.cruiseAltM === undefined ? CRUISE_ALT_DEFAULT_M
     : CRUISE_ALTS_M.includes(s.cruiseAltM) ? s.cruiseAltM
     : null;
+  // And the same for the video/control band the Fresnel check runs at: a blob
+  // written before the link check existed gets the default rather than being
+  // thrown away, and only a band the select could never show voids it.
+  const link = s.linkBand === undefined ? LINK_BAND_DEFAULT
+    : isLinkBand(s.linkBand) ? s.linkBand
+    : null;
   // allDrones(), not the catalog: a rig the pilot added themselves has to survive
   // a reload exactly like a built-in, and store.js is import-time safe so the
   // custom records are readable this early in boot.
@@ -159,7 +172,7 @@ export function restoreSession() {
     && ['headOut', 'tailOut', 'cross'].includes(env.windMode)
     && typeof s.parallelPacks === 'boolean'
     && num(s.extraG, 0, 500) && landFloor !== null && gustFactor !== null && packTemp !== false
-    && cruiseAlt !== null
+    && cruiseAlt !== null && link !== null
     && num(s.manualMph, 5, 120)
     && num(env.elevFt, -1500, 30000) && num(env.tempF, -60, 140) && num(env.rhPct, 0, 100)
     && num(env.windMph, 0, 120) && num(env.gustMph, 0, 160) && num(env.windFromDeg, 0, 359);
@@ -169,7 +182,7 @@ export function restoreSession() {
     parallelPacks: s.parallelPacks, payloadId: s.payloadId, extraG: s.extraG,
     weatherId: s.weatherId, scenarioId: s.scenarioId,
     landFloorPct: landFloor, gustFactorPct: gustFactor, packTempF: packTemp,
-    cruiseAltM: cruiseAlt,
+    cruiseAltM: cruiseAlt, linkBand: link,
     cruiseMode: s.cruiseMode, manualMph: s.manualMph, speedMetric: s.speedMetric,
     detail: ['full', 'beginner'].includes(s.detail) ? s.detail : 'full',
     env: {

@@ -20,7 +20,8 @@ let map = null;
 let marker = null;
 let satLayer = null, osmLayer = null;
 let footReal = null, footBest = null, footCase = null;
-let legLine = null; // the outbound leg the dashboard plans, and the terrain profile follows
+let legLine = null;    // the outbound leg the dashboard plans, and the terrain profile follows
+let legBlocked = null; // the part of it the radio can't see past (Phase 4 item 6)
 let windControl = null;
 let launch = null;       // { lat, lng } of the launch point
 let justDragged = false; // swallow the synthetic click Leaflet fires after a drag
@@ -253,8 +254,12 @@ function setTile(id, value, sub) {
 
 const COMPASS = { 0: 'N', 90: 'E', 180: 'S', 270: 'W', 360: 'N' };
 
-/** Full overlay + chart render; rPlan is the dashboard planning-case result. */
-export function renderMapView(rPlan) {
+/**
+ * Full overlay + chart render; rPlan is the dashboard planning-case result and
+ * `link` the radio analysis of the outbound leg (js/rf.js via render/terrain.js),
+ * or null when no terrain profile describes it.
+ */
+export function renderMapView(rPlan, link = null) {
   if (!deps) return;
   if (!map) initMap();
   map.invalidateSize({ pan: false });
@@ -313,14 +318,27 @@ export function renderMapView(rPlan) {
   // leg this plan flies, drawn so the elevation card below is about a line the
   // pilot can see rather than a compass number they have to imagine.
   if (legLine) { legLine.remove(); legLine = null; }
+  if (legBlocked) { legBlocked.remove(); legBlocked = null; }
   const plannedCourse = plannedCourseDeg(windFrom, base.env.windMode);
   if (rPlan.radiusKm > 0) {
-    legLine = L.polyline([
-      [launch.lat, launch.lng],
-      destination(launch.lat, launch.lng, plannedCourse, rPlan.radiusKm),
-    ], {
+    const end = destination(launch.lat, launch.lng, plannedCourse, rPlan.radiusKm);
+    // Where the terrain cuts the radio before the pack runs out (Phase 4 item 6),
+    // the leg is drawn in two pieces: the part the pilot can still see through,
+    // and the "energy OK, link blocked" remainder the footprint ring alone would
+    // have promised them. Only this one bearing is profiled — the ring is silent
+    // about the radio on every other course, which is what the card says too.
+    const cutKm = link && link.blocked && link.clearKm < rPlan.radiusKm ? link.clearKm : null;
+    const cut = cutKm != null ? destination(launch.lat, launch.lng, plannedCourse, cutKm) : end;
+    legLine = L.polyline([[launch.lat, launch.lng], cut], {
       interactive: false, color: 'var(--series-4)', weight: 2.5, dashArray: '2 6', opacity: 0.95,
     }).addTo(map);
+    if (cutKm != null) {
+      legBlocked = L.polyline([cut, end], {
+        interactive: false,
+        color: link.losBlockKm != null ? 'var(--status-critical)' : 'var(--status-serious)',
+        weight: 3, dashArray: '1 7', opacity: 0.95,
+      }).addTo(map);
+    }
   }
 
   if (needsFit) {

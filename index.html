@@ -252,6 +252,15 @@
           <option value="cross">Crosswind both ways</option>
         </select>
       </label>
+      <!-- Which radio the line-of-sight check runs at (Phase 4 item 6). The
+           footprint ring is an energy answer and says nothing about whether the
+           video or the control link survives the ground on the way out; this
+           picks the band whose first Fresnel zone is measured over the terrain
+           profile. 5.8 GHz is the O4's high band — the video you fly by — and the
+           card quotes the other two beside it. Expert-only. -->
+      <label class="full-only">Video / control link
+        <select id="sel-link-band"></select>
+      </label>
       <!-- Pack care only (Phase 4 item 2). The get-home margin used to share
            this slider as a percent of the pack, which scaled backwards; it is
            now solved in Wh and reported in #reserve-note. -->
@@ -420,13 +429,15 @@
          get there. Expert-only: the clearance warning it produces rides the
          verdict rail on both tabs, which is the part a beginner needs. -->
     <section class="card full-only" id="terrain-card">
-      <h3>Terrain along the outbound leg</h3>
+      <h3>Terrain and radio line of sight along the outbound leg</h3>
       <p class="card-sub">Ground elevation and clearance out to the turnaround, on the course this plan
-        flies — the dashed line is the altitude you said you'd cruise at, held from the launch point</p>
+        flies — the dashed line is the altitude you said you'd cruise at, held from the launch point,
+        and the shaded wedge is the first Fresnel zone your video link needs kept clear</p>
       <p id="terrain-empty" class="empty-note" hidden></p>
       <div id="legend-terrain" class="viz-legend"></div>
       <div id="chart-terrain" class="chart"></div>
       <p id="terrain-note" class="rail-note" role="status"></p>
+      <p id="link-note" class="rail-note" role="status"></p>
     </section>
 
     <section class="card">

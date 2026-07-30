@@ -135,7 +135,7 @@ function drawAxes(svg, xTicks, yTicks, xs, ys, opts = {}) {
  * series: [{ name, color, pts: [{x, y}] }]
  */
 export function lineChart(container, { series, height = 240, xLabel, yLabel, xFmt, yFmt,
-                                       markers = [], yMin = 0, tipTitle, xTicks: xTicksIn }) {
+                                       markers = [], bands = [], yMin = 0, tipTitle, xTicks: xTicksIn }) {
   const { svg, iw, ih } = frame(container, height);
   const allPts = series.flatMap(s => s.pts);
   if (!allPts.length) return;
@@ -152,6 +152,16 @@ export function lineChart(container, { series, height = 240, xLabel, yLabel, xFm
   const xs = x => M.left + (x - xMin) / (xMax - xMin || 1) * iw;
   const ys = y => M.top + ih - (y - yMin) / (yTop - yMin || 1) * ih;
   drawAxes(svg, xTicks, yTicks, xs, ys, { iw, xFmt, yFmt, xLabel, yLabel });
+
+  // Filled envelopes between two traces (the first Fresnel zone under the radio
+  // line of sight), drawn under the lines. Callers scale the chart with the series
+  // they pass; a band is assumed to lie between two of them.
+  for (const b of bands) {
+    if (!b.upper?.length || !b.lower?.length) continue;
+    const ring = [...b.upper, ...[...b.lower].reverse()];
+    const d = ring.map((p, i) => `${i ? 'L' : 'M'}${xs(p.x).toFixed(1)},${ys(p.y).toFixed(1)}`).join('') + 'Z';
+    svg.appendChild(svgEl('path', { d, fill: b.color, opacity: b.opacity ?? 0.14, stroke: 'none' }));
+  }
 
   for (const s of series) {
     const d = s.pts.map((p, i) => `${i ? 'L' : 'M'}${xs(p.x).toFixed(1)},${ys(p.y).toFixed(1)}`).join('');

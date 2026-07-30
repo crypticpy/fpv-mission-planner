@@ -10,6 +10,7 @@ import {
   manufacturer, loadoutBattery, packTemp, EXPERT_CRUISE_MODES,
 } from '../state.js';
 import { GUST_FACTOR_DEFAULT, isColdPack, U } from '../physics.js';
+import { LINK_BANDS, LINK_BAND_DEFAULT } from '../rf.js';
 import {
   CRUISE_ALTS_M, CRUISE_ALT_DEFAULT_M, activeWindAt, launchWind,
 } from '../windprofile.js';
@@ -129,6 +130,9 @@ export function populateControls() {
   // back, so beginner mode plans the level the app has always planned. app.js puts
   // that level's wind back on the rail when the toggle moves.
   if (beginner()) state.cruiseAltM = CRUISE_ALT_DEFAULT_M;
+  // Same rule for the link band: hidden in beginner mode, so it plans the band the
+  // pilot's video actually starts on and the verdict rail carries the callout.
+  if (beginner()) state.linkBand = LINK_BAND_DEFAULT;
   // Same rule: a pack temperature the pilot cannot see is a pack temperature they
   // cannot put back, so beginner mode always plans the pack at air temperature.
   if (beginner()) state.packTempF = null;
@@ -188,6 +192,11 @@ export function populateControls() {
         : `${m} m`,
     };
   }), String(state.cruiseAltM));
+  // What each band is for, on the option itself: this select is only meaningful to
+  // a pilot who knows which radio the number is about.
+  fillSelect($('sel-link-band'), LINK_BANDS.map(b => ({
+    value: b.id, label: `${b.label} — ${b.use}`,
+  })), state.linkBand);
   $('in-gustf').value = state.gustFactorPct;
   renderWindNotes();
   renderPackTempNote();

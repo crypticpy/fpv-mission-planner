@@ -243,6 +243,38 @@ says 10,000 ft and the pin is in Austin, the profile is drawn but the plan stays
 on the scenario you asked for. Offline, or anywhere the request fails, the
 planner falls back to the launch elevation and everything else is unaffected.
 
+## Radio line of sight — "energy OK, link blocked"
+
+The footprint ring is an *energy* answer: how far the pack can push and still
+bring the aircraft home. It says nothing about whether you can still see through
+the goggles when you get there, and over ground with a shape to it the link
+quits first. On the same profile the planner now runs the radio: a ray from the
+pilot's antenna (**1.5 m**, standing) to the aircraft holding its cruise
+altitude, the **first Fresnel zone** around it, and the 4/3-earth curvature term.
+
+Two thresholds, because they fail differently. The ray being cut by a ridge is
+video gone. The ridge eating past ~40% of the first Fresnel radius — the
+industry rule of thumb — is where the picture starts breaking up while the ray
+still technically clears. The chart draws both: the line of sight, the *Fresnel
+floor* (the highest the ground may be and still leave the zone clear), the
+shaded wedge between them, and a marker at the range the link quits. The map
+clips the outbound leg there — solid to the blockage, hairline past it — so the
+"energy OK, link blocked" stretch is visible as the part of the leg you can fly
+to but not see from.
+
+A **Video / control link** select (expert) picks the band: 5.8 GHz (the O4's
+high band, the default — it's the video you fly by), 2.4 GHz, or 900 MHz for US
+ELRS control. Watch which way the physics runs: the Fresnel radius grows as √λ,
+so the *lower* band has the *fatter* zone and flags first geometrically — which
+is not the same as the control link failing first, since 900 MHz also has the
+diffraction behaviour and the link budget to work through an intrusion that has
+already killed the video. The card and the warning quote all three bands side by
+side rather than let one number stand for "the link".
+
+Only the profiled bearing is analysed — 37 per-ray terrain profiles would be 37
+elevation requests — so the ring on every other course is still energy only, and
+the card says so.
+
 ## Planning ahead
 
 The same free Open-Meteo request also carries a **3-day hourly forecast** and
@@ -447,4 +479,12 @@ from one they typed in.
   trees, towers, wires or buildings, and the density altitude it feeds the model
   is the turnaround's — a ridge higher than the turnaround is drawn and warned
   about, but the plan is not flown over it.
+- The link check is **geometry, not a link budget**. It counts bare-earth terrain
+  against the first Fresnel zone; it knows nothing about transmit power, antenna
+  pattern and polarisation, noise floor, multipath, or the trees and buildings
+  the DEM omits. A link can survive a flagged intrusion, and a clear profile can
+  still fail on interference. It also declines to claim on ground no higher than
+  the launch point: a 1.5 m antenna's Fresnel zone grazes flat ground within a
+  few hundred metres of the pilot at every frequency, which is a ground
+  reflection problem, not terrain in the way.
 - It's a planning estimate, not an RTH guarantee. Fly with margin.
