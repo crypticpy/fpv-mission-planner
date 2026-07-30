@@ -207,9 +207,13 @@ function currentForPower(pW, vOcv, rOhm) {
   return (vOcv - Math.sqrt(disc)) / (2 * rOhm);
 }
 
-// Discharge the pack at constant electrical power. Returns delivered energy (Wh),
-// whether the cutoff was sag-limited, and a soc→(vLoad, I) sampler for timelines.
-export function dischargeSim(batt, tempC, pW) {
+// The one discharge integration: walk state of charge down in 0.5% steps at
+// constant electrical power, stopping at the load cutoff (sag-limited) or at
+// empty. `onStep(stepWh, socAfter, socBefore)` sees every accepted step and may
+// return true to stop the walk early. dischargeSim and dischargeToSoc are two
+// readings of this same walk — energy out, and where the charge sits after a
+// given number of minutes.
+function walkDischarge(batt, tempC, pW, onStep) {
   const chem = CHEMISTRY[batt.chem];
   const capF = interp(chem.capTemp, tempC);
   const rOhm = (batt.irPackMilliOhm / 1000) * interp(chem.irTemp, tempC);
@@ -223,11 +227,20 @@ export function dischargeSim(batt, tempC, pW) {
     const vOcv = interp(chem.ocv, soc - socStep / 2) * batt.s;
     const I = currentForPower(pW, vOcv, rOhm);
     if (I === null || vOcv - I * rOhm < cutoffV) { sagLimited = soc > 3; stopSoc = soc; break; }
-    wh += (effAh * socStep / 100) * (vOcv - I * rOhm);
+    const stepWh = (effAh * socStep / 100) * (vOcv - I * rOhm);
+    wh += stepWh;
     stopSoc = soc - socStep;
+    if (onStep && onStep(stepWh, stopSoc, soc)) break;
   }
+  return { chem, capF, rOhm, deliveredWh: wh, sagLimited, stopSoc };
+}
+
+// Discharge the pack at constant electrical power. Returns delivered energy (Wh),
+// whether the cutoff was sag-limited, and a soc→(vLoad, I) sampler for timelines.
+export function dischargeSim(batt, tempC, pW) {
+  const { chem, capF, rOhm, deliveredWh, sagLimited, stopSoc } = walkDischarge(batt, tempC, pW);
   return {
-    deliveredWh: wh,
+    deliveredWh,
     sagLimited,
     stopSoc,
     capF,
@@ -238,6 +251,39 @@ export function dischargeSim(batt, tempC, pW) {
       return { vOcv, I: I ?? NaN, vLoad: I === null ? NaN : vOcv - I * rOhm };
     },
   };
+}
+
+/**
+ * State of charge left (fraction, 0–1) after flying `minutes` at constant
+ * electrical power `pW`. The inverse reading of dischargeSim's walk, and the
+ * bridge between how a pilot describes a flight ("7:20, landed at 22%") and the
+ * average watts calibrate.js needs. Each 0.5% step of charge is worth
+ * `stepWh / pW` hours; the step the clock runs out inside is interpolated
+ * linearly, so the result is continuous in both `minutes` and `pW`.
+ *
+ * If the pack reaches its load cutoff before `minutes` are up, the flight did
+ * not happen as described — the walk's terminal SoC comes back instead (0 when
+ * the energy simply ran out, the sag-limited SoC when voltage bound first,
+ * i.e. exactly dischargeSim's `stopSoc`). Note that this makes the function
+ * non-monotone in power past that point: a solver must bracket below it (see
+ * calibrate.js's avgPowerFromFlight).
+ */
+export function dischargeToSoc(batt, tempC, pW, minutes) {
+  if (!(pW > 0) || !(minutes > 0)) return 1;
+  let elapsed = 0;
+  let soc = 100;
+  const walk = walkDischarge(batt, tempC, pW, (stepWh, socAfter, socBefore) => {
+    const dtMin = stepWh / pW * 60;
+    if (elapsed + dtMin >= minutes) {
+      soc = socBefore - (socBefore - socAfter) * ((minutes - elapsed) / dtMin);
+      elapsed = minutes;
+      return true;
+    }
+    elapsed += dtMin;
+    soc = socAfter;
+    return false;
+  });
+  return (elapsed >= minutes ? soc : walk.stopSoc) / 100;
 }
 
 /* ---------------- Mission planning ---------------- */
