@@ -5,7 +5,7 @@ import { barChart } from '../charts.js';
 import {
   state, beginner, units, compatibleBatteries, loadoutBattery, manufacturer, missionInputs,
 } from '../state.js';
-import { SERIES, f0, f1, mmss, flightLabel } from './format.js';
+import { SERIES, f0, f1, mmss, flightLabel, ratio } from './format.js';
 import { $ } from './dom.js';
 import { packCache } from './dashboard.js';
 
@@ -65,7 +65,7 @@ export function renderComparison() {
       `${f0(effective.massG)} g`,
       `${f0(r.massKg * 1000)} g`,
       `${r.discLoadingGcm2.toFixed(2)} g/cm²`,
-      `${r.flight.thrustToWeight.toFixed(2)}:1`,
+      ratio(r.flight.thrustToWeight),
       flightLabel(r.flight),
       `${f1(u.distanceFromKm(r.radiusKm))} ${u.distanceUnit}`,
       mmss(r.timeMin),

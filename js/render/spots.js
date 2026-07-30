@@ -1,9 +1,9 @@
 // render/spots.js — the Map tab's saved launch points: the roster, saving the
 // current pin and rig, and flying to one.
 import {
-  DRONES, PAYLOADS, allBatteries, loadSpots, saveSpot, deleteSpot,
+  PAYLOADS, allBatteries, loadSpots, saveSpot, deleteSpot,
 } from '../data.js';
-import { compatible } from '../registry.js';
+import { allDrones, compatible } from '../registry.js';
 import { loadMapState, saveMapState } from '../store.js';
 import { setLaunchPoint, renderSpotMarkers, distanceKm } from '../map.js';
 import { launchPoint } from '../weather.js';
@@ -38,7 +38,7 @@ function currentLoadout() {
 /** A snapshot is only applicable while every id in it still resolves. */
 function loadoutIsLive(l) {
   if (!l) return false;
-  const d = DRONES.find(x => x.id === l.droneId);
+  const d = allDrones().find(x => x.id === l.droneId);
   return !!d
     && allBatteries().some(b => b.id === l.batteryId && compatible(d, b))
     && PAYLOADS.some(p => p.id === l.payloadId);
@@ -46,7 +46,7 @@ function loadoutIsLive(l) {
 
 function loadoutLabel(l) {
   if (!l) return 'no saved rig';
-  const d = DRONES.find(x => x.id === l.droneId);
+  const d = allDrones().find(x => x.id === l.droneId);
   const b = allBatteries().find(x => x.id === l.batteryId);
   if (!d || !b) return 'saved rig no longer exists';
   return `${d.short || d.name} + ${b.short || b.name}${l.parallelPacks ? ' ×2' : ''}`;

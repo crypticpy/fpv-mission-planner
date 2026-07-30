@@ -1,13 +1,19 @@
 // forms.js — build a form out of a descriptor list, and read one back typed.
 // Generic on purpose: it knows descriptor shapes, never what the records mean.
 //
-// A form descriptor is a schema.js field descriptor plus four view-only
+// A form descriptor is a schema.js field descriptor plus six view-only
 // extras — `placeholder`, `value` (prefill), `id` (when app code needs to
-// find the control again later) and `list` (a `<datalist>` id for native
-// autocomplete on a text input) — and a `{ grid: [...] }` entry wraps a run of
-// fields in the two-column `.form-grid` box. Validation stays the browser's
-// job: required/min/max/step ride on the inputs as native attributes, so the
-// pilot gets the platform's own error bubbles before submit ever fires.
+// find the control again later), `list` (a `<datalist>` id for native
+// autocomplete on a text input), `help` (a line under the control) and `tag`
+// (a small provenance chip beside it, addressable later as
+// `[data-tag-for="key"]` so a caller can show or hide it as the field's
+// provenance changes). Two structural entries: `{ grid: [...] }` wraps a run of
+// fields in the two-column `.form-grid` box, and `{ details: { summary, fields } }`
+// folds a run away behind a `<summary>` — an Advanced fold is one line of
+// descriptor, and the fields inside read back like any other.
+// Validation stays the browser's job: required/min/max/step ride on the inputs
+// as native attributes, so the pilot gets the platform's own error bubbles
+// before submit ever fires.
 //
 // One type beyond schema.js's own: `checkboxes` — a multi-select rendered as a
 // `<fieldset>` of `.check-row` boxes, one per `options` entry (each may carry
@@ -16,7 +22,11 @@
 
 import { parse } from './schema.js';
 
-const flatten = (fields) => fields.flatMap(f => (f.grid ? f.grid : [f]));
+const flatten = (fields) => fields.flatMap(f => (
+  f.grid ? flatten(f.grid)
+    : f.details ? flatten(f.details.fields)
+    : [f]
+));
 
 const labelText = (f) => (f.unit ? `${f.label} (${f.unit})` : f.label);
 
@@ -63,6 +73,25 @@ function control(f, options) {
   return input;
 }
 
+// `tag` is a provenance chip ("class default"), `help` the sentence under the
+// control. The chip carries data-tag-for so app code can flip it as the field
+// stops being a default and starts being the pilot's own number.
+function annotate(label, f) {
+  if (f.tag) {
+    const tag = document.createElement('span');
+    tag.className = 'field-tag';
+    tag.dataset.tagFor = f.key;
+    tag.textContent = f.tag;
+    label.appendChild(tag);
+  }
+  if (f.help) {
+    const help = document.createElement('span');
+    help.className = 'field-help';
+    help.textContent = f.help;
+    label.appendChild(help);
+  }
+}
+
 function field(f, opts) {
   const el = control(f, opts.options?.[f.key]);
   if (f.type === 'checkboxes') {
@@ -94,7 +123,36 @@ function field(f, opts) {
   } else {
     label.append(`${labelText(f)} `, el);
   }
+  annotate(label, f);
   return label;
+}
+
+// One run of descriptor entries → the elements they render as. Recursive, so a
+// grid inside a fold (or a fold inside a fold) needs no special case.
+function section(fields, opts) {
+  const out = [];
+  for (const entry of fields) {
+    if (entry.grid) {
+      const box = document.createElement('div');
+      box.className = 'form-grid';
+      for (const f of entry.grid) box.appendChild(field(f, opts));
+      out.push(box);
+      continue;
+    }
+    if (entry.details) {
+      const fold = document.createElement('details');
+      fold.className = 'form-fold';
+      if (entry.id) fold.id = entry.id;
+      const summary = document.createElement('summary');
+      summary.textContent = entry.details.summary;
+      fold.appendChild(summary);
+      for (const el of section(entry.details.fields, opts)) fold.appendChild(el);
+      out.push(fold);
+      continue;
+    }
+    out.push(field(entry, opts));
+  }
+  return out;
 }
 
 /**
@@ -104,16 +162,7 @@ function field(f, opts) {
  */
 export function buildForm(formEl, fields, opts = {}) {
   formEl.replaceChildren();
-  for (const entry of fields) {
-    if (entry.grid) {
-      const box = document.createElement('div');
-      box.className = 'form-grid';
-      for (const f of entry.grid) box.appendChild(field(f, opts));
-      formEl.appendChild(box);
-      continue;
-    }
-    formEl.appendChild(field(entry, opts));
-  }
+  for (const el of section(fields, opts)) formEl.appendChild(el);
   const submit = document.createElement('button');
   submit.type = 'submit';
   submit.textContent = opts.submitLabel ?? 'Save';

@@ -2,32 +2,23 @@
 // authoring forms behind it. The one render module that also reads controls
 // back: populateControls() resets an expert control that just went off screen.
 import {
-  DRONES, PAYLOADS, WEATHER, SCENARIOS,
-  allBatteries, allManufacturers, deleteCustomBattery, deleteCustomManufacturer,
+  PAYLOADS, WEATHER, SCENARIOS,
+  allDrones, allBatteries, allManufacturers, deleteCustomBattery, deleteCustomManufacturer,
 } from '../data.js';
 import {
   state, beginner, units, drone, droneBatteries, compatibleBatteries, battery,
   manufacturer, loadoutBattery, EXPERT_CRUISE_MODES,
 } from '../state.js';
 import { buildForm } from '../forms.js';
+import { classById } from '../catalog/classes.js';
+import { renderDroneForm } from './droneform.js';
 import { f0, compass, surfaceMph, estimatedPhrase } from './format.js';
-import { $ } from './dom.js';
+import { $, fillSelect } from './dom.js';
 
 let deps = null; // injected by app.js: { update }
 export function setupControls(d) { deps = d; }
 
 /* ---------- control population ---------- */
-
-export function fillSelect(sel, items, value) {
-  sel.replaceChildren();
-  for (const it of items) {
-    const o = document.createElement('option');
-    o.value = it.value;
-    o.textContent = it.label;
-    sel.appendChild(o);
-  }
-  sel.value = value;
-}
 
 function configureNumericInput(input, config, value) {
   input.min = config.min;
@@ -45,7 +36,7 @@ export function populateControls() {
   document.body.dataset.detail = state.detail;
   $('sel-detail').value = state.detail;
   $('sel-units').value = state.units;
-  fillSelect($('sel-drone'), DRONES.map(d => ({ value: d.id, label: d.name })), state.droneId);
+  fillSelect($('sel-drone'), allDrones().map(d => ({ value: d.id, label: d.name })), state.droneId);
   const manufacturerIds = new Set(droneBatteries().map(b => b.manufacturerId || 'custom'));
   const availableManufacturers = allManufacturers().filter(m => manufacturerIds.has(m.id));
   if (state.manufacturerId !== 'all' && !manufacturerIds.has(state.manufacturerId)) state.manufacturerId = 'all';
@@ -105,6 +96,31 @@ export function populateControls() {
   renderCustomList();
   renderManufacturerList();
   renderManufacturerDatalist();
+  renderFitsDrones();
+  renderDroneForm();
+}
+
+// The battery form's "only these drones" checklist is built at boot, before any
+// pilot-added airframe exists — so it gets rebuilt here, preserving whatever is
+// already ticked. Without this a custom drone could never be pinned in `fits`.
+function renderFitsDrones() {
+  const host = $('battery-fits-drones');
+  const checked = new Set([...host.querySelectorAll('input:checked')].map(el => el.value));
+  const legend = host.querySelector('legend');
+  host.replaceChildren(legend);
+  for (const d of allDrones()) {
+    const row = document.createElement('label');
+    row.className = 'check-row';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.name = 'fitsDrones';
+    cb.value = d.id;
+    cb.defaultChecked = checked.size ? checked.has(d.id) : d.id === state.droneId;
+    const text = document.createElement('span');
+    text.textContent = d.name;
+    row.append(cb, text);
+    host.appendChild(row);
+  }
 }
 
 // The battery form's brand input autocompletes against this — native
@@ -173,6 +189,17 @@ export function renderBatteryNote() {
   const identity = [m?.name, b.cellMaker && b.cellModel ? `${b.cellMaker} ${b.cellModel}` : b.cellModel]
     .filter(Boolean).join(' · ');
   if (identity) host.append(document.createTextNode(`${identity}. `));
+  // Per-airframe honesty (§6.2): a rig assembled from a class template is
+  // running the table's guesses, and the plan under it says so rather than
+  // reading like the calibrated built-ins.
+  const d = drone();
+  if (d.custom && d.confidence !== 'measured') {
+    const cls = classById(d.classId);
+    host.append(document.createTextNode(
+      `${d.name}’s flight numbers are ${cls ? `${cls.label} ` : ''}class estimates, not measured — `
+      + 'log a flight to calibrate them. '
+    ));
+  }
   if (state.parallelPacks) {
     host.append(document.createTextNode(
       `Parallel loadout: two identical packs, ${effective.config}, ${f0(effective.massG)} g including the ${f0(effective.harnessMassG)} g harness allowance. `
@@ -216,7 +243,7 @@ export const BATTERY_FORM = [
       { value: 'lipo', label: 'LiPo' },
       { value: 'lihv', label: 'LiHV' },
     ] },
-    { key: 's', label: 'Cells', type: 'number', unit: 'S', required: true, min: 1, max: 8, value: 6 },
+    { key: 's', label: 'Cells', type: 'number', unit: 'S', required: true, min: 1, max: 12, value: 6 },
     { key: 'p', label: 'Parallel', type: 'number', unit: 'P', required: true, min: 1, max: 8, value: 1 },
     { key: 'mah', label: 'Capacity', type: 'number', unit: 'mAh', required: true, min: 100, max: 30000 },
     { key: 'mass', label: 'Weight', type: 'number', unit: 'g', required: true, min: 10, max: 3000 },
@@ -259,7 +286,7 @@ export function buildAuthoringForms() {
     // "Only specific drones" starts from a sane default instead of an empty
     // list.
     options: {
-      fitsDrones: DRONES.map(d => ({ value: d.id, label: d.name, checked: d.id === state.droneId })),
+      fitsDrones: allDrones().map(d => ({ value: d.id, label: d.name, checked: d.id === state.droneId })),
     },
   });
   buildForm($('manufacturer-form'), MANUFACTURER_FORM, { submitLabel: 'Save manufacturer' });

@@ -15,12 +15,13 @@ import {
   state, beginner, drone, battery, compatibleBatteries, missionInputs, scenario, units,
   saveSession, restoreSession,
 } from './state.js';
-import { $ } from './render/dom.js';
+import { $, fillSelect } from './render/dom.js';
 import { f0 } from './render/format.js';
 import {
-  setupControls, populateControls, fillSelect, renderBatteryNote,
+  setupControls, populateControls, renderBatteryNote,
   buildAuthoringForms, BATTERY_FORM, MANUFACTURER_FORM,
 } from './render/controls.js';
+import { setupDroneForm, buildDroneForm } from './render/droneform.js';
 import {
   resetPackCaches, renderWarnings, zeroRadiusNote, renderVerdict, renderNoBattery,
   renderStats, renderPowerCurve, renderSpeedTradeoff, renderProfile, renderWindSensitivity,
@@ -54,6 +55,7 @@ function update() {
     renderNoBattery();
     return;
   }
+  document.body.dataset.plan = 'ok'; // undoes renderNoBattery()'s panel blackout
   const stranded = zeroRadiusNote(r);
   if (stranded) {
     // physics.js emits one generic line for this case; swap in the version that
@@ -328,6 +330,9 @@ function bind() {
 // Injection before any render: every render module reaches update() (and the
 // live-fetch error state) through these, never by importing this file.
 setupControls({ update });
+// The drone form re-picks the pack and the manufacturer filter after a save or a
+// delete, so it needs populateControls() as well as update().
+setupDroneForm({ update, populateControls });
 setupLive({ update });
 setupForecast({ update, liveError });
 setupMapView({
@@ -344,6 +349,7 @@ setupThemes(() => {
 setupShell({ setView });
 const bootView = restoreSession();
 buildAuthoringForms();
+buildDroneForm();
 populateControls();
 bind();
 if (bootView === 'map') setView('map'); // renders as a side effect

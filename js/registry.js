@@ -9,6 +9,7 @@
 import { get as storeGet, set as storeSet } from './store.js';
 import { MANUFACTURERS } from './catalog/manufacturers.js';
 import { BATTERIES } from './catalog/batteries.js';
+import { DRONES } from './catalog/drones.js';
 
 /**
  * Built-ins first, in catalog order, with a custom record of the same id
@@ -77,6 +78,45 @@ export function deleteCustomBattery(id) {
 
 export function allBatteries() {
   return mergeById(BATTERIES, loadCustomBatteries());
+}
+
+/* ---------- custom drones ---------- */
+
+/**
+ * Per-record gate, the same shape as loadCustomBatteries': one corrupt airframe
+ * is dropped and the rest of the hangar survives. Every field tested here is one
+ * `planMission` reads without a fallback, so anything that gets through this
+ * filter can be planned — the whole point, since a custom drone used to be a
+ * verified `TypeError` (§7.2).
+ *
+ * `propulsion` is deliberately not required: nobody who builds their own rig has
+ * a thrust stand, `liftEnvelope()` already answers a missing block with its
+ * honest `unknown` code, and inventing motor limits would be worse than saying
+ * we don't know them.
+ */
+export function loadCustomDrones() {
+  const raw = storeGet('custom-drones', []);
+  const num = (v, lo) => Number.isFinite(v) && v >= lo;
+  return Array.isArray(raw) ? raw.filter(d => d && typeof d.id === 'string' && d.id && d.name
+    && num(d.dryMassG, 1) && num(d.propDiaIn, 0.1) && num(d.numRotors, 3) && num(d.s, 1)
+    && num(d.etaProp, 0.01) && num(d.cdA, 0.0001) && num(d.avionicsW, 0)
+    && num(d.maxSpeedMs, 0.1) && num(d.cruiseMs, 0.1)
+    && typeof d.connector === 'string' && d.connector)
+    .map(d => ({ ...d, custom: true })) : [];
+}
+
+export function saveCustomDrone(drone) {
+  const list = loadCustomDrones().filter(d => d.id !== drone.id);
+  list.push(drone);
+  storeSet('custom-drones', list);
+}
+
+export function deleteCustomDrone(id) {
+  storeSet('custom-drones', loadCustomDrones().filter(d => d.id !== id));
+}
+
+export function allDrones() {
+  return mergeById(DRONES, loadCustomDrones());
 }
 
 /* ---------- compatibility ---------- */

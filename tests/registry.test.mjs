@@ -4,9 +4,15 @@ import assert from 'node:assert/strict';
 import { DRONES } from '../js/catalog/drones.js';
 import { BATTERIES } from '../js/catalog/batteries.js';
 import {
-  allBatteries, allManufacturers, compatible, compatibleBatteries, dronePower,
+  allBatteries, allDrones, allManufacturers, compatible, compatibleBatteries, dronePower,
+  loadCustomDrones, saveCustomDrone, deleteCustomDrone,
 } from '../js/registry.js';
+import { validate, DRONE_FIELDS } from '../js/schema.js';
 import { planMission, U } from '../js/physics.js';
+// The pilot-facing form's own mapping: what "pick a class, weigh the rig, type a
+// name" turns into. Imported here so the record shape the UI writes is the record
+// shape these tests plan with — no hand-built fixture drifting away from it.
+import { recordFromForm } from '../js/render/droneform.js';
 
 // Same Map-backed localStorage stub the store tests use. registry.js reads
 // through store.js, which resolves globalThis.localStorage lazily on every
@@ -35,6 +41,29 @@ const pack = (over = {}) => ({
 const rig = {
   id: 'testrig', name: 'Test rig', connector: 'XT60', s: 6,
   power: { connectors: ['XT60'], sMin: 4, sMax: 6, maxPackMassG: null },
+};
+
+// One ordinary summer-afternoon mission, so a planMission test only varies the
+// drone and the pack.
+const baseInputs = {
+  drone: moz7,
+  battery: nav5000,
+  payloadG: 0,
+  payloadCdA: 0,
+  extraG: 0,
+  env: {
+    elevM: U.ftToM(800),
+    tempC: U.fToC(75),
+    rhPct: 40,
+    windAvgMs: U.mphToMs(3),
+    windGustMs: U.mphToMs(5),
+    windMode: 'headOut',
+    windFromDeg: 170,
+  },
+  reservePct: 20,
+  cruiseMode: 'real',
+  realVMs: moz7.cruiseMs,
+  overheadF: 1.05,
 };
 
 /* ---------- merge precedence ---------- */
@@ -72,6 +101,114 @@ test('a custom manufacturer overrides the built-in it shares an id with', () => 
   const hit = allManufacturers().filter(m => m.id === 'lumenier');
   assert.equal(hit.length, 1);
   assert.equal(hit[0].name, 'Lumenier (mine)');
+});
+
+/* ---------- custom drones ---------- */
+
+// What the drone form produces from the smallest possible answer: a name, a
+// class, and the four things a pilot can measure with a scale and their eyes.
+const templateDrone = (over = {}) => recordFromForm({
+  name: 'My 5" freestyle', classId: 'freestyle5',
+  dryMass: 420, propDia: 5, rotors: 4, s: 6, connector: 'XT60', ...over,
+});
+
+test('a custom drone overrides the built-in it shares an id with, in place', () => {
+  globalThis.localStorage = makeStorage({
+    'fpv:v1:custom-drones': [{ ...moz7, dryMassG: 1234 }],
+  });
+  const merged = allDrones();
+  assert.equal(merged.length, DRONES.length);
+  assert.equal(merged.find(d => d.id === 'moz7v2').dryMassG, 1234);
+  assert.equal(merged.findIndex(d => d.id === 'moz7v2'), DRONES.findIndex(d => d.id === 'moz7v2'));
+});
+
+test('a pilot-added drone appends after the catalog and is flagged custom', () => {
+  globalThis.localStorage = makeStorage();
+  saveCustomDrone(templateDrone());
+  const merged = allDrones();
+  assert.equal(merged.length, DRONES.length + 1);
+  assert.equal(merged.at(-1).id, 'custom-drone-my-5-freestyle');
+  assert.equal(merged.at(-1).custom, true);
+});
+
+test('saving the same id twice updates rather than duplicates, and delete removes it', () => {
+  globalThis.localStorage = makeStorage();
+  saveCustomDrone(templateDrone());
+  saveCustomDrone(templateDrone({ dryMass: 455 }));
+  assert.equal(loadCustomDrones().length, 1);
+  assert.equal(loadCustomDrones()[0].dryMassG, 455);
+  deleteCustomDrone('custom-drone-my-5-freestyle');
+  assert.deepEqual(loadCustomDrones(), []);
+  assert.equal(allDrones().length, DRONES.length);
+});
+
+test('the per-record gate drops an incomplete airframe and keeps the rest', () => {
+  // Every field the gate checks is one planMission reads without a fallback, so
+  // anything that survives it can be planned — the whole point of the filter.
+  globalThis.localStorage = makeStorage({
+    'fpv:v1:custom-drones': [
+      { ...templateDrone(), id: 'good' },
+      { ...templateDrone(), id: 'no-mass', dryMassG: undefined },
+      { ...templateDrone(), id: 'no-rotors', numRotors: 0 },
+      { ...templateDrone(), id: 'no-connector', connector: '' },
+      { ...templateDrone(), id: 'no-eta', etaProp: null },
+      null,
+      'not a record',
+    ],
+  });
+  assert.deepEqual(loadCustomDrones().map(d => d.id), ['good']);
+});
+
+test('a corrupt custom-drones blob leaves the hangar at the catalog', () => {
+  globalThis.localStorage = makeStorage({ 'fpv:v1:custom-drones': { nope: true } });
+  assert.deepEqual(loadCustomDrones(), []);
+  assert.equal(allDrones().length, DRONES.length);
+});
+
+test('a class-template drone is a complete record by the schema’s own rules', () => {
+  globalThis.localStorage = makeStorage();
+  const rec = templateDrone();
+  const { ok, errors } = validate(rec, DRONE_FIELDS);
+  assert.equal(ok, true, JSON.stringify(errors));
+  // No propulsion block: the form never asks, because a pilot has no way to know
+  // motor and ESC limits. liftEnvelope() answers that with `unknown`.
+  assert.equal(rec.propulsion, undefined);
+  assert.equal(rec.confidence, 'estimated');
+});
+
+test('a custom 6S XT60 rig picks up the catalog’s 6S XT60 packs by computed match', () => {
+  // §7.2, the whole reason compatibility stopped being a hardcoded fits list:
+  // those packs are pinned to moz7v2 and nothing else, and a rig the pilot added
+  // five minutes ago still gets every one of them.
+  globalThis.localStorage = makeStorage();
+  const rec = templateDrone();
+  const fits = compatibleBatteries(rec);
+  const expected = BATTERIES.filter(b => b.s === 6 && b.connector === 'XT60').map(b => b.id);
+  assert.deepEqual(fits.map(b => b.id), expected);
+  assert.ok(expected.length > 1);
+  for (const b of fits) assert.equal(b.fits.includes(rec.id), false, 'matched by pin, not by numbers');
+});
+
+test('planMission runs a class-template drone end to end without throwing', () => {
+  globalThis.localStorage = makeStorage();
+  const rec = templateDrone();
+  const batt = compatibleBatteries(rec)[0];
+  let r;
+  assert.doesNotThrow(() => { r = planMission({ ...baseInputs, drone: rec, battery: batt }); });
+  assert.ok(r.radiusKm > 0);
+  assert.ok(r.timeMin > 0);
+  // The energy half of the plan is real; the lift ceiling is simply unmodeled,
+  // and says so rather than inventing a number.
+  assert.equal(r.flight.code, 'unknown');
+  assert.equal(r.flight.viable, true);
+});
+
+test('a custom rig nothing fits reaches the handled no_battery path', () => {
+  globalThis.localStorage = makeStorage();
+  // 12S on an XT90 — a real cinelifter shape, and no pack in the catalog is close.
+  const rec = templateDrone({ name: 'Orphan lifter', classId: 'cinelifter10', s: 12, connector: 'XT90' });
+  assert.deepEqual(compatibleBatteries(rec), []);
+  assert.equal(planMission({ ...baseInputs, drone: rec, battery: undefined }).code, 'no_battery');
 });
 
 /* ---------- compatibility truth table ---------- */
@@ -149,26 +286,7 @@ test('the two built-in rigs still do not share a single pack', () => {
 /* ---------- the handled missing-battery path ---------- */
 
 test('planMission returns a handled no_battery code instead of throwing', () => {
-  const inp = {
-    drone: moz7,
-    battery: nav5000,
-    payloadG: 0,
-    payloadCdA: 0,
-    extraG: 0,
-    env: {
-      elevM: U.ftToM(800),
-      tempC: U.fToC(75),
-      rhPct: 40,
-      windAvgMs: U.mphToMs(3),
-      windGustMs: U.mphToMs(5),
-      windMode: 'headOut',
-      windFromDeg: 170,
-    },
-    reservePct: 20,
-    cruiseMode: 'real',
-    realVMs: moz7.cruiseMs,
-    overheadF: 1.05,
-  };
+  const inp = baseInputs;
   assert.ok(planMission(inp).radiusKm > 0); // the fixture is a real plan
 
   let r;

@@ -77,6 +77,18 @@
         <input id="in-extra" type="number" min="0" max="500" step="5" value="0">
       </label>
       <details class="custom-batt full-only">
+        <summary>Add a drone</summary>
+        <!-- Generated from DRONE_FORM at boot (render/droneform.js). The three
+             readouts under it answer while you type: what it would fly like,
+             the derived cross-checks, and anything unusual for the class. -->
+        <form id="drone-form"></form>
+        <p id="drone-live" class="drone-live" role="status"></p>
+        <p id="drone-checks" class="rail-note drone-checks"></p>
+        <p id="drone-warn" class="drone-warn" role="status" hidden></p>
+        <p id="drone-note" class="rail-note" role="status" hidden></p>
+        <div id="drone-list"></div>
+      </details>
+      <details class="custom-batt full-only">
         <summary>Add a battery to compare</summary>
         <!-- Both forms are generated from their descriptors at boot (forms.js). -->
         <form id="custom-form"></form>

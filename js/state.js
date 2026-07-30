@@ -2,10 +2,10 @@
 // selection helpers that read it. Owns nothing about rendering: the render
 // modules import this, never the other way round.
 import {
-  DRONES, PAYLOADS, WEATHER, SCENARIOS,
+  PAYLOADS, WEATHER, SCENARIOS,
   allBatteries, allManufacturers,
 } from './data.js';
-import { compatible, compatibleBatteries as dronePacks } from './registry.js';
+import { allDrones, compatible, compatibleBatteries as dronePacks } from './registry.js';
 import { get as storeGet, set as storeSet } from './store.js';
 import { parallelBattery, U } from './physics.js';
 import { unitSystem } from './units.js';
@@ -51,12 +51,20 @@ export function restoreSession() {
   if (!s || typeof s !== 'object' || !s.env || typeof s.env !== 'object') return null;
   const env = s.env;
   const num = (v, lo, hi) => Number.isFinite(v) && v >= lo && v <= hi;
-  const savedDrone = DRONES.find(d => d.id === s.droneId);
+  // allDrones(), not the catalog: a rig the pilot added themselves has to survive
+  // a reload exactly like a built-in, and store.js is import-time safe so the
+  // custom records are readable this early in boot.
+  const savedDrone = allDrones().find(d => d.id === s.droneId);
   const batt = allBatteries().find(b => b.id === s.batteryId && compatible(savedDrone, b));
+  // A rig with nothing in the pack list is a legitimate state to come back to now
+  // that a pilot can add their own airframe: the verdict card says NO PACK and
+  // waits for a battery. Demanding a compatible pack here would quietly hand them
+  // back a built-in instead of the rig they just built.
+  const noPacks = !!savedDrone && dronePacks(savedDrone).length === 0;
   const ok = savedDrone
-    && batt
+    && (batt || noPacks)
     && (s.manufacturerId === 'all'
-      || (batt.manufacturerId === s.manufacturerId && allManufacturers().some(m => m.id === s.manufacturerId)))
+      || (batt && batt.manufacturerId === s.manufacturerId && allManufacturers().some(m => m.id === s.manufacturerId)))
     && PAYLOADS.some(p => p.id === s.payloadId)
     && SCENARIOS.some(x => x.id === s.scenarioId)
     && (s.weatherId === 'live' || s.weatherId === 'custom' || WEATHER.some(w => w.id === s.weatherId))
@@ -84,7 +92,13 @@ export function restoreSession() {
   return s.view;
 }
 
-export function drone() { return DRONES.find(d => d.id === state.droneId); }
+// Falls back to the first record the same way battery()/payload()/scenario() do:
+// deleting the custom drone that was selected must not leave the plan reading a
+// hole. The UI puts the rail back on a built-in; this is the net under it.
+export function drone() {
+  const list = allDrones();
+  return list.find(d => d.id === state.droneId) || list[0];
+}
 export function droneBatteries() {
   return dronePacks(drone());
 }

@@ -44,6 +44,7 @@ const PRECACHE_URLS = [
   'js/render/controls.js',
   'js/render/dashboard.js',
   'js/render/dom.js',
+  'js/render/droneform.js',
   'js/render/forecast.js',
   'js/render/format.js',
   'js/render/live.js',

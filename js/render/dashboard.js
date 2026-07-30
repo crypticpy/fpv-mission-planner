@@ -5,7 +5,7 @@ import { lineChart, missionProfile, legend } from '../charts.js';
 import {
   state, units, drone, scenario, battery, compatibleBatteries, loadoutBattery, missionInputs,
 } from '../state.js';
-import { SERIES, f0, f1, mmss, flightLabel } from './format.js';
+import { SERIES, f0, f1, mmss, flightLabel, ratio } from './format.js';
 import { $, setTile } from './dom.js';
 
 /* ---------- rendering ---------- */
@@ -158,6 +158,15 @@ function verdict(r, stranded) {
       'Fly gently and low, and leave the punch-outs for a lighter setup.',
     ]);
   }
+  // A pilot-added airframe carries no motor or ESC limits, so the lift half of
+  // this verdict is missing rather than passing. Say which, once, instead of
+  // letting an infinite ceiling read as headroom.
+  if (r.flight.code === 'unknown') {
+    care.push([
+      'This rig has no motor or ESC limits on record, so nothing here checks whether it can actually lift this weight.',
+      'The times and distances are still modeled — hover it first and see what the OSD says.',
+    ]);
+  }
   if (coldPack) {
     care.push([
       'The pack is cold: expect less capacity than the plan assumes and heavy sag on the first pull.',
@@ -173,12 +182,14 @@ function verdict(r, stranded) {
 
   const level = stop.length ? 'nogo' : care.length ? 'caution' : 'go';
   const label = level === 'nogo' ? 'DON’T FLY' : level === 'caution' ? 'CAUTION' : 'GO';
+  const liftKnown = isFinite(r.flight.thrustToWeight);
   const [why, fix] = stop[0] || care[0] || [
-    `Nothing in this plan is fighting you — ${f1(u.distanceFromKm(r.radiusKm))} ${u.distanceUnit} out and back in ${mmss(r.timeMin)}, on ${r.flight.thrustToWeight.toFixed(2)}:1 of thrust.`,
+    `Nothing in this plan is fighting you — ${f1(u.distanceFromKm(r.radiusKm))} ${u.distanceUnit} out and back in ${mmss(r.timeMin)}`
+      + (liftKnown ? `, on ${r.flight.thrustToWeight.toFixed(2)}:1 of thrust.` : '.'),
     times ? `Fly it — turn for home at ${mmss(times.outMin)} on the timer.` : 'Fly it, and keep an eye on the timer.',
   ];
 
-  const chips = [`lift ${r.flight.thrustToWeight.toFixed(2)}:1`];
+  const chips = liftKnown ? [`lift ${r.flight.thrustToWeight.toFixed(2)}:1`] : ['lift not modeled'];
   if (r.speedLimitMs > 0) chips.push(`gusts ${f0(gustShare * 100)}% of top speed`);
   if (b.maxContA) chips.push(`hover ${f0(iRatio * 100)}% of pack rating`);
   chips.push(r.energy.sagLimited ? 'sag-limited' : 'sag headroom OK');
@@ -218,6 +229,11 @@ export function renderNoBattery() {
   fix.hidden = false;
   $('verdict-margins').textContent = '';
   renderWarnings([]);
+  // Nothing downstream of the verdict has been re-rendered — there is no plan to
+  // render — so hide it rather than leave the previous rig's radius, tiles and
+  // charts on screen under a NO PACK badge. app.js's update() clears this the
+  // moment a plan exists again.
+  document.body.dataset.plan = 'none';
 }
 
 function setChartFlightState(id, flight, message = null) {
@@ -254,11 +270,15 @@ export function renderStats(r) {
   setTile('tile-hover', noLift ? '—' : mmss(r.hoverTimeMin),
     noLift ? `requires ${f0(r.hover.pW)} W · cannot sustain hover` : `hover · ${f0(r.hover.pW)} W · ${f1(r.hover.iA)} A`);
   setTile('tile-auw', `${f0(r.massKg * 1000)} g`,
-    `${f1(r.massKg * 2.20462)} lb · lift ceiling ${f0(r.flight.maxHoverMassG)} g`);
+    `${f1(r.massKg * 2.20462)} lb · ` + (isFinite(r.flight.maxHoverMassG)
+      ? `lift ceiling ${f0(r.flight.maxHoverMassG)} g`
+      : 'lift ceiling unknown for this rig'));
   const d = drone();
   setTile('tile-disc', `${r.discLoadingGcm2.toFixed(2)} g/cm²`, `${d.numRotors}× ${d.propDiaIn}″ props`);
-  setTile('tile-eff', `${r.flight.thrustToWeight.toFixed(2)}:1`,
-    `${flightLabel(r.flight)} · ${r.flight.limitingComponent} limited · estimated`);
+  setTile('tile-eff', ratio(r.flight.thrustToWeight),
+    r.flight.code === 'unknown'
+      ? `${flightLabel(r.flight)} · no motor or ESC limits on record`
+      : `${flightLabel(r.flight)} · ${r.flight.limitingComponent} limited · estimated`);
   setTile('tile-da', `${f0(U.mToFt(r.densityAltM))} ft`,
     `the altitude this air feels like · air density ${r.rho.toFixed(3)} kg/m³`);
   // Density altitude is a full-only tile, but thin air changes the whole plan —
@@ -292,14 +312,18 @@ export function renderPowerCurve(r) {
     markers.push({ x: u.speedFromMs(r.legs.back.v), y: r.legs.pBack, color: 'var(--series-2)',
       label: 'back', labelBelow: true });
   }
-  const limitPts = pts.length ? [
+  // No propulsion block means no ceiling to draw — an Infinity here would blow
+  // out the y-axis and hide the curve the chart exists for.
+  const limitPts = pts.length && isFinite(r.flight.maxElectricalW) ? [
     { x: pts[0].x, y: r.flight.maxElectricalW },
     { x: pts.at(-1).x, y: r.flight.maxElectricalW },
   ] : [];
   lineChart($('chart-power'), {
     series: [
       { name: 'required electrical power', color: 'var(--series-1)', pts },
-      { name: 'continuous power ceiling', color: 'var(--status-critical)', pts: limitPts, dash: '6 5' },
+      ...(limitPts.length
+        ? [{ name: 'continuous power ceiling', color: 'var(--status-critical)', pts: limitPts, dash: '6 5' }]
+        : []),
     ],
     markers, height: 250,
     xLabel: `airspeed (${u.speedUnit})`, yLabel: 'W',

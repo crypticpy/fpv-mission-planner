@@ -17,7 +17,13 @@ export const mmss = (min) => {
     : `${Math.floor(s / 60)}:${pad(s % 60)}`;
 };
 
-const COMPASS = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE',
+// A thrust ratio, or an em dash when there isn't one. A pilot-added airframe has
+// no motor or ESC limits on record, so liftEnvelope() answers `unknown` with an
+// infinite ceiling — honest inside the model, nonsense on screen. "Infinity:1"
+// would read as a promise; "—" reads as the truth, which is that we don't know.
+export const ratio = (x) => (x != null && isFinite(x) ? `${x.toFixed(2)}:1` : '—');
+
+const COMPASS =['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE',
                  'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
 export const compass = (deg) => COMPASS[Math.round((((deg % 360) + 360) % 360) / 22.5) % 16];
 // The model plans on 80 m wind; the pilot standing at the launch point feels
@@ -25,6 +31,9 @@ export const compass = (deg) => COMPASS[Math.round((((deg % 360) + 360) % 360) /
 export const surfaceMph = (aloftMph) => aloftMph / 2;
 
 export function flightLabel(flight) {
+  // No propulsion block on the airframe: the energy side of the plan is real,
+  // the lift ceiling is simply unmodeled, and saying so beats inventing a verdict.
+  if (flight.code === 'unknown') return 'LIFT UNKNOWN';
   if (flight.code === 'no_lift') return 'WILL NOT FLY';
   if (flight.code === 'no_control_margin') return 'NO CONTROL MARGIN';
   if (flight.code === 'marginal') return 'MARGINAL';

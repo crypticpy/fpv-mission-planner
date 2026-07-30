@@ -94,7 +94,7 @@ test('an out-of-range number fails on its own key', () => {
   const { ok, errors } = validate({ ...minimalBattery, s: 99, capAh: 0 }, BATTERY_FIELDS);
   assert.equal(ok, false);
   assert.deepEqual(errors.map(e => e.key).sort(), ['capAh', 's']);
-  assert.match(errors.find(e => e.key === 's').msg, /at most 8/);
+  assert.match(errors.find(e => e.key === 's').msg, /at most 12/);
 });
 
 test('a bad chemistry, a non-number, and a bad url each fail', () => {
@@ -108,9 +108,18 @@ test('a bad chemistry, a non-number, and a bad url each fail', () => {
 });
 
 test('a required nested group is reported on the group key when absent', () => {
-  const { ok, errors } = validate({ ...minimalDrone, propulsion: undefined }, DRONE_FIELDS);
+  // Neither of the drone's groups is required in the shipped list — `power` has a
+  // documented default and `propulsion` is absent on any airframe without a
+  // thrust stand behind it — so this pins the group-level required rule itself.
+  const withRequiredPower = DRONE_FIELDS.map(f => (f.key === 'power' ? { ...f, required: true } : f));
+  const { ok, errors } = validate({ ...minimalDrone, power: undefined }, withRequiredPower);
   assert.equal(ok, false);
-  assert.deepEqual(errors.map(e => e.key), ['propulsion']);
+  assert.deepEqual(errors.map(e => e.key), ['power']);
+});
+
+test('an absent propulsion group is allowed — an unmeasured airframe still validates', () => {
+  const { ok } = validate({ ...minimalDrone, propulsion: undefined }, DRONE_FIELDS);
+  assert.equal(ok, true);
 });
 
 test('a required field inside a present group is reported by its dotted path', () => {

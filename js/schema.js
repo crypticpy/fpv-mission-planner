@@ -10,6 +10,8 @@
 // `group` nests a `fields` array one level — the drone's propulsion and power
 // blocks — and its children address as `group.child` in the flat map.
 
+import { CLASSES } from './catalog/classes.js';
+
 export const BATTERY_FIELDS = [
   { key: 'id', label: 'Record id', type: 'text', required: true,
     help: 'Stable key. Reusing a catalog id overrides that pack with yours.' },
@@ -21,7 +23,7 @@ export const BATTERY_FIELDS = [
     { value: 'lipo', label: 'LiPo' },
     { value: 'lihv', label: 'LiHV' },
   ] },
-  { key: 's', label: 'Cells in series', type: 'number', unit: 'S', required: true, min: 1, max: 8, step: 1 },
+  { key: 's', label: 'Cells in series', type: 'number', unit: 'S', required: true, min: 1, max: 12, step: 1 },
   { key: 'p', label: 'Cells in parallel', type: 'number', unit: 'P', required: true, min: 1, max: 8, step: 1 },
   { key: 'capAh', label: 'Capacity', type: 'number', unit: 'Ah', required: true, min: 0.1, max: 30, step: 0.1 },
   { key: 'massG', label: 'Pack weight', type: 'number', unit: 'g', required: true, min: 10, max: 3000, step: 1,
@@ -75,6 +77,10 @@ export const DRONE_FIELDS = [
   { key: 'name', label: 'Name', type: 'text', required: true },
   { key: 'short', label: 'Short label', type: 'text' },
   { key: 'tag', label: 'One-line tag', type: 'text', help: 'e.g. 7.5" long range · 6S · XT60' },
+  { key: 'classId', label: 'Airframe class', type: 'select',
+    options: CLASSES.map(c => ({ value: c.id, label: c.label })),
+    help: 'Which class template the physics fields came from. Set on a pilot-added rig; '
+      + 'the calibrated built-ins anchor the table rather than reading from it.' },
   { key: 'dryMassG', label: 'Dry weight, no pack', type: 'number', unit: 'g', required: true, min: 50, max: 25000, step: 1,
     help: 'Weighed with props, camera mount and receiver on, battery off.' },
   { key: 'propDiaIn', label: 'Prop diameter', type: 'number', unit: 'in', required: true, min: 1, max: 30, step: 0.01 },
@@ -92,7 +98,14 @@ export const DRONE_FIELDS = [
   { key: 'cruiseMs', label: 'Realistic cruise', type: 'number', unit: 'm/s', required: true, min: 1, max: 60, step: 0.1,
     help: 'How fast you actually fly it, not how fast it goes.' },
   { key: 'motor', label: 'Motor', type: 'text' },
-  { key: 'propulsion', label: 'Electrical limits', type: 'group', required: true, fields: PROPULSION_FIELDS },
+  { key: 'confidence', label: 'Airframe numbers', type: 'select', options: [
+    { value: 'estimated', label: 'Estimated' },
+    { value: 'measured', label: 'Measured' },
+  ], help: 'Where etaProp/cdA came from. Class defaults are estimated until a logged flight calibrates them.' },
+  // Not required: nobody who builds their own rig owns a thrust stand, and
+  // liftEnvelope() answers a missing block with its honest `unknown` code
+  // rather than a fabricated ceiling. Present means complete.
+  { key: 'propulsion', label: 'Electrical limits', type: 'group', fields: PROPULSION_FIELDS },
   { key: 'power', label: 'Battery mounting', type: 'group', fields: POWER_FIELDS,
     help: 'What packs will physically go on this rig. Omitted means "exactly its own connector and cell count".' },
   { key: 'parallelHarnessMassG', label: 'Parallel harness allowance', type: 'number', unit: 'g', min: 0, max: 200, step: 1 },

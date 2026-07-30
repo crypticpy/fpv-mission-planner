@@ -17,6 +17,7 @@ export { DRONES, MANUFACTURERS, BATTERIES, PAYLOADS, WEATHER, SCENARIOS };
 export {
   loadCustomManufacturers, saveCustomManufacturer, deleteCustomManufacturer, allManufacturers,
   loadCustomBatteries, saveCustomBattery, deleteCustomBattery, allBatteries,
+  loadCustomDrones, saveCustomDrone, deleteCustomDrone, allDrones,
   compatible, compatibleBatteries, dronePower,
 } from './registry.js';
 
