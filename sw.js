@@ -1,4 +1,19 @@
-// FPV Mission Planner — service worker.
+// FPV Mission Planner — service worker (DEV PATH ONLY).
+//
+// ============================================================================
+// THE PRODUCTION WORKER IS GENERATED. `npm run build` emits dist/sw.js from
+// scripts/generate-sw.mjs, which walks the build output for the precache list
+// and derives the cache version from file content — the PRECACHE_URLS array
+// below is NOT what ships. This file serves the no-build dev path
+// (`python3 -m http.server` at the repo root), and its runtime logic — from
+// the install listener down — is lifted verbatim into the generated worker,
+// so caching and offline behaviour still have exactly one source of truth.
+//
+// Editing rules: change the fetch/install/activate logic here and the build
+// inherits it. Adding an asset means adding a line to PRECACHE_URLS *for the
+// dev path only*; forgetting to is no longer a production bug.
+// ============================================================================
+//
 // Stale-while-revalidate app shell: the tool still opens instantly at a
 // trailhead with one bar of LTE (or none), while every online visit quietly
 // refreshes the cache so the next load runs the newest deploy — there is no

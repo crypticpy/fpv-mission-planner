@@ -6,6 +6,40 @@ const SQMI_PER_SQKM = MILES_PER_KM * MILES_PER_KM;
 const MS_PER_MPH = 0.44704;
 const KPH_PER_MPH = 1.609344;
 
+/**
+ * The min/max/step a rail input takes in this system.
+ *
+ * @typedef {object} UnitRange
+ * @property {number} min
+ * @property {number} max
+ * @property {number} step
+ */
+
+/**
+ * One measurement system: the labels the UI prints, the conversions in and out
+ * of the model's internal units (km, m/s, Wh/km, metres), and the input ranges
+ * the rail's number fields and sliders take.
+ *
+ * @typedef {object} UnitSystem
+ * @property {string} id
+ * @property {string} label
+ * @property {string} distanceUnit
+ * @property {string} speedUnit
+ * @property {string} burnUnit
+ * @property {string} areaUnit
+ * @property {string} altUnit
+ * @property {(m: number) => number} altFromM
+ * @property {(km: number) => number} distanceFromKm
+ * @property {(d: number) => number} distanceToKm
+ * @property {(km2: number) => number} areaFromKm2
+ * @property {(ms: number) => number} speedFromMs
+ * @property {(mph: number) => number} speedFromMph
+ * @property {(v: number) => number} speedToMph
+ * @property {(whPerKm: number) => number} burnFromWhPerKm
+ * @property {{ manualSpeed: UnitRange, wind: UnitRange, gust: UnitRange }} input
+ */
+
+/** @type {Record<string, UnitSystem>} */
 export const UNIT_SYSTEMS = {
   imperial: {
     id: 'imperial',
@@ -56,6 +90,10 @@ export const UNIT_SYSTEMS = {
   },
 };
 
+/**
+ * @param {string} id
+ * @returns {UnitSystem}
+ */
 export function unitSystem(id) {
   return UNIT_SYSTEMS[id] || UNIT_SYSTEMS.imperial;
 }

@@ -4,12 +4,29 @@
 
 const EARTH_R_KM = 6371;
 
-/** Longitude folded back into (−180, 180]. */
+/**
+ * A geographic point in the shape Leaflet hands back and the app passes around.
+ *
+ * @typedef {{ lat: number, lng: number }} LatLng
+ */
+
+/**
+ * Longitude folded back into (−180, 180].
+ *
+ * @param {number} lng
+ * @returns {number}
+ */
 export function wrapLng(lng) {
   return ((lng % 360) + 540) % 360 - 180;
 }
 
-/** Great-circle distance between two { lat, lng } points, in km. */
+/**
+ * Great-circle distance between two { lat, lng } points, in km.
+ *
+ * @param {LatLng} a
+ * @param {LatLng} b
+ * @returns {number}
+ */
 export function distanceKm(a, b) {
   const dLat = (b.lat - a.lat) * Math.PI / 180;
   const dLng = (b.lng - a.lng) * Math.PI / 180;
@@ -22,6 +39,12 @@ export function distanceKm(a, b) {
  * Destination point from { lat, lng } along a bearing, in km. Returns
  * `[lat, lng]` — the tuple Leaflet's polygon/marker constructors take, which is
  * why it is not an object.
+ *
+ * @param {number} lat
+ * @param {number} lng
+ * @param {number} bearingDeg
+ * @param {number} distKm
+ * @returns {[number, number]}
  */
 export function destination(lat, lng, bearingDeg, distKm) {
   const br = bearingDeg * Math.PI / 180;
@@ -36,7 +59,12 @@ export function destination(lat, lng, bearingDeg, distKm) {
   return [la2 * 180 / Math.PI, wrapLng(lo2 * 180 / Math.PI)];
 }
 
-/** Bearing folded into [0, 360). */
+/**
+ * Bearing folded into [0, 360).
+ *
+ * @param {number} deg
+ * @returns {number}
+ */
 export function wrapBearing(deg) {
   return ((deg % 360) + 360) % 360;
 }
@@ -52,6 +80,10 @@ export function wrapBearing(deg) {
  * kilometres a battery buys, the meridian convergence is a few hundredths of a
  * degree, far under the wind forecast's own resolution. Two identical points
  * have no bearing at all; 0 comes back, which costs nothing on a zero-length leg.
+ *
+ * @param {LatLng} a
+ * @param {LatLng} b
+ * @returns {number}
  */
 export function bearingTo(a, b) {
   const la1 = a.lat * Math.PI / 180, la2 = b.lat * Math.PI / 180;
@@ -64,6 +96,10 @@ export function bearingTo(a, b) {
 /**
  * Smallest absolute angle between two bearings, in degrees (0…180) — how far a
  * cached profile's bearing is from the one the plan now wants.
+ *
+ * @param {number} a
+ * @param {number} b
+ * @returns {number}
  */
 export function bearingDelta(a, b) {
   const d = Math.abs(wrapBearing(a) - wrapBearing(b));

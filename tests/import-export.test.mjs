@@ -6,7 +6,7 @@ import {
   readPayload,
 } from '../js/share.js';
 import {
-  allBatteries, allDrones, allManufacturers,
+  allDrones,
   loadCustomBatteries, loadCustomDrones, loadCustomManufacturers,
 } from '../js/registry.js';
 import { fitForDrone, loadFlightLogs, logsForDrone } from '../js/flightlog.js';

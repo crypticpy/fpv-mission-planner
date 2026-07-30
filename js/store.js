@@ -12,7 +12,13 @@ function backing() {
   return globalThis.localStorage;
 }
 
-/** Parsed value for `name`, or `fallback` when missing, corrupt, or storage is unavailable. */
+/**
+ * Parsed value for `name`, or `fallback` when missing, corrupt, or storage is unavailable.
+ *
+ * @param {string} name
+ * @param {*} fallback
+ * @returns {*}
+ */
 export function get(name, fallback) {
   const ls = backing();
   if (!ls) return fallback;
@@ -25,14 +31,23 @@ export function get(name, fallback) {
   }
 }
 
-/** Persist `value` under `name`. Quota errors and no-storage environments are swallowed. */
+/**
+ * Persist `value` under `name`. Quota errors and no-storage environments are swallowed.
+ *
+ * @param {string} name
+ * @param {*} value
+ */
 export function set(name, value) {
   const ls = backing();
   if (!ls) return;
   try { ls.setItem(NS + name, JSON.stringify(value)); } catch { /* quota / private mode */ }
 }
 
-/** Remove `name`. Swallows storage errors the same way get/set do. */
+/**
+ * Remove `name`. Swallows storage errors the same way get/set do.
+ *
+ * @param {string} name
+ */
 export function remove(name) {
   const ls = backing();
   if (!ls) return;
@@ -95,6 +110,7 @@ export function loadMapState() {
   };
 }
 
+/** @param {{ lat: number, lng: number, zoom: number, baseLayer: string }} s */
 export function saveMapState(s) {
   // Fires on every pan/zoom via Leaflet events — never let quota/private-mode
   // storage errors escape into the map's event dispatch.

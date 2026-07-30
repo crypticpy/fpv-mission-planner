@@ -1,3 +1,14 @@
 .DS_Store
 .claude/context-layer/
 .claude/scheduled_tasks.lock
+
+# Tooling (ADR 0009): dependencies and build output are never committed —
+# package-lock.json is, so `npm ci` reproduces both exactly.
+node_modules/
+dist/
+
+# Playwright
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
