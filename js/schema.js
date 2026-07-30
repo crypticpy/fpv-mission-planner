@@ -12,6 +12,22 @@
 
 import { CLASSES } from './catalog/classes.js';
 
+// §6.1's three tiers, in one place because three record types speak them: a
+// drone's airframe numbers, its propulsion block, and (through the UI copy) a
+// pack's own figures. The middle tier is the one the two-way version was lying
+// about — a motor's published Kv and max current is not a guess, and it is not
+// something the pilot measured either.
+export const CONFIDENCE_OPTIONS = [
+  { value: 'estimated', label: 'Estimated — a class default or a guess' },
+  { value: 'datasheet', label: 'Datasheet — the manufacturer’s published figure' },
+  { value: 'measured', label: 'Measured — a thrust stand, a charger, or your own flights' },
+];
+
+/** Any value → one of the three tiers. Unknown and missing both read as a guess. */
+export function normalizeConfidence(v) {
+  return CONFIDENCE_OPTIONS.some(o => o.value === v) ? v : 'estimated';
+}
+
 export const BATTERY_FIELDS = [
   { key: 'id', label: 'Record id', type: 'text', required: true,
     help: 'Stable key. Reusing a catalog id overrides that pack with yours.' },
@@ -31,6 +47,12 @@ export const BATTERY_FIELDS = [
   { key: 'irPackMilliOhm', label: 'Pack internal resistance', type: 'number', unit: 'mΩ',
     required: true, min: 1, max: 500, step: 1,
     help: 'Fresh-pack planning number at room temperature. Bump it as the pack ages.' },
+  // Provenance for the figure above, not a model input: resistance climbs as a
+  // pack cools, and physics.js applies its own temperature curve to whatever is
+  // on record. Knowing the reading was taken at 5 °C is how a pilot knows the
+  // number is already pessimistic. Pack-temperature modeling is Phase 4.
+  { key: 'irTempC', label: 'Resistance measured at', type: 'number', unit: '°C', min: -20, max: 60, step: 1,
+    help: 'Optional. The pack’s temperature when the resistance was read.' },
   { key: 'maxContA', label: 'Max continuous current', type: 'number', unit: 'A', min: 1, max: 300, step: 1,
     help: 'True continuous, not the burst number on the label. Leave blank to let pack sag set the limit.' },
   { key: 'connector', label: 'Connector', type: 'text', required: true,
@@ -53,10 +75,9 @@ const PROPULSION_FIELDS = [
     help: 'Per motor, not for the whole aircraft.' },
   { key: 'motorMaxA', label: 'Motor max current', type: 'number', unit: 'A', required: true, min: 1, max: 200, step: 0.01 },
   { key: 'escMaxA', label: 'ESC max current', type: 'number', unit: 'A', required: true, min: 1, max: 200, step: 1 },
-  { key: 'confidence', label: 'Confidence', type: 'select', options: [
-    { value: 'estimated', label: 'Estimated' },
-    { value: 'measured', label: 'Measured' },
-  ], help: 'Anything not off a thrust stand is estimated, and is labeled that way in the UI.' },
+  { key: 'confidence', label: 'Confidence', type: 'select', options: CONFIDENCE_OPTIONS,
+    help: 'A published motor or ESC rating is “datasheet”; only a thrust stand is “measured”. '
+      + 'Whichever it is, the UI says so wherever the lift ceiling is shown.' },
   { key: 'sourceLabel', label: 'Source', type: 'text' },
   { key: 'sourceUrl', label: 'Source link', type: 'url' },
 ];
@@ -98,10 +119,8 @@ export const DRONE_FIELDS = [
   { key: 'cruiseMs', label: 'Realistic cruise', type: 'number', unit: 'm/s', required: true, min: 1, max: 60, step: 0.1,
     help: 'How fast you actually fly it, not how fast it goes.' },
   { key: 'motor', label: 'Motor', type: 'text' },
-  { key: 'confidence', label: 'Airframe numbers', type: 'select', options: [
-    { value: 'estimated', label: 'Estimated' },
-    { value: 'measured', label: 'Measured' },
-  ], help: 'Where etaProp/cdA came from. Class defaults are estimated until a logged flight calibrates them.' },
+  { key: 'confidence', label: 'Airframe numbers', type: 'select', options: CONFIDENCE_OPTIONS,
+    help: 'Where etaProp/cdA came from. Class defaults are estimated until a logged flight calibrates them.' },
   // Not required: nobody who builds their own rig owns a thrust stand, and
   // liftEnvelope() answers a missing block with its honest `unknown` code
   // rather than a fabricated ceiling. Present means complete.

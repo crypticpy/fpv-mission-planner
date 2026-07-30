@@ -66,13 +66,18 @@ function flightLogFields(u) {
         help: 'Use this if the pack isn’t charged yet. Either one is enough.' },
     ] },
     { id: 'flightlog-cruise', grid: [
+      // `step: 'any'` on every measurement in this form, deliberately: a step the
+      // entered value doesn't land on is a *native validation refusal at submit
+      // time*, and these fields are filled from a GPS track, an archive lookup or
+      // a converted metric figure — none of which land on a tidy grid. See the
+      // conditions fold below for the version of this that was silent.
       { key: 'distance', label: 'Distance flown', type: 'number', unit: u.distanceUnit,
-        min: 0.01, max: 300, step: 0.01, id: 'flightlog-distance',
+        min: 0.01, max: 300, step: 'any', id: 'flightlog-distance',
         help: 'Ground track over the whole leg. Average speed is worked out from this and the time.' },
       { key: 'avgSpeed', label: 'Or average speed', type: 'number', unit: u.speedUnit,
-        min: 1, max: 200, step: 1, id: 'flightlog-speed' },
+        min: 1, max: 200, step: 'any', id: 'flightlog-speed' },
       { key: 'wind', label: 'Wind', type: 'number', unit: u.speedUnit,
-        min: 0, max: 120, step: 1, id: 'flightlog-wind' },
+        min: 0, max: 120, step: 'any', id: 'flightlog-wind' },
       // Options are generated from flightlog.js's own WIND_RELATIONS list, so the
       // form can never offer a value the validator would then reject.
       { key: 'windRelation', label: 'Flown', type: 'select', id: 'flightlog-windrel',
@@ -80,9 +85,13 @@ function flightLogFields(u) {
     ] },
     { details: { summary: 'Conditions and when — prefilled, correct anything', fields: [
       { grid: [
-        { key: 'temp', label: 'Air temp', type: 'number', unit: '°F', min: -60, max: 140, step: 1,
+        // These two are prefilled from the weather archive, and both live inside a
+        // fold. A stepped value the prefill misses — 515 ft against a 50 ft step —
+        // makes the browser refuse the submit against a control it cannot focus to
+        // show a bubble on, so the Save button does nothing and says nothing.
+        { key: 'temp', label: 'Air temp', type: 'number', unit: '°F', min: -60, max: 140, step: 'any',
           id: 'flightlog-temp' },
-        { key: 'elev', label: 'Elevation', type: 'number', unit: 'ft', min: -1500, max: 30000, step: 50,
+        { key: 'elev', label: 'Elevation', type: 'number', unit: 'ft', min: -1500, max: 30000, step: 'any',
           id: 'flightlog-elev' },
         { key: 'date', label: 'Date', type: 'date', id: 'flightlog-date' },
         { key: 'clock', label: 'Time of day', type: 'time', id: 'flightlog-clock' },

@@ -7,6 +7,7 @@ import {
 } from './data.js';
 import { allDrones, compatible, compatibleBatteries as dronePacks } from './registry.js';
 import { calibratedDrone } from './flightlog.js';
+import { instanceBattery } from './packinstances.js';
 import { get as storeGet, set as storeSet } from './store.js';
 import { parallelBattery, U } from './physics.js';
 import { unitSystem } from './units.js';
@@ -124,9 +125,23 @@ export function compatibleBatteries() {
     ? batts
     : batts.filter(b => b.manufacturerId === state.manufacturerId);
 }
-export function battery() {
+// The pack model as written down, with no physical copy of it overlaid. Only the
+// pack-instance UI wants this: it is the "22 mΩ (catalog spec)" half of the fold,
+// and the fallback the plan returns to when no instance is selected.
+export function catalogBattery() {
   const list = compatibleBatteries();
   return list.find(b => b.id === state.batteryId) || list[0];
+}
+
+/**
+ * The pack everything else plans with. When the pilot has told us which physical
+ * copy of this model is on the rig *and* measured its resistance, the record
+ * comes back carrying that number instead of the model's — so planMission, the
+ * sag warnings and every chart see the aged pack without knowing instances
+ * exist. Mirrors drone()/catalogDrone() above; see js/packinstances.js.
+ */
+export function battery() {
+  return instanceBattery(catalogBattery());
 }
 export function manufacturer(id) {
   return allManufacturers().find(m => m.id === id);
@@ -139,6 +154,11 @@ export function loadoutBattery(batt = battery()) {
   // object, so missionInputs() passes a falsy battery and planMission answers
   // with its handled `no_battery` code instead of doing arithmetic on holes.
   if (!batt) return null;
+  // Run the instance overlay over whatever we were handed, not just over the
+  // default: the pack shoot-out plans every compatible pack through here, and a
+  // row for the model whose Pack #2 is selected has to agree with the hero above
+  // it. Idempotent, so the default argument doesn't get it twice.
+  batt = instanceBattery(batt);
   if (!state.parallelPacks) return { ...batt, packCount: 1, extraCdA: 0 };
   const d = drone();
   return parallelBattery(batt, 2, {

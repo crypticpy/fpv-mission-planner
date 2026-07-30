@@ -22,6 +22,8 @@ import {
   buildAuthoringForms, BATTERY_FORM, MANUFACTURER_FORM,
 } from './render/controls.js';
 import { setupDroneForm, buildDroneForm } from './render/droneform.js';
+import { setupPackInstances, buildPackInstanceForm } from './render/packinstances.js';
+import { resolvePackIr, resetBatteryChecks } from './render/batterychecks.js';
 import { setupFlightLog, buildFlightLogForm } from './render/flightlog.js';
 import { setupCalibration } from './render/calibration.js';
 import {
@@ -285,7 +287,11 @@ function bind() {
       chem: v.chem, s, p,
       capAh: (v.mah || 0) / 1000,
       massG: v.mass || 0,
-      irPackMilliOhm: v.ir || 25,
+      // Per-cell entry mode multiplies up to the pack figure here; whole-pack mode
+      // is the field as typed. Either way one pack-level number is stored, because
+      // that is what physics.js reads.
+      irPackMilliOhm: resolvePackIr(v) || 25,
+      irTempC: v.irTempC,
       maxContA: v.amps || null,
       connector: v.connector || drone().connector,
       fits,
@@ -302,6 +308,9 @@ function bind() {
     // reset() doesn't fire 'change', so nudge the fits checklist's visibility
     // back in step with the mode select it just reset to 'any'.
     $('battery-fits-mode').dispatchEvent(new Event('change'));
+    // Same for the resistance entry mode, and the cross-check line under it now
+    // has an empty form to describe.
+    resetBatteryChecks();
     populateControls();
     update();
   });
@@ -340,6 +349,9 @@ setupControls({ update });
 // The drone form re-picks the pack and the manufacturer filter after a save or a
 // delete, so it needs populateControls() as well as update().
 setupDroneForm({ update, populateControls });
+// Choosing which physical pack is on the rig can change the plan (its measured
+// resistance replaces the model's), so the same pair.
+setupPackInstances({ update, populateControls });
 // Logging a flight can change what the airframe flies like, so the same pair:
 // the rail redraws its own status line and list, then the plan re-renders.
 setupFlightLog({ update, populateControls });
@@ -365,6 +377,7 @@ const bootView = restoreSession();
 buildAuthoringForms();
 buildDroneForm();
 buildFlightLogForm();
+buildPackInstanceForm();
 populateControls();
 bind();
 if (bootView === 'map') setView('map'); // renders as a side effect

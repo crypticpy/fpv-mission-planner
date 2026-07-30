@@ -9,10 +9,13 @@ import {
   state, beginner, units, drone, droneBatteries, compatibleBatteries, battery,
   manufacturer, loadoutBattery, EXPERT_CRUISE_MODES,
 } from '../state.js';
+import { deletePackInstancesFor } from '../packinstances.js';
 import { buildForm } from '../forms.js';
 import { classById } from '../catalog/classes.js';
 import { renderDroneForm } from './droneform.js';
 import { renderFlightLog } from './flightlog.js';
+import { renderPackInstances, packInstanceSentence } from './packinstances.js';
+import { IR_FIELDS, mountBatteryChecks } from './batterychecks.js';
 import { f0, compass, surfaceMph, estimatedPhrase } from './format.js';
 import { $, fillSelect } from './dom.js';
 
@@ -94,6 +97,7 @@ export function populateControls() {
   $('speed-val').textContent = `${f0(u.speedFromMph(state.manualMph))} ${u.speedUnit}`;
   $('speed-row').hidden = state.cruiseMode !== 'manual';
   $('in-extra').value = state.extraG;
+  renderPackInstances();
   renderCustomList();
   renderManufacturerList();
   renderManufacturerDatalist();
@@ -150,7 +154,14 @@ function renderCustomList() {
     del.type = 'button';
     del.textContent = 'remove';
     del.className = 'link-btn';
-    del.addEventListener('click', () => { deleteCustomBattery(b.id); populateControls(); deps.update(); });
+    del.addEventListener('click', () => {
+      deleteCustomBattery(b.id);
+      // The physical copies go with the model — a pack instance pointing at a
+      // battery that no longer exists is an orphan the fold can never show.
+      deletePackInstancesFor(b.id);
+      populateControls();
+      deps.update();
+    });
     row.append(name, del);
     host.appendChild(row);
   }
@@ -206,6 +217,13 @@ export function renderBatteryNote() {
       + `flight${nFlights === 1 ? '' : 's'} instead of `
       + `${d.custom ? 'the class template' : 'the catalog’s numbers'}. `
     ));
+  } else if (d.custom && d.confidence === 'datasheet') {
+    // Datasheet numbers are better than a class guess and still not this rig's
+    // own behaviour — the honest middle tier (§6.1).
+    host.append(document.createTextNode(
+      `${d.name}’s flight numbers are datasheet figures, not measured on this rig — `
+      + 'log a flight to calibrate them. '
+    ));
   } else if (d.custom && d.confidence !== 'measured') {
     const cls = classById(d.classId);
     host.append(document.createTextNode(
@@ -218,9 +236,18 @@ export function renderBatteryNote() {
       `Parallel loadout: two identical packs, ${effective.config}, ${f0(effective.massG)} g including the ${f0(effective.harnessMassG)} g harness allowance. `
     ));
   }
-  if (b.estimated?.length) {
+  // Which physical copy of the pack the plan is flying, and whether its own
+  // measured resistance is the one in the sag model (render/packinstances.js).
+  const packLine = packInstanceSentence(b);
+  if (packLine) host.append(document.createTextNode(packLine));
+  // A measured physical pack has already replaced the model's resistance, so
+  // still calling that field estimated would contradict the sentence above it.
+  const estimated = (b.estimated || []).filter(
+    k => !(k === 'irPackMilliOhm' && b.packInstance?.measured)
+  );
+  if (estimated.length) {
     host.append(document.createTextNode(
-      `${estimatedPhrase(b.estimated)} ${b.estimated.length === 1 ? 'is' : 'are'} estimated; replace with the finished pack’s measured values when available.`
+      `${estimatedPhrase(estimated)} ${estimated.length === 1 ? 'is' : 'are'} estimated; replace with the finished pack’s measured values when available.`
     ));
   }
   if (m?.url) {
@@ -265,6 +292,10 @@ export const BATTERY_FORM = [
     { key: 'connector', label: 'Connector', type: 'text', placeholder: 'XT60' },
     { key: 'price', label: 'Price', type: 'number', unit: 'USD', min: 0, max: 5000, step: 0.01 },
   ] },
+  // Per-cell resistance entry, folded away (§6.1). The stored field stays the
+  // pack figure above — this is a way of arriving at it, plus the temperature it
+  // was read at. render/batterychecks.js owns the fields and the arithmetic.
+  ...IR_FIELDS,
   // Computed compatibility (connector + cell count, via registry.compatible())
   // is the default and the common case — a shared pack no longer has to be
   // entered once per drone. "Pin to specific drones" is an *additional*
@@ -318,4 +349,9 @@ export function buildAuthoringForms() {
   const syncFitsVisibility = () => { fitsDrones.hidden = fitsMode.value !== 'specific'; };
   syncFitsVisibility();
   fitsMode.addEventListener('change', syncFitsVisibility);
+
+  // The derived cross-checks under the battery form, and the per-cell/whole-pack
+  // visibility that goes with them. The descriptor is passed in rather than
+  // imported, so batterychecks.js stays a leaf module.
+  mountBatteryChecks($('custom-form'), BATTERY_FORM);
 }

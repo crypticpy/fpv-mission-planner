@@ -6,7 +6,7 @@ import {
   state, units, beginner, drone, scenario, battery, compatibleBatteries, loadoutBattery, missionInputs,
 } from '../state.js';
 import { rangeBandKm } from '../drift.js';
-import { SERIES, f0, f1, mmss, flightLabel, liftSource, ratio, bandPhrase } from './format.js';
+import { SERIES, f0, f1, mmss, flightLabel, liftSource, confidenceWord, ratio, bandPhrase } from './format.js';
 import { $, setTile } from './dom.js';
 
 /* ---------- rendering ---------- */
@@ -304,7 +304,9 @@ export function renderStats(r) {
       ? `${flightLabel(r.flight)} · from your thrust table`
       : r.flight.code === 'unknown'
         ? `${flightLabel(r.flight)} · no motor or ESC limits on record`
-        : `${flightLabel(r.flight)} · ${r.flight.limitingComponent} limited · estimated`);
+        // Whichever of the three tiers the motor and ESC limits came in as: a
+        // published rating is not the guess "estimated" implies.
+        : `${flightLabel(r.flight)} · ${r.flight.limitingComponent} limited · ${confidenceWord(r.flight.confidence)}`);
   setTile('tile-da', `${f0(U.mToFt(r.densityAltM))} ft`,
     `the altitude this air feels like · air density ${r.rho.toFixed(3)} kg/m³`);
   // Density altitude is a full-only tile, but thin air changes the whole plan —

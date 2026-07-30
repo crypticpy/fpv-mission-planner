@@ -214,6 +214,67 @@ weight will depend on the selected Micro Four Thirds lens. Camera `cdA` values
 are envelope-based planning estimates because neither manufacturer publishes
 aerodynamic drag data.
 
+## Adding your own drone
+
+"Add a drone" in the Aircraft rail builds a rig with **no required physics
+fields**. Name it, pick an airframe class — 3" duct, 5" freestyle, 7" long range,
+10" cruiser — and every physics number arrives from that class's template wearing
+a "class default" chip. Type in a field and it becomes yours; the chip goes away
+and changing the class won't overwrite it.
+
+- **Clone and edit** is the faster path when your rig is a variant of something
+  already in the list: pick a source and the form fills with its numbers, motor
+  and ESC limits included. Those limits are the only thing the form doesn't ask
+  for, because nobody knows them for a rig they built themselves.
+- **The line under the form** answers while you type: what this rig would hover
+  and cruise like on the pack in the rail, its disc loading and W/kg, and a plain
+  sentence when a value is unusual for its class. Nothing blocks a save — people
+  build weird things, and the cross-checks are there to catch a typo, not to
+  argue.
+- **Paste a thrust table** (from a bench test or a manufacturer PDF) into the
+  optional field and the planner takes the peak thrust per motor off it. That
+  replaces the estimated lift ceiling with a measured one, and the lift tile says
+  "from your thrust table" instead of naming a limiting component. Nothing else
+  off the table is stored.
+- **Where these numbers came from** is a three-way choice — estimated, datasheet,
+  or measured — and the planner repeats your answer wherever those numbers show
+  up, so a plan built on class defaults never reads like a calibrated one.
+
+## Logging flights and calibration
+
+"Log a flight" takes about thirty seconds off the OSD and the charger, and it is
+how the model stops guessing about your rig.
+
+- **What to log.** Flight time (the armed timer, `7:20`), which pack, and either
+  what the charger put back in mAh or the state of charge you landed at. Then
+  pick the kind of flight: a **hover test** pins propulsive efficiency, because
+  with no airspeed the drag term drops out of the equation entirely. A **cruise
+  leg** pins drag against that efficiency — for those, add the distance flown (or
+  your average speed), the wind, and whether the leg was into it, downwind, or
+  across. Fly the hover test first.
+- **Conditions are prefilled.** Set the date and time and the planner looks up
+  the archived weather at your launch point and fills in the temperature, wind
+  and elevation. Correct anything you remember better. The archive runs about a
+  day behind, so a flight from an hour ago wants those typed in.
+- **What the fit does.** Each logged flight is solved back into the one number it
+  isolates, clamped to a sane range for the airframe class, and averaged with the
+  others. The status line under the drone selector shows the before and after —
+  `η 0.55 (catalog) → 0.49 (yours, 6 flights, ±0.02)`.
+- **The apply toggle is gated by how much you have logged.** One flight shows you
+  the fit but won't offer it. Three offer it. Five, spread across more than one
+  speed, and it's on by default — a fit from flights all flown at the same speed
+  can't tell efficiency and drag apart, so it stays opt-in no matter how many
+  there are. You can always switch it off, and the footnote under the plan says
+  whose numbers are in play.
+- **Model vs your flights** is the chart under the logbook: each logged flight as
+  predicted-versus-actual average power, with the ideal diagonal behind it, so a
+  model that is consistently 8% optimistic looks like exactly that. Toggle it to
+  residual-versus-speed to see whether the error grows with airspeed — that shape
+  is drag, and it's the honest limit of a single-`etaProp` model. Once a fit is
+  applied, the headline range grows a **band**: "8.4 mi (7.9–8.8, from your 11
+  flights)", the spread your own scatter supports rather than a single confident
+  number.
+
 ## Adding batteries
 
 Two ways:
@@ -230,6 +291,32 @@ Two ways:
   agree. Add a corresponding entry to `MANUFACTURERS` in
   [js/catalog/manufacturers.js](js/catalog/manufacturers.js) for a new
   built-in builder.
+
+While you fill the form in, a line under it works out the pack's **Wh/g** and
+what its current limit implies as a **C-rating**. Real packs run 0.08–0.33 Wh/g,
+so a pack claiming 0.4 is a capacity or a weight typo, and 300C continuous is a
+burst figure off the label. Both are soft warnings — the save still goes through.
+If your charger reports resistance **per cell**, open "Internal resistance" and
+switch the mode: enter one cell's mΩ and the pack figure is worked out as you
+type (15 mΩ × 6S ÷ 1P = 90 mΩ), which is what gets stored, because that is what
+the sag model reads. The temperature you measured at is recorded with the pack as
+provenance; the model applies its own temperature curve regardless.
+
+### Which pack is this?
+
+A pack in the list is a *model*. If you own three of them and one has been
+through 180 cycles, "Which pack is this?" under the battery selector is where you
+say which one is strapped on. Add each physical pack with a name, its cycle
+count, and its measured resistance if you have it; the plan then flies **that
+pack** — a measured 34 mΩ replaces the 22 mΩ on record for the model, and the
+footnote under the plan says so. Your selection is remembered per pack model, and
+switching back to "Catalog spec" undoes it.
+
+Cycle count is bookkeeping: it is how you know which pack to retire, and a high
+count earns a sentence suggesting you re-measure. **Nothing derates capacity by
+cycles** — that would be a curve nobody here has data to anchor, and inventing
+one is worse than showing you the number. Physical packs are personal bench data
+and are **never** part of a shared file.
 
 ## Sharing rigs, packs and flights
 

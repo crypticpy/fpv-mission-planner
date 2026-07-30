@@ -78,6 +78,20 @@
         <span>Run two identical packs in parallel</span>
       </label>
       <p id="parallel-summary" class="parallel-summary full-only" hidden></p>
+      <!-- Which physical copy of that pack model is on the rig (js/packinstances.js).
+           Catalog spec is the default and the whole fold stays shut until a pilot
+           has two of something; a selected pack's measured resistance replaces the
+           model's in the sag model, and the footnote under the plan says so. -->
+      <details id="pack-instance-fold" class="custom-batt full-only">
+        <summary>Which pack is this?</summary>
+        <label>Flying
+          <select id="sel-pack-instance"></select>
+        </label>
+        <p id="pack-instance-note" class="rail-note" role="status" hidden></p>
+        <!-- Generated from INSTANCE_FORM at boot (render/packinstances.js). -->
+        <form id="pack-instance-form"></form>
+        <div id="pack-instance-list"></div>
+      </details>
       <label>Camera payload
         <select id="sel-payload"></select>
       </label>
@@ -120,6 +134,11 @@
         <summary>Add a battery to compare</summary>
         <!-- Both forms are generated from their descriptors at boot (forms.js). -->
         <form id="custom-form"></form>
+        <!-- Derived cross-checks while you type (§6.1, render/batterychecks.js):
+             pack Wh/g and what the current limit implies as a C-rating. The
+             warning line is soft — a 0.4 Wh/g pack is a typo, and it still saves. -->
+        <p id="battery-checks" class="rail-note drone-checks"></p>
+        <p id="battery-warn" class="drone-warn" role="status" hidden></p>
         <div id="custom-list"></div>
       </details>
       <details class="custom-batt full-only">

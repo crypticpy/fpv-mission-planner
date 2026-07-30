@@ -3,7 +3,10 @@ import assert from 'node:assert/strict';
 
 import { DRONES } from '../js/catalog/drones.js';
 import { BATTERIES } from '../js/catalog/batteries.js';
-import { BATTERY_FIELDS, DRONE_FIELDS, validate, serialize, parse } from '../js/schema.js';
+import {
+  BATTERY_FIELDS, DRONE_FIELDS, CONFIDENCE_OPTIONS,
+  normalizeConfidence, validate, serialize, parse,
+} from '../js/schema.js';
 
 const moz7 = DRONES.find(d => d.id === 'moz7v2');
 const nav5000 = BATTERIES.find(b => b.id === 'nav5000');
@@ -171,6 +174,50 @@ test('parse is lenient: blanks become null and junk numbers become NaN', () => {
   assert.ok(Number.isNaN(r.maxContA));
   // and validate is the thing that judges it
   assert.deepEqual(validate(r, BATTERY_FIELDS).errors.map(e => e.key), ['maxContA']);
+});
+
+// §6.1's "per-cell IR at a stated temperature": the temperature rides on the
+// record as optional provenance, and adding it must not break the identity above
+// for a pack that doesn't state one.
+test('irTempC round-trips as an optional number', () => {
+  const withTemp = { ...minimalBattery, irTempC: 21.5 };
+  assert.deepEqual(parse(serialize(withTemp, BATTERY_FIELDS), BATTERY_FIELDS), withTemp);
+  assert.ok(validate(withTemp, BATTERY_FIELDS).ok);
+  // Absent stays absent — not spelled out as null, which is what would have
+  // broken the catalog identity pin.
+  assert.ok(!('irTempC' in serialize(minimalBattery, BATTERY_FIELDS)));
+  assert.ok(validate(minimalBattery, BATTERY_FIELDS).ok);
+  // Out of range is a soft-typo guard, not a silent accept.
+  assert.deepEqual(
+    validate({ ...minimalBattery, irTempC: 300 }, BATTERY_FIELDS).errors.map(e => e.key),
+    ['irTempC'],
+  );
+});
+
+/* ---------- the three confidence tiers (§6.1) ---------- */
+
+test('confidence is a three-tier field everywhere it appears', () => {
+  const tiers = CONFIDENCE_OPTIONS.map(o => o.value);
+  assert.deepEqual(tiers, ['estimated', 'datasheet', 'measured']);
+  const airframe = DRONE_FIELDS.find(f => f.key === 'confidence');
+  const prop = DRONE_FIELDS.find(f => f.key === 'propulsion').fields.find(f => f.key === 'confidence');
+  for (const f of [airframe, prop]) assert.deepEqual(f.options.map(o => o.value), tiers);
+  // 'datasheet' has to survive validate() on both, or an imported record that
+  // states it would be rejected by the gate share.js runs.
+  assert.ok(validate({ ...minimalDrone, confidence: 'datasheet' }, DRONE_FIELDS).ok);
+  assert.ok(validate(
+    { ...minimalDrone, propulsion: { ...minimalDrone.propulsion, confidence: 'datasheet' } },
+    DRONE_FIELDS,
+  ).ok);
+});
+
+test('normalizeConfidence keeps the three tiers and reads anything else as a guess', () => {
+  assert.equal(normalizeConfidence('measured'), 'measured');
+  assert.equal(normalizeConfidence('datasheet'), 'datasheet');
+  assert.equal(normalizeConfidence('estimated'), 'estimated');
+  for (const junk of [undefined, null, '', 'calibrated', 'MEASURED', 42]) {
+    assert.equal(normalizeConfidence(junk), 'estimated');
+  }
 });
 
 test('tags round-trip through a comma-separated string', () => {

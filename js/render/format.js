@@ -35,6 +35,17 @@ export const surfaceMph = (aloftMph) => aloftMph / 2;
 // about the one number they measured themselves.
 export const liftSource = (flight) => (flight?.estimated === false ? 'measured' : 'estimated');
 
+// §6.1's three tiers in the pilot's words. Used wherever a number's provenance
+// is shown: a datasheet figure is neither a guess nor something anyone measured,
+// and reading it as "estimated" undersells it while "measured" oversells it.
+const CONFIDENCE_WORDS = {
+  measured: 'measured',
+  datasheet: 'from the datasheet',
+  estimated: 'estimated',
+  unknown: 'unknown',
+};
+export const confidenceWord = (c) => CONFIDENCE_WORDS[c] || 'estimated';
+
 export function flightLabel(flight) {
   // No propulsion block on the airframe: the energy side of the plan is real,
   // the lift ceiling is simply unmodeled, and saying so beats inventing a verdict.

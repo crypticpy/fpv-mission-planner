@@ -46,7 +46,11 @@ const FIELD_UNIT = { etaProp: '', cdA: ' m²' };
 // until it says otherwise (§6.1's confidence field).
 function baseLabel(d) {
   if (!d.custom) return 'catalog';
-  return d.confidence === 'measured' ? 'as you entered it' : 'class default';
+  if (d.confidence === 'measured') return 'as you entered it';
+  // A datasheet figure the pilot typed in is still theirs, and still not their
+  // own flying — which is exactly what the fit on the right of the arrow is.
+  if (d.confidence === 'datasheet') return 'datasheet';
+  return 'class default';
 }
 
 function fitLine(field, base, part, d) {

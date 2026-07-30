@@ -22,6 +22,7 @@ import {
 import { state, battery, payload } from '../state.js';
 import { airDensity, discAreaM2, powerAtSpeed, dischargeSim, U } from '../physics.js';
 import { buildForm, readForm } from '../forms.js';
+import { CONFIDENCE_OPTIONS, normalizeConfidence } from '../schema.js';
 import { THRUST_FIELDS, mountThrustField, syncThrustField, resetThrustField } from './thrustfield.js';
 import { f0, f1, mmss, ratio } from './format.js';
 import { $, fillSelect } from './dom.js';
@@ -130,13 +131,11 @@ export const DRONE_FORM = [
       { key: 'cruise', label: 'Realistic cruise', type: 'number', unit: 'm/s', min: 1, max: 60, step: 0.1,
         id: 'drone-cruise', tag: CLASS_TAG },
     ] },
-    // Same vocabulary the catalog's propulsion blocks use, for the same reason:
-    // anything not off a stand or a logbook is estimated, and says so.
+    // Same vocabulary the catalog's propulsion blocks use (schema.js's three
+    // tiers), for the same reason: the UI says which of the three a rig's numbers
+    // are, wherever they are shown.
     { key: 'confidence', label: 'Where these numbers came from', type: 'select', id: 'drone-confidence',
-      options: [
-        { value: 'estimated', label: 'Estimated — class defaults or a guess' },
-        { value: 'measured', label: 'Measured — thrust stand or logged flights' },
-      ] },
+      options: CONFIDENCE_OPTIONS },
     // The escape hatch for the lift ceiling — see render/thrustfield.js.
     ...THRUST_FIELDS,
   ] } },
@@ -220,7 +219,7 @@ function applyClone(id) {
   }
   setValue('dryMass', src.dryMassG);
   setValue('maxThrustGPerRotor', src.maxThrustGPerRotor ?? '');
-  setValue('confidence', src.confidence || src.propulsion?.confidence || 'estimated');
+  setValue('confidence', normalizeConfidence(src.confidence || src.propulsion?.confidence));
   setValue('name', '');
   ctrl('name')?.focus();
 }
@@ -260,7 +259,7 @@ export function recordFromForm(v) {
   const s = num(v.s, nominalS(cls));
   const connector = (v.connector || '').trim() || classConnector(cls);
   const propDiaIn = num(v.propDia, cls.propDiaIn);
-  const confidence = v.confidence === 'measured' ? 'measured' : 'estimated';
+  const confidence = normalizeConfidence(v.confidence);
   const rec = {
     id: `custom-drone-${slug(name) || 'unnamed'}`,
     name,
