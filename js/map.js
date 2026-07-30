@@ -7,10 +7,10 @@ import * as L from '../vendor/leaflet/leaflet-src.esm.js';
 import { planMission } from './physics.js';
 import { loadMapState, saveMapState } from './store.js';
 import { lineChart, legend } from './charts.js';
+import { adaptiveHalfSweep, radiusAtAlpha, fullCircle, polarAreaKm2 } from './sweep.js';
 
 const AUSTIN = { lat: 30.2672, lng: -97.7431 };
 const EARTH_R_KM = 6371;
-const SWEEP_STEP_DEG = 5; // half-sweep sample spacing, relative to the wind axis
 
 const $ = id => document.getElementById(id);
 
@@ -218,54 +218,32 @@ function destination(lat, lng, bearingDeg, distKm) {
 
 /* ---------- footprint sweep ---------- */
 
-// Half-sweep 0…180° off the wind axis; the other half is its mirror image
-// (the wind decomposition depends only on cos and |sin| of the offset).
+// Half-sweep 0…180° off the wind axis, refined across the collapse cliff by
+// sweep.js; the other half is its mirror image (the wind decomposition depends
+// only on cos and |sin| of the offset).
 function sweep(cruiseMode, cache) {
   const base = deps.missionInputs();
   const windFrom = base.env.windFromDeg;
-  const radii = [];
-  for (let a = 0; a <= 180; a += SWEEP_STEP_DEG) {
-    radii.push(planMission({
-      ...base, cruiseMode, courseDeg: windFrom + a, lite: true, _pCache: cache,
-    }).radiusKm);
-  }
-  return radii;
+  return adaptiveHalfSweep((alpha) => planMission({
+    ...base, cruiseMode, courseDeg: windFrom + alpha, lite: true, _pCache: cache,
+  }).radiusKm);
 }
 
-// Expand a half-sweep to per-degree radii for all 360 absolute courses.
-function fullCircle(halfRadii, windFrom) {
-  const out = new Array(360);
-  for (let c = 0; c < 360; c++) {
-    let off = (c - windFrom) % 360;
-    if (off < 0) off += 360;
-    const alpha = off > 180 ? 360 - off : off;
-    const i = alpha / SWEEP_STEP_DEG;
-    const lo = Math.floor(i);
-    const hi = Math.min(lo + 1, halfRadii.length - 1);
-    const t = i - lo;
-    out[c] = halfRadii[lo] * (1 - t) + halfRadii[hi] * t;
-  }
-  return out;
-}
+// Last render's sweep cost, for profiling from the console: the base 37 rays per
+// sweep plus whatever refinement bought, and the wall time both sweeps took.
+let lastSweep = { baseRays: 0, extraRays: 0, ms: 0 };
+export function sweepStats() { return { ...lastSweep }; }
 
-function footprintLatLngs(radiiByCourse) {
+function footprintLatLngs(courses, radii) {
   const pts = [];
-  for (let c = 0; c < 360; c++) {
-    const r = radiiByCourse[c];
-    const p = r > 0 ? destination(launch.lat, launch.lng, c, r) : [launch.lat, launch.lng];
+  for (let i = 0; i < courses.length; i++) {
+    const r = radii[i];
+    const p = r > 0 ? destination(launch.lat, launch.lng, courses[i], r) : [launch.lat, launch.lng];
     const prev = pts[pts.length - 1];
     if (prev && Math.abs(prev[0] - p[0]) < 1e-9 && Math.abs(prev[1] - p[1]) < 1e-9) continue;
     pts.push(p);
   }
   return pts;
-}
-
-// Polar shoelace: ½ Σ rᵢ·rᵢ₊₁·sin Δθ — exact for the sampled polygon, and
-// zero-radius wedges contribute nothing (right answer for a pinched fan).
-function footprintAreaKm2(radiiByCourse) {
-  let s = 0;
-  for (let c = 0; c < 360; c++) s += radiiByCourse[c] * radiiByCourse[(c + 1) % 360];
-  return 0.5 * s * Math.sin(Math.PI / 180);
 }
 
 /* ---------- wind control ---------- */
@@ -313,10 +291,18 @@ export function renderMapView(rPlan) {
   const windFrom = base.env.windFromDeg;
 
   const cache = new Map(); // one powerAtSpeed memo shared across both sweeps
+  const t0 = performance.now();
   const halfReal = sweep(base.cruiseMode, cache);
   const halfBest = sweep('range', cache);
-  const realByCourse = fullCircle(halfReal, windFrom);
-  const bestByCourse = fullCircle(halfBest, windFrom);
+  const real = fullCircle(halfReal, windFrom);
+  const best = fullCircle(halfBest, windFrom);
+  lastSweep = {
+    baseRays: 2 * (1 + 180 / 5),
+    extraRays: halfReal.extraRays + halfBest.extraRays,
+    ms: performance.now() - t0,
+  };
+  const realByCourse = real.byCourse;
+  const bestByCourse = best.byCourse;
 
   flow = { toRad: (windFrom + 180) * Math.PI / 180, speedMs: base.env.windAvgMs };
 
@@ -333,13 +319,13 @@ export function renderMapView(rPlan) {
   } else {
     note(anyReal ? null
       : 'No reach at the planned cruise in this wind — the dashed ring is what best-range speed could still manage.');
-    footBest = L.polygon(footprintLatLngs(bestByCourse), {
+    footBest = L.polygon(footprintLatLngs(best.courses, best.radii), {
       interactive: false, color: 'var(--ring-best)', weight: 3,
       dashArray: '9 7', fill: false, opacity: 1,
     }).addTo(map);
     if (anyReal) {
       // Theme-aware casing keeps the planned ring readable over any base layer.
-      const realPts = footprintLatLngs(realByCourse);
+      const realPts = footprintLatLngs(real.courses, real.radii);
       footCase = L.polygon(realPts, {
         interactive: false, color: 'var(--map-casing)', weight: 7, opacity: 0.62, fill: false,
       }).addTo(map);
@@ -368,11 +354,11 @@ export function renderMapView(rPlan) {
       setTile(id, '—', 'unavailable · insufficient lift');
     }
   } else {
-    setTile('tile-upwind', fmtDist(halfReal[0]), `course ${upC}° — into the wind`);
-    setTile('tile-downwind', fmtDist(halfReal[halfReal.length - 1]), `course ${downC}° — wind behind`);
-    setTile('tile-crosswind', fmtDist(halfReal[90 / SWEEP_STEP_DEG]),
+    setTile('tile-upwind', fmtDist(radiusAtAlpha(halfReal, 0)), `course ${upC}° — into the wind`);
+    setTile('tile-downwind', fmtDist(radiusAtAlpha(halfReal, 180)), `course ${downC}° — wind behind`);
+    setTile('tile-crosswind', fmtDist(radiusAtAlpha(halfReal, 90)),
       `course ${(upC + 90) % 360}° / ${(upC + 270) % 360}°`);
-    setTile('tile-area', `${u.areaFromKm2(footprintAreaKm2(realByCourse)).toFixed(1)} ${u.areaUnit}`,
+    setTile('tile-area', `${u.areaFromKm2(polarAreaKm2(real.courses, real.radii)).toFixed(1)} ${u.areaUnit}`,
       'planned-cruise envelope');
     setTile('tile-aloft', `${rPlan.timeMin.toFixed(1)} min`, 'dashboard planning case');
   }

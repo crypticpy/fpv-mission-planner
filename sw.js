@@ -34,6 +34,7 @@ const PRECACHE_URLS = [
   'js/shell.js',
   'js/state.js',
   'js/store.js',
+  'js/sweep.js',
   'js/themes.js',
   'js/thrust.js',
   'js/units.js',
