@@ -44,11 +44,30 @@
     "src/infrastructure/persistence/memory-store.js",
     // The mission bridge takes its seed and its launch-restored callback from the
     // caller rather than importing src/state.js, which is exactly what keeps it
-    // checkable here. Its companions cannot join yet: src/analysis-host.js,
-    // src/mission-commands.js and src/render/missions.js all import the rail and
-    // the physics module, and an entry here pulls its imports into the program —
-    // adding one drags those unannotated bodies in with it. They join when
-    // src/domain/physics.js and src/state.js are typed (M3).
-    "src/mission-bridge.js"
+    // checkable here.
+    "src/mission-bridge.js",
+    // Self-contained (zero imports), so typing its own body was enough — no
+    // dependency stood between it and the ratchet.
+    "src/domain/physics.js",
+    // src/state.js is fully typed too (M3), but an include entry pulls its whole
+    // import graph into the program, and that graph still isn't clean: it reaches
+    // src/data.js, src/registry.js, src/flightlog.js, src/packinstances.js,
+    // src/windprofile.js, src/terrain.js, src/rf.js, src/calibrate.js and
+    // src/catalog/classes.js (214 implicit-any/null errors between them, none of
+    // it state.js's own). It joins once those are typed, not before.
+    //
+    // src/analysis-host.js and src/mission-commands.js were named here as
+    // state.js's companions, waiting on the same M3 typing — that's only half
+    // true. Once state.js itself is clean, both still reach further unannotated
+    // modules of their own: analysis-host.js through src/domain/route.js,
+    // src/terrain.js, src/render/dashboard.js and src/render/terrain.js;
+    // mission-commands.js through src/weather.js, src/map.js and
+    // src/render/controls.js. Typing state.js does not clear either path.
+    //
+    // src/render/missions.js was grouped with them on the same assumption, but it
+    // doesn't import src/state.js or src/domain/physics.js at all — its only
+    // imports are this mission-bridge.js entry (already clean) and
+    // src/render/dom.js (11 errors of its own). It has never been blocked by the
+    // physics/state work; it is waiting on dom.js alone.
   ]
 }

@@ -16,6 +16,51 @@ import { planElevM } from './terrain.js';
 import { missionLaunch } from './mission-bridge.js';
 import { LINK_BAND_DEFAULT, isLinkBand } from './rf.js';
 
+/**
+ * The rail's live weather + terrain block, in whatever units the imperial
+ * dashboard controls edit — state.js converts to SI only when it hands values
+ * to planMission() (see missionInputs()).
+ * @typedef {object} RailEnv
+ * @property {number} elevFt
+ * @property {number} tempF
+ * @property {number} rhPct
+ * @property {number} windMph
+ * @property {number} gustMph
+ * @property {number} windFromDeg
+ * @property {'headOut'|'tailOut'|'cross'} windMode
+ */
+
+/**
+ * The control rail's whole state — every field a render module reads or a
+ * control handler writes, in one shape. Written down explicitly because
+ * several fields (packTempF chief among them) are only ever assigned one
+ * literal value in the initializer below; without this, TS would infer each
+ * property's type from that single value rather than from the full range
+ * restoreSession() and the controls actually assign it.
+ * @typedef {object} RailState
+ * @property {'dash'|'map'} view
+ * @property {'imperial'|'metric'} units
+ * @property {string} droneId
+ * @property {string} manufacturerId
+ * @property {string} batteryId
+ * @property {boolean} parallelPacks
+ * @property {string} payloadId
+ * @property {number} extraG
+ * @property {string} weatherId
+ * @property {string} scenarioId
+ * @property {RailEnv} env
+ * @property {number} landFloorPct
+ * @property {number} gustFactorPct
+ * @property {number|null} packTempF
+ * @property {number} cruiseAltM
+ * @property {string} linkBand
+ * @property {import('./domain/physics.js').CruiseMode} cruiseMode
+ * @property {number} manualMph
+ * @property {'radius'|'time'} speedMetric
+ * @property {'full'|'beginner'} detail
+ */
+
+/** @type {RailState} */
 export const state = {
   view: 'dash', // 'dash' | 'map'
   units: 'imperial',
@@ -87,7 +132,10 @@ export const packPreheatSeedF = () => Math.max(70, Math.round(state.env.tempF));
  */
 export function packTemp() {
   const overridden = state.packTempF != null;
-  const tempF = overridden ? state.packTempF : state.env.tempF;
+  // `overridden` already is this check — the cast just states for the
+  // type-checker what the boolean already established, since a separately
+  // named condition doesn't narrow the field it was computed from.
+  const tempF = overridden ? /** @type {number} */ (state.packTempF) : state.env.tempF;
   return { overridden, tempF, tempC: U.fToC(tempF) };
 }
 
@@ -113,6 +161,12 @@ export function restoreSession() {
   const s = storeGet('session', null);
   if (!s || typeof s !== 'object' || !s.env || typeof s.env !== 'object') return null;
   const env = s.env;
+  /**
+   * @param {any} v
+   * @param {number} lo
+   * @param {number} hi
+   * @returns {boolean}
+   */
   const num = (v, lo, hi) => Number.isFinite(v) && v >= lo && v <= hi;
   // Phase 4 item 2 renamed this field as its meaning narrowed. A blob written
   // before the change carries `reservePct`, which used to withhold that share of
@@ -243,6 +297,9 @@ export function catalogBattery() {
 export function battery() {
   return instanceBattery(catalogBattery());
 }
+/**
+ * @param {string} id
+ */
 export function manufacturer(id) {
   return allManufacturers().find(m => m.id === id);
 }
@@ -281,6 +338,8 @@ export function loadoutBattery(batt = battery()) {
  * that is what the plan runs on. The rail's own field is the fallback for the
  * moments the document cannot answer: the boot render before the repository has
  * opened, and a mission whose launch elevation has never been established.
+ * @param {RailEnv} env
+ * @returns {number}
  */
 function launchElevFt(env) {
   const launch = missionLaunch();

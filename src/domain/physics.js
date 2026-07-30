@@ -1,11 +1,131 @@
 // physics.js — atmosphere, rotor power, battery, and mission models.
 // Units are SI internally (kg, m, s, W, Wh); UI layers convert for display.
 
+/* ---------------- Shared vocabulary ----------------
+ *
+ * These typedefs describe the shapes this module reads and returns
+ * structurally — a catalog record, a pilot-authored rig, or a test fixture all
+ * plan the same way as long as the fields line up. Nothing here is a nominal
+ * class; it is the vocabulary state.js and the render layer already share with
+ * this module by convention, written down once so `strict` can check it.
+ */
+
+/**
+ * A propulsion chain's electrical ceilings, when the catalog records one.
+ * Absent (`drone.propulsion` undefined) for a pilot-authored rig with no
+ * motor/ESC limits on file — see liftEnvelope()'s bench-table fallback.
+ * @typedef {object} PropulsionSpec
+ * @property {number} motorMaxW
+ * @property {number} motorMaxA
+ * @property {number} escMaxA
+ * @property {string} [confidence]
+ * @property {string} [sourceLabel]
+ * @property {string} [sourceUrl]
+ */
+
+/**
+ * An airframe as the catalog (or a pilot-authored rig) describes it.
+ * @typedef {object} DroneConfig
+ * @property {number} dryMassG
+ * @property {number} propDiaIn
+ * @property {number} numRotors
+ * @property {number} cdA
+ * @property {number} etaProp
+ * @property {number} avionicsW
+ * @property {number} maxSpeedMs
+ * @property {number} [maxThrustGPerRotor] a pasted bench figure — see benchThrustN()
+ * @property {PropulsionSpec} [propulsion] absent for a rig with no electrical limits on file
+ */
+
+/**
+ * Which cell chemistry a pack uses — the three keys CHEMISTRY answers for.
+ * @typedef {'liion'|'lihv'|'lipo'} Chem
+ */
+
+/**
+ * A battery pack (or an instance/parallel-pack overlay of one) as planMission
+ * reads it. `packCount`, `harnessMassG`, `extraCdA` and `baseBatteryId` are the
+ * fields parallelBattery() adds; a single pack simply lacks them.
+ * @typedef {object} BatteryConfig
+ * @property {string} id
+ * @property {string} [name]
+ * @property {string} [short]
+ * @property {Chem} chem
+ * @property {number} s          series cell count
+ * @property {number} [p]        parallel cell count within one pack
+ * @property {number} capAh
+ * @property {number} massG
+ * @property {number} irPackMilliOhm
+ * @property {number|null} [maxContA]
+ * @property {number|null} [priceUsd]
+ * @property {string} [config]
+ * @property {number} [packCount]     identical packs wired in parallel
+ * @property {number} [harnessMassG]  parallel-mode mounting allowance
+ * @property {number} [extraCdA]      parallel-mode extra frontal area
+ * @property {string} [baseBatteryId]
+ */
+
+/** @typedef {{ head: number, cross: number }} WindVec */
+
+/** @typedef {'real'|'range'|'manual'} CruiseMode */
+
+/**
+ * The weather + terrain conditions a mission plans against — SI throughout,
+ * and read at the turnaround rather than the launch point where that matters
+ * (see state.js's missionInputs(), which builds this).
+ * @typedef {object} EnvConditions
+ * @property {number} elevM
+ * @property {number} tempC
+ * @property {number} rhPct
+ * @property {number} windAvgMs
+ * @property {number} windGustMs
+ * @property {'headOut'|'tailOut'|'cross'} windMode
+ * @property {number} windFromDeg
+ */
+
+/**
+ * The get-home reserve policy: `false` to size the mission with no reserve at
+ * all, or an override of either half of the default. See planMission()'s own
+ * doc comment on `getHome` for what each half means.
+ * @typedef {{ windMs?: number, huntLandMin?: number }|false} GetHomePolicy
+ */
+
+/**
+ * The inputs one planMission() call takes, assembled from the rail (see
+ * state.js's missionInputs()). Field-by-field meaning is documented on
+ * planMission() itself.
+ * @typedef {object} PlanMissionInputs
+ * @property {DroneConfig} drone
+ * @property {BatteryConfig|null|undefined} battery
+ * @property {number} payloadG
+ * @property {number} [extraG]
+ * @property {number} [payloadCdA]
+ * @property {EnvConditions} env
+ * @property {number} [packTempC]
+ * @property {number} [landFloorPct]
+ * @property {number} [gustFactor]
+ * @property {GetHomePolicy} [getHome]
+ * @property {CruiseMode} [cruiseMode]
+ * @property {number} [realVMs]
+ * @property {number} [manualVMs]
+ * @property {number} [overheadF]
+ * @property {number} [courseDeg]
+ * @property {boolean} [lite]
+ * @property {Map<number, number>} [_pCache]
+ */
+
 export const G = 9.80665;
 
 /* ---------------- Atmosphere ---------------- */
 
-// Barometric pressure (ISA troposphere) + Magnus vapor pressure → humid-air density.
+/**
+ * Barometric pressure (ISA troposphere) + Magnus vapor pressure → humid-air
+ * density.
+ * @param {number} elevM
+ * @param {number} tempC
+ * @param {number} rhPct
+ * @returns {{ rho: number, pressPa: number, densityAltM: number }}
+ */
 export function airDensity(elevM, tempC, rhPct) {
   const T = tempC + 273.15;
   const p = 101325 * Math.pow(1 - 2.25577e-5 * elevM, 5.25588);
@@ -18,6 +138,10 @@ export function airDensity(elevM, tempC, rhPct) {
 
 /* ---------------- Rotor / airframe power ---------------- */
 
+/**
+ * @param {DroneConfig} drone
+ * @returns {number}
+ */
 export function discAreaM2(drone) {
   const r = (drone.propDiaIn * 0.0254) / 2;
   return drone.numRotors * Math.PI * r * r;
@@ -77,6 +201,12 @@ export const PROFILE_MU2 = 0.023;
  *
  * Returns `{ vi, vHover }`; `vHover` (√(T/2ρA)) is the profile term's velocity
  * scale, handed back rather than recomputed.
+ * @param {number} thrustN
+ * @param {number} rho
+ * @param {number} areaM2
+ * @param {number} vEdgeMs
+ * @param {number} vPerpMs
+ * @returns {{ vi: number, vHover: number }}
  */
 function inducedVelocity(thrustN, rho, areaM2, vEdgeMs, vPerpMs) {
   const vh2 = thrustN / (2 * rho * areaM2);
@@ -101,6 +231,9 @@ function inducedVelocity(thrustN, rho, areaM2, vEdgeMs, vPerpMs) {
  *   induced  T·vi          the momentum-theory cost of holding the tilted thrust
  *   parasite D·v           which is also T·v·sinθ — the propulsive half
  *   profile  PROFILE_MU2 · T·(v·cosθ)²/v_h    blade drag's growth with speed
+ * @param {{ massKg: number, rho: number, areaM2: number, cdA: number, etaProp: number, avionicsW: number }} cfg
+ * @param {number} vMs
+ * @returns {number}
  */
 export function powerAtSpeed({ massKg, rho, areaM2, cdA, etaProp, avionicsW }, vMs) {
   const W = massKg * G;
@@ -115,6 +248,12 @@ export function powerAtSpeed({ massKg, rho, areaM2, cdA, etaProp, avionicsW }, v
   return pIdeal / etaProp + avionicsW;
 }
 
+/**
+ * @param {{ massKg: number, rho: number, areaM2: number, cdA: number, etaProp: number, avionicsW: number }} cfg
+ * @param {number} vMaxMs
+ * @param {number} [step]
+ * @returns {{ v: number, p: number }[]}
+ */
 export function powerCurve(cfg, vMaxMs, step = 0.25) {
   const pts = [];
   for (let v = 0; v <= vMaxMs + 1e-9; v += step) {
@@ -123,9 +262,15 @@ export function powerCurve(cfg, vMaxMs, step = 0.25) {
   return pts;
 }
 
-// Create the electrically equivalent pack for identical batteries connected in
-// parallel. Voltage/series count stay unchanged; capacity and current capability
-// add, while identical pack resistances divide by the pack count.
+/**
+ * Create the electrically equivalent pack for identical batteries connected in
+ * parallel. Voltage/series count stay unchanged; capacity and current capability
+ * add, while identical pack resistances divide by the pack count.
+ * @param {BatteryConfig} batt
+ * @param {number} [count]
+ * @param {{ harnessMassG?: number, extraCdA?: number }} [opts]
+ * @returns {BatteryConfig}
+ */
 export function parallelBattery(batt, count = 2, {
   harnessMassG = 0,
   extraCdA = 0,
@@ -151,27 +296,50 @@ export function parallelBattery(batt, count = 2, {
   };
 }
 
-// What a pasted bench table says the rig can pull, in newtons — total, from the
-// per-motor peak the pilot pasted (thrust.js parses it; §6.1 calls it the escape
-// hatch for the model's shakiest inversion).
-//
-// Deliberately not capped by the continuous electrical ceiling: a published
-// thrust table is a bench figure at a fixed voltage, and clamping it to our
-// current chain would re-import the guess it exists to replace. It is the
-// pilot's own number, and it wins.
+/**
+ * What a pasted bench table says the rig can pull, in newtons — total, from the
+ * per-motor peak the pilot pasted (thrust.js parses it; §6.1 calls it the escape
+ * hatch for the model's shakiest inversion).
+ *
+ * Deliberately not capped by the continuous electrical ceiling: a published
+ * thrust table is a bench figure at a fixed voltage, and clamping it to our
+ * current chain would re-import the guess it exists to replace. It is the
+ * pilot's own number, and it wins.
+ * @param {DroneConfig} drone
+ * @returns {number|null}
+ */
 function benchThrustN(drone) {
   const perRotor = drone.maxThrustGPerRotor;
-  if (!(perRotor > 0)) return null;
+  if (!(perRotor && perRotor > 0)) return null;
   return (perRotor * drone.numRotors / 1000) * G;
 }
 
-// A thrust figure → the go/no-go verdict, whatever the figure came from. 1.3:1
-// is the margin below which there is nothing left to steer with, and 2:1 is the
-// line under which a gust is a problem.
+/**
+ * The thrust ceiling's viability verdict — same shape whichever source produced
+ * the thrust figure (catalog inversion or a pasted bench table).
+ * @typedef {object} ThrustVerdict
+ * @property {'viable'|'no_lift'|'no_control_margin'|'marginal'} code
+ * @property {boolean} viable
+ * @property {number} maxThrustN
+ * @property {number} maxThrustG
+ * @property {number} maxHoverMassG
+ * @property {number} payloadMarginG
+ * @property {number} thrustToWeight
+ */
+
+/**
+ * A thrust figure → the go/no-go verdict, whatever the figure came from. 1.3:1
+ * is the margin below which there is nothing left to steer with, and 2:1 is the
+ * line under which a gust is a problem.
+ * @param {number} maxThrustN
+ * @param {number} massKg
+ * @returns {ThrustVerdict}
+ */
 function thrustVerdict(maxThrustN, massKg) {
   const maxThrustG = maxThrustN / G * 1000;
   const auwG = massKg * 1000;
   const thrustToWeight = auwG > 0 ? maxThrustG / auwG : 0;
+  /** @type {ThrustVerdict['code']} */
   let code = 'viable';
   if (thrustToWeight <= 1) code = 'no_lift';
   else if (thrustToWeight < 1.3) code = 'no_control_margin';
@@ -187,16 +355,42 @@ function thrustVerdict(maxThrustN, massKg) {
   };
 }
 
-// Continuous static lift ceiling from the lowest electrical limit in the
-// battery → ESC → motor chain. No exact motor/prop thrust curves are published
-// for these aircraft, so ideal hover momentum theory is inverted through the
-// same calibrated etaProp used by the mission model. The result is deliberately
-// exposed as an estimate with its limiting component — unless the pilot pasted a
-// bench table, which replaces the inversion with a measurement.
-//
-// Two temperatures reach this function and they are not the same one: `rho` was
-// computed from the air, while `tempC` is the *pack's* temperature and is only
-// read by the chemistry's internal-resistance factor below (Phase 4 item 3).
+/**
+ * The continuous-lift verdict liftEnvelope() answers: a ThrustVerdict (or the
+ * 'unknown' placeholder for a rig with neither an electrical chain nor a pasted
+ * bench figure on record) plus how the figure was reached.
+ * @typedef {object} LiftEnvelopeResult
+ * @property {'viable'|'no_lift'|'no_control_margin'|'marginal'|'unknown'} code
+ * @property {boolean} viable
+ * @property {number} maxThrustN
+ * @property {number} maxThrustG
+ * @property {number} maxHoverMassG
+ * @property {number} payloadMarginG
+ * @property {number} thrustToWeight
+ * @property {boolean} estimated
+ * @property {string} confidence
+ * @property {number} maxElectricalW
+ * @property {string} limitingComponent
+ * @property {number} [maxCurrentA]
+ * @property {number} [vLoad]
+ * @property {string} [sourceLabel]
+ * @property {string} [sourceUrl]
+ */
+
+/**
+ * Continuous static lift ceiling from the lowest electrical limit in the
+ * battery → ESC → motor chain. No exact motor/prop thrust curves are published
+ * for these aircraft, so ideal hover momentum theory is inverted through the
+ * same calibrated etaProp used by the mission model. The result is deliberately
+ * exposed as an estimate with its limiting component — unless the pilot pasted a
+ * bench table, which replaces the inversion with a measurement.
+ *
+ * Two temperatures reach this function and they are not the same one: `rho` was
+ * computed from the air, while `tempC` is the *pack's* temperature and is only
+ * read by the chemistry's internal-resistance factor below (Phase 4 item 3).
+ * @param {{ drone: DroneConfig, battery: BatteryConfig, rho: number, areaM2: number, tempC: number, massKg: number }} inp
+ * @returns {LiftEnvelopeResult}
+ */
 export function liftEnvelope({ drone, battery, rho, areaM2, tempC, massKg }) {
   const prop = drone.propulsion;
   const bench = benchThrustN(drone);
@@ -267,6 +461,18 @@ export function liftEnvelope({ drone, battery, rho, areaM2, tempC, massKg }) {
 /* ---------------- Battery chemistry ---------------- */
 
 /**
+ * One chemistry's OCV, capacity and internal-resistance tables.
+ * @typedef {object} ChemistryProfile
+ * @property {string} label
+ * @property {number} vFull
+ * @property {number} vNom
+ * @property {number} cutoffLoad
+ * @property {[number, number][]} ocv       state-of-charge % → V/cell
+ * @property {[number, number][]} capTemp   °C → capacity factor
+ * @property {[number, number][]} irTemp    °C → internal-resistance factor
+ */
+
+/**
  * OCV per cell vs state-of-charge (%), capacity & internal-resistance factors vs
  * temperature — the *pack's* temperature, not the air's, which is why
  * planMission takes the two apart (Phase 4 item 3).
@@ -289,6 +495,7 @@ export function liftEnvelope({ drone, battery, rho, areaM2, tempC, massKg }) {
  * pack — numbers nobody can type. So the tables stay as they are, the pack/air
  * split lets a pilot say the pack started warm, and the cold warning and the
  * README both say out loud which way each error runs.
+ * @type {Record<Chem, ChemistryProfile>}
  */
 export const CHEMISTRY = {
   liion: {
@@ -324,11 +531,19 @@ export const CHEMISTRY = {
  * the two thresholds the mission warnings and the verdict card have always used,
  * in one place now that both of them read the pack's temperature instead of the
  * air's.
+ * @param {Chem} chem
+ * @param {number} packTempC
+ * @returns {boolean}
  */
 export function isColdPack(chem, packTempC) {
   return packTempC <= (chem === 'liion' ? 0 : 5);
 }
 
+/**
+ * @param {[number, number][]} table
+ * @param {number} x
+ * @returns {number}
+ */
 export function interp(table, x) {
   if (x <= table[0][0]) return table[0][1];
   const last = table[table.length - 1];
@@ -343,20 +558,43 @@ export function interp(table, x) {
   return last[1];
 }
 
-// Solve pack current for a constant-power draw against OCV and internal resistance.
-// P = I * (Vocv - I*R)  →  I = (Vocv - sqrt(Vocv² - 4RP)) / (2R)
+/**
+ * Solve pack current for a constant-power draw against OCV and internal resistance.
+ * P = I * (Vocv - I*R)  →  I = (Vocv - sqrt(Vocv² - 4RP)) / (2R)
+ * @param {number} pW
+ * @param {number} vOcv
+ * @param {number} rOhm
+ * @returns {number|null} null when the pack cannot deliver this power
+ */
 function currentForPower(pW, vOcv, rOhm) {
   const disc = vOcv * vOcv - 4 * rOhm * pW;
   if (disc <= 0) return null; // pack cannot deliver this power
   return (vOcv - Math.sqrt(disc)) / (2 * rOhm);
 }
 
-// The one discharge integration: walk state of charge down in 0.5% steps at
-// constant electrical power, stopping at the load cutoff (sag-limited) or at
-// empty. `onStep(stepWh, socAfter, socBefore)` sees every accepted step and may
-// return true to stop the walk early. dischargeSim and dischargeToSoc are two
-// readings of this same walk — energy out, and where the charge sits after a
-// given number of minutes.
+/**
+ * @typedef {object} DischargeWalkResult
+ * @property {ChemistryProfile} chem
+ * @property {number} capF
+ * @property {number} rOhm
+ * @property {number} deliveredWh
+ * @property {boolean} sagLimited
+ * @property {number} stopSoc
+ */
+
+/**
+ * The one discharge integration: walk state of charge down in 0.5% steps at
+ * constant electrical power, stopping at the load cutoff (sag-limited) or at
+ * empty. `onStep(stepWh, socAfter, socBefore)` sees every accepted step and may
+ * return true to stop the walk early. dischargeSim and dischargeToSoc are two
+ * readings of this same walk — energy out, and where the charge sits after a
+ * given number of minutes.
+ * @param {BatteryConfig} batt
+ * @param {number} tempC
+ * @param {number} pW
+ * @param {(stepWh: number, socAfter: number, socBefore: number) => boolean|void} [onStep]
+ * @returns {DischargeWalkResult}
+ */
 function walkDischarge(batt, tempC, pW, onStep) {
   const chem = CHEMISTRY[batt.chem];
   const capF = interp(chem.capTemp, tempC);
@@ -379,8 +617,31 @@ function walkDischarge(batt, tempC, pW, onStep) {
   return { chem, capF, rOhm, deliveredWh: wh, sagLimited, stopSoc };
 }
 
-// Discharge the pack at constant electrical power. Returns delivered energy (Wh),
-// whether the cutoff was sag-limited, and a soc→(vLoad, I) sampler for timelines.
+/**
+ * @typedef {object} DischargeState
+ * @property {number} vOcv
+ * @property {number} I
+ * @property {number} vLoad
+ */
+
+/**
+ * @typedef {object} DischargeSimResult
+ * @property {number} deliveredWh
+ * @property {boolean} sagLimited
+ * @property {number} stopSoc
+ * @property {number} capF
+ * @property {number} rOhm
+ * @property {(soc: number) => DischargeState} stateAt
+ */
+
+/**
+ * Discharge the pack at constant electrical power. Returns delivered energy (Wh),
+ * whether the cutoff was sag-limited, and a soc→(vLoad, I) sampler for timelines.
+ * @param {BatteryConfig} batt
+ * @param {number} tempC
+ * @param {number} pW
+ * @returns {DischargeSimResult}
+ */
 export function dischargeSim(batt, tempC, pW) {
   const { chem, capF, rOhm, deliveredWh, sagLimited, stopSoc } = walkDischarge(batt, tempC, pW);
   return {
@@ -411,6 +672,11 @@ export function dischargeSim(batt, tempC, pW) {
  * i.e. exactly dischargeSim's `stopSoc`). Note that this makes the function
  * non-monotone in power past that point: a solver must bracket below it (see
  * calibrate.js's avgPowerFromFlight).
+ * @param {BatteryConfig} batt
+ * @param {number} tempC
+ * @param {number} pW
+ * @param {number} minutes
+ * @returns {number}
  */
 export function dischargeToSoc(batt, tempC, pW, minutes) {
   if (!(pW > 0) || !(minutes > 0)) return 1;
@@ -463,44 +729,70 @@ export const GUST_FACTOR_DEFAULT = 0.35;
  */
 export const HUNT_LAND_HOVER_MIN = 1.5;
 
-// Ground speed holding a course line against a signed along-track headwind and
-// a crosswind component. The crab that cancels the cross component spends
-// airspeed; a cross component at or beyond airspeed makes the course unholdable
-// (being blown downwind is not progress toward the waypoint — return 0, never
-// the drift speed).
+/**
+ * Ground speed holding a course line against a signed along-track headwind and
+ * a crosswind component. The crab that cancels the cross component spends
+ * airspeed; a cross component at or beyond airspeed makes the course unholdable
+ * (being blown downwind is not progress toward the waypoint — return 0, never
+ * the drift speed).
+ * @param {number} vAir
+ * @param {number} headMs
+ * @param {number} crossMs
+ * @returns {number}
+ */
 function groundSpeedVec(vAir, headMs, crossMs) {
   if (Math.abs(crossMs) >= vAir) return 0;
   const along = crossMs === 0 ? vAir : Math.sqrt(vAir * vAir - crossMs * crossMs);
   return Math.max(0, along - headMs);
 }
 
-// Per-leg wind components — [out, back] — from a discrete relative mode…
+/**
+ * Per-leg wind components — [out, back] — from a discrete relative mode…
+ * @param {string} mode
+ * @param {number} windMs
+ * @returns {[WindVec, WindVec]}
+ */
 function legVecsFromMode(mode, windMs) {
   if (mode === 'tailOut') return [{ head: -windMs, cross: 0 }, { head: windMs, cross: 0 }];
   if (mode === 'cross') return [{ head: 0, cross: windMs }, { head: 0, cross: windMs }];
   return [{ head: windMs, cross: 0 }, { head: -windMs, cross: 0 }]; // headOut
 }
 
-// …or from an absolute out-leg ground course and the bearing the wind blows
-// FROM (meteorological): courseDeg === windFromDeg is straight into the wind.
-// Snapping sub-nanoscale components keeps the cardinal cases bit-identical to
-// the discrete modes.
-//
-// Exported for src/domain/route.js (Phase 4 item 7), which decomposes the wind onto each
-// leg of a pilot-drawn polyline and must do it exactly the way the footprint
-// sweep does — a route that traces the out-and-back has to reproduce the ring's
-// own numbers, and it only can if both read the same decomposition.
+/**
+ * …or from an absolute out-leg ground course and the bearing the wind blows
+ * FROM (meteorological): courseDeg === windFromDeg is straight into the wind.
+ * Snapping sub-nanoscale components keeps the cardinal cases bit-identical to
+ * the discrete modes.
+ *
+ * Exported for src/domain/route.js (Phase 4 item 7), which decomposes the wind onto each
+ * leg of a pilot-drawn polyline and must do it exactly the way the footprint
+ * sweep does — a route that traces the out-and-back has to reproduce the ring's
+ * own numbers, and it only can if both read the same decomposition.
+ * @param {number} courseDeg
+ * @param {number} windFromDeg
+ * @param {number} windMs
+ * @returns {[WindVec, WindVec]}
+ */
 export function legVecsFromCourse(courseDeg, windFromDeg, windMs) {
   const d = (courseDeg - windFromDeg) * Math.PI / 180;
-  const snap = (x) => Math.abs(x) < 1e-9 ? 0 : x;
+  const snap = (/** @type {number} */ x) => Math.abs(x) < 1e-9 ? 0 : x;
   const head = snap(windMs * Math.cos(d));
   const cross = snap(windMs * Math.abs(Math.sin(d)));
   return [{ head, cross }, { head: -head, cross }];
 }
 
-// Airspeed minimizing Wh per ground-km for one leg; scan is robust vs the flat
-// U-shape of the power curve.
+/** @typedef {{ v: number, vg: number, whPerKm: number }} LegSolution */
+
+/**
+ * Airspeed minimizing Wh per ground-km for one leg; scan is robust vs the flat
+ * U-shape of the power curve.
+ * @param {WindVec} vec
+ * @param {number} vMax
+ * @param {(v: number) => number} pAt
+ * @returns {LegSolution|null} null → wind unbeatable at any speed
+ */
 function bestRangeSpeed(vec, vMax, pAt) {
+  /** @type {LegSolution|null} */
   let best = null;
   for (let v = 1; v <= vMax; v += 0.25) {
     const vg = groundSpeedVec(v, vec.head, vec.cross);
@@ -508,8 +800,11 @@ function bestRangeSpeed(vec, vMax, pAt) {
     const whPerKm = pAt(v) / (3.6 * vg);
     if (!best || whPerKm < best.whPerKm) best = { v, vg, whPerKm };
   }
-  return best; // null → wind unbeatable at any speed
+  return best;
 }
+
+/** A wind vector solved into the leg the aircraft actually flies, or null when no airspeed holds that course. */
+/** @typedef {(vec: WindVec) => LegSolution|null} LegSolver */
 
 /**
  * One leg of a mission against a given wind vector, as a closure over the cruise
@@ -528,6 +823,8 @@ function bestRangeSpeed(vec, vMax, pAt) {
  * *same* solve: a route that traces the planned out-and-back reproduces that
  * plan's numbers by identity, not by a second implementation agreeing with the
  * first. `legSolverFrom()` below is that door in.
+ * @param {{ flight: LiftEnvelopeResult, vMax: number, pAt: (v: number) => number, overheadF: number, cruiseMode?: CruiseMode, realVMs?: number, manualVMs?: number }} spec
+ * @returns {LegSolver}
  */
 function makeLegSolver({ flight, vMax, pAt, overheadF, cruiseMode, realVMs, manualVMs }) {
   const fixedV = cruiseMode === 'manual' ? (manualVMs || 0)
@@ -535,6 +832,7 @@ function makeLegSolver({ flight, vMax, pAt, overheadF, cruiseMode, realVMs, manu
     : 0;
   return (vec) => {
     if (!flight.viable) return null;
+    /** @type {LegSolution|null} */
     let leg;
     if (fixedV > 0) {
       if (fixedV > vMax + 1e-9) return null;
@@ -556,6 +854,9 @@ function makeLegSolver({ flight, vMax, pAt, overheadF, cruiseMode, realVMs, manu
  *
  * Deliberately not a field on the plan: the result object is compared whole in
  * several pinning tests, and a function on it is not data.
+ * @param {PlanMissionResult} plan
+ * @param {{ cruiseMode?: CruiseMode, realVMs?: number, manualVMs?: number }} inp
+ * @returns {LegSolver}
  */
 export function legSolverFrom(plan, inp) {
   return makeLegSolver({
@@ -569,6 +870,11 @@ export function legSolverFrom(plan, inp) {
   });
 }
 
+/**
+ * @param {number} vMax
+ * @param {(v: number) => number} pAt
+ * @returns {{ v: number, p: number }}
+ */
 function bestEnduranceSpeed(vMax, pAt) {
   let best = { v: 0, p: Infinity };
   for (let v = 0; v <= vMax; v += 0.25) {
@@ -588,9 +894,14 @@ function bestEnduranceSpeed(vMax, pAt) {
  * from zero and bisection is exact to within the last step. Returns the wind in
  * m/s, capped at `vMaxMs` — a headwind at the aircraft's own top speed is the
  * end of the scale, not a number worth resolving past.
+ * @param {number} radiusKm
+ * @param {number} budgetWh
+ * @param {LegSolver} solveLeg
+ * @param {number} vMaxMs
+ * @returns {number}
  */
 function headwindLimitMs(radiusKm, budgetWh, solveLeg, vMaxMs) {
-  const fits = (w) => {
+  const fits = (/** @type {number} */ w) => {
     const leg = solveLeg({ head: w, cross: 0 });
     return !!leg && radiusKm * leg.whPerKm <= budgetWh;
   };
@@ -603,6 +914,64 @@ function headwindLimitMs(radiusKm, budgetWh, solveLeg, vMaxMs) {
   }
   return lo;
 }
+
+/**
+ * One warning surfaced on a plan — a level for styling and a pilot-facing
+ * sentence.
+ * @typedef {object} PlanWarning
+ * @property {'critical'|'serious'|'warning'} level
+ * @property {string} text
+ */
+
+/**
+ * planMission()'s answer when there is no battery selected at all — a handled
+ * code rather than a raw TypeError three lines into the arithmetic.
+ * @typedef {object} NoBatteryPlan
+ * @property {'no_battery'} code
+ * @property {PlanWarning[]} warnings
+ */
+
+/**
+ * planMission()'s full answer — every number and every warning a render module
+ * puts on screen comes from this object.
+ * @typedef {object} PlanMissionResult
+ * @property {number} rho
+ * @property {number} densityAltM
+ * @property {number} massKg
+ * @property {number} discLoadingGcm2
+ * @property {number} areaM2
+ * @property {{ airC: number, packC: number, packOverride: boolean, cold: boolean }} temps
+ * @property {{ pW: number, iA: number, gPerW: number }} hover
+ * @property {{ vMs: number, pW: number }|null} endurance
+ * @property {{ planningMs: number, out: WindVec, back: WindVec, gustFactor: number }} wind
+ * @property {{ out: LegSolution|null, back: LegSolution|null, home: LegSolution|null, pOut: number, pBack: number }} legs
+ * @property {number} overheadF
+ * @property {object} energy
+ * @property {number} energy.packWh
+ * @property {number} energy.deliveredWh
+ * @property {number} energy.usableWh
+ * @property {number} energy.reserveWh
+ * @property {number} energy.reservePct
+ * @property {number} energy.landFloorPct
+ * @property {number} energy.getHomeWh
+ * @property {number} energy.huntLandWh
+ * @property {number|null} energy.getHomeWindMs
+ * @property {number|null} energy.holdsHeadwindMs
+ * @property {'getHome'|'floor'|null} energy.reserveBinds
+ * @property {number} energy.capF
+ * @property {boolean} energy.sagLimited
+ * @property {number} radiusKm
+ * @property {number} totalKm
+ * @property {number} timeMin
+ * @property {number} hoverTimeMin
+ * @property {number} cruiseTimeMin
+ * @property {{ v: number, p: number }[]} curve
+ * @property {{ massKg: number, rho: number, areaM2: number, cdA: number, etaProp: number, avionicsW: number }} cfg
+ * @property {LiftEnvelopeResult} flight
+ * @property {number} speedLimitMs
+ * @property {{ tMin: number, distKm: number, soc: number, vLoad: number, iA: number, phase: 'out'|'back' }[]} timeline
+ * @property {PlanWarning[]} warnings
+ */
 
 /**
  * Plan an out-and-back mission.
@@ -626,6 +995,8 @@ function headwindLimitMs(radiusKm, budgetWh, solveLeg, vMaxMs) {
  *   _pCache,    // optional Map memoizing powerAtSpeed across calls; only
  *               // valid while mass/air/drag config is unchanged (caller owns)
  * }
+ * @param {PlanMissionInputs} inp
+ * @returns {NoBatteryPlan|PlanMissionResult}
  */
 export function planMission(inp) {
   const { drone, battery, env } = inp;
@@ -633,6 +1004,7 @@ export function planMission(inp) {
   // code, because the caller can say so in a sentence; the alternative was a
   // raw TypeError three lines down.
   if (!battery) return { code: 'no_battery', warnings: [] };
+  /** @type {PlanWarning[]} */
   const warnings = [];
   const { rho, densityAltM } = airDensity(env.elevM, env.tempC, env.rhPct);
 
@@ -673,12 +1045,12 @@ export function planMission(inp) {
 
   const pCache = inp._pCache;
   const pAt = pCache
-    ? (v) => {
+    ? (/** @type {number} */ v) => {
         let p = pCache.get(v);
         if (p === undefined) { p = powerAtSpeed(cfg, v); pCache.set(v, p); }
         return p;
       }
-    : (v) => powerAtSpeed(cfg, v);
+    : (/** @type {number} */ v) => powerAtSpeed(cfg, v);
 
   // Hover point.
   const pHover = pAt(0);
@@ -769,14 +1141,18 @@ export function planMission(inp) {
   // collapses the get-home constraint into the floor one and leaves the mission
   // an unreserved measurement.
   const homeScale = gh ? (windMs > 0 ? gh.windMs / windMs : 0) : 0;
+  /** @type {WindVec|null} */
   const vecHome = !gh ? null
     : windMs > 0 ? { head: Math.abs(vecBack.head) * homeScale, cross: vecBack.cross * homeScale }
     : { head: gh.windMs, cross: 0 }; // dead calm, overridden: a pure headwind is all there is to scale
-  const sameVec = (a, b) => Math.abs(a.head - b.head) < 1e-12 && Math.abs(a.cross - b.cross) < 1e-12;
+  const sameVec = (/** @type {WindVec} */ a, /** @type {WindVec} */ b) => Math.abs(a.head - b.head) < 1e-12 && Math.abs(a.cross - b.cross) < 1e-12;
+  // `gh` truthy is exactly the condition under which vecHome was built as a
+  // WindVec above, never left null — the cast below states that invariant
+  // rather than re-deriving it with a redundant narrowing check.
   const legHome = !gh ? legBack
-    : sameVec(vecHome, vecOut) ? legOut
-    : sameVec(vecHome, vecBack) ? legBack
-    : solveLeg(vecHome);
+    : sameVec(/** @type {WindVec} */ (vecHome), vecOut) ? legOut
+    : sameVec(/** @type {WindVec} */ (vecHome), vecBack) ? legBack
+    : solveLeg(/** @type {WindVec} */ (vecHome));
   const huntLandWh = gh ? gh.huntLandMin * pHover / 60 : 0;
 
   const floorFrac = Math.min(Math.max(inp.landFloorPct ?? 20, 0), 60) / 100;
@@ -785,6 +1161,7 @@ export function planMission(inp) {
   // Mission radius & time.
   let radiusKm = 0, timeMin = 0, totalKm = 0;
   let usableWh = floorUsableWh; // no mission closes → the tile still reads the floor
+  /** @type {'getHome'|'floor'|null} */
   let reserveBinds = null;
   if (legOut && legBack && legHome) {
     const whPerKmRound = legOut.whPerKm + legBack.whPerKm;
@@ -815,10 +1192,11 @@ export function planMission(inp) {
   // pack-care floor held more back than getting home needs. Display only, so
   // the sweep callers skip it.
   const holdsHeadwindMs = inp.lite || !(radiusKm > 0) ? null
-    : headwindLimitMs(radiusKm, sim.deliveredWh - radiusKm * legOut.whPerKm - huntLandWh,
+    : headwindLimitMs(radiusKm, sim.deliveredWh - radiusKm * /** @type {LegSolution} */ (legOut).whPerKm - huntLandWh,
                       solveLeg, vMax);
 
   // Timeline for the mission-profile chart.
+  /** @type {PlanMissionResult['timeline']} */
   const timeline = [];
   if (!inp.lite && legOut && legBack && radiusKm > 0) {
     const outMin = radiusKm / (legOut.vg * 3.6) * 60;
@@ -858,7 +1236,7 @@ export function planMission(inp) {
       text: `${flight.thrustToWeight.toFixed(2)}:1 estimated thrust-to-weight is marginal for gusts, climb, and recovery.`,
     });
   }
-  if (battery.packCount > 1) {
+  if (battery.packCount && battery.packCount > 1) {
     warnings.push({
       level: 'warning',
       text: `Parallel mode assumes ${battery.packCount} identical, equally charged packs and includes ${battery.harnessMassG || 0} g of harness/restraint allowance.`,
@@ -940,6 +1318,17 @@ export function planMission(inp) {
 
 /* ---------------- Unit helpers ---------------- */
 
+/**
+ * @type {{
+ *   ftToM: (ft: number) => number,
+ *   mToFt: (m: number) => number,
+ *   mphToMs: (mph: number) => number,
+ *   msToMph: (ms: number) => number,
+ *   fToC: (f: number) => number,
+ *   cToF: (c: number) => number,
+ *   kmToMi: (km: number) => number,
+ * }}
+ */
 export const U = {
   ftToM: (ft) => ft * 0.3048,
   mToFt: (m) => m / 0.3048,
