@@ -9,7 +9,7 @@ import {
   state, beginner, units, drone, droneBatteries, compatibleBatteries, battery,
   manufacturer, loadoutBattery, packTemp, EXPERT_CRUISE_MODES,
 } from '../state.js';
-import { GUST_FACTOR_DEFAULT, isColdPack, U } from '../physics.js';
+import { GUST_FACTOR_DEFAULT, isColdPack, U } from '../domain/physics.js';
 import { LINK_BANDS, LINK_BAND_DEFAULT } from '../rf.js';
 import {
   CRUISE_ALTS_M, CRUISE_ALT_DEFAULT_M, activeWindAt, launchWind,

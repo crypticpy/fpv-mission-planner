@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { destination, distanceKm, bearingTo } from '../src/geo.js';
-import { planMission, legSolverFrom, U } from '../src/physics.js';
-import { planRoute } from '../src/route.js';
+import { destination, distanceKm, bearingTo } from '../src/domain/geo.js';
+import { planMission, legSolverFrom, U } from '../src/domain/physics.js';
+import { planRoute } from '../src/domain/route.js';
 
 /* Phase 4 item 7: waypoint/dogleg routes and loiter-at-range.
  *

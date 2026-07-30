@@ -19,7 +19,7 @@
 //     average speed instead of a distance is plotted the same way; the number it
 //     is divided by is the same number the fit was solved against.
 
-import { airDensity, discAreaM2, powerAtSpeed, planMission } from './physics.js';
+import { airDensity, discAreaM2, powerAtSpeed, planMission } from './domain/physics.js';
 
 /**
  * Actual vs predicted economy for every cruise leg in `solves`, sorted by

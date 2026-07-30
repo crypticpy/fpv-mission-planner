@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { planMission, U } from '../src/physics.js';
+import { planMission, U } from '../src/domain/physics.js';
 
 // Representative MOZ7 V2 + NAV 5000 loadout (values mirror src/data.js).
 const drone = {

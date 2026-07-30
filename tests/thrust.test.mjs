@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import { DRONES } from '../src/catalog/drones.js';
 import { BATTERIES } from '../src/catalog/batteries.js';
-import { airDensity, discAreaM2, liftEnvelope, U } from '../src/physics.js';
+import { airDensity, discAreaM2, liftEnvelope, U } from '../src/domain/physics.js';
 import { DRONE_FIELDS, validate, serialize, parse } from '../src/schema.js';
 import { parseThrustTable } from '../src/thrust.js';
 

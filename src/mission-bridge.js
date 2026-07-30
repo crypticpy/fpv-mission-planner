@@ -180,7 +180,7 @@ export function missionId() { return doc ? doc.id : null; }
 export function missionStorage() { return { ...storage }; }
 
 /**
- * The route as the map and src/route.js read it: plain `{ id, lat, lng }`, in
+ * The route as the map and src/domain/route.js read it: plain `{ id, lat, lng }`, in
  * flight order, launch excluded (the launch is not a waypoint).
  * @returns {{ id: string, lat: number, lng: number }[]}
  */

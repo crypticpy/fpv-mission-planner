@@ -1,6 +1,6 @@
 // render/comparison.js — the pack shoot-out: radius and time bars for every
 // compatible pack, plus the full-detail table behind them.
-import { planMission, CHEMISTRY } from '../physics.js';
+import { planMission, CHEMISTRY } from '../domain/physics.js';
 import { barChart } from '../charts.js';
 import {
   state, beginner, units, compatibleBatteries, loadoutBattery, manufacturer, missionInputs,

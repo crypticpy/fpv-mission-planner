@@ -12,8 +12,8 @@
 // the sentences) and any change to physics.js, which stays pure — the terrain
 // reaches the model as an elevation on the way in, like every other input.
 
-import { destination, distanceKm, bearingDelta } from './geo.js';
-import { U } from './physics.js';
+import { destination, distanceKm, bearingDelta } from './domain/geo.js';
+import { U } from './domain/physics.js';
 
 /** How many points along the leg one request samples. */
 export const PROFILE_SAMPLES = 28;

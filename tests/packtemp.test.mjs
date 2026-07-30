@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { DRONES, BATTERIES } from '../src/data.js';
-import { planMission, isColdPack, U } from '../src/physics.js';
+import { planMission, isColdPack, U } from '../src/domain/physics.js';
 
 /* Phase 4 item 3: the pack's temperature, apart from the air's.
  *

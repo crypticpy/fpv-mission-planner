@@ -14,7 +14,7 @@ python3 -m http.server 8321
 ```
 
 Then open <http://localhost:8321>. No build step, no dependencies — plain ES
-modules ([src/physics.js](src/physics.js), [src/data.js](src/data.js),
+modules ([src/domain/physics.js](src/domain/physics.js), [src/data.js](src/data.js),
 [src/charts.js](src/charts.js), [src/state.js](src/state.js), `src/render/*`,
 [src/map.js](src/map.js), and [src/app.js](src/app.js) wiring them together).
 The only third-party code is Leaflet 1.9.4, vendored
@@ -33,7 +33,7 @@ Use the single **Units** selector in the header to switch every displayed
 distance, speed, wind, and distance-normalized burn rate between imperial
 (`mi`, `mph`, `Wh/mi`) and metric (`km`, `km/h`, `Wh/km`). The physics model
 keeps its native SI values; all display labels, conversions, and unit-specific
-input ranges are centralized in [src/units.js](src/units.js).
+input ranges are centralized in [src/domain/units.js](src/domain/units.js).
 
 ### On a phone or tablet
 
@@ -69,7 +69,7 @@ they just won't load offline.
    single per-airframe efficiency `etaProp` folds figure of merit, motor/ESC
    losses, and *hover* profile drag; only the µ² excess above hover is modeled
    separately, from one constant fixed across all airframes (`PROFILE_MU2`,
-   derived in `src/physics.js` from typical quad solidity, blade Cd₀, and design
+   derived in `src/domain/physics.js` from typical quad solidity, blade Cd₀, and design
    lift coefficient — not a per-drone tuning knob). Both new terms are
    identically zero at hover, so hover power is unchanged and a hover-solved
    `etaProp` still means exactly what it always meant.

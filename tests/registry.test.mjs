@@ -8,7 +8,7 @@ import {
   loadCustomDrones, saveCustomDrone, deleteCustomDrone, loadCustomBatteries,
 } from '../src/registry.js';
 import { validate, DRONE_FIELDS } from '../src/schema.js';
-import { planMission, U } from '../src/physics.js';
+import { planMission, U } from '../src/domain/physics.js';
 // The pilot-facing form's own mapping: what "pick a class, weigh the rig, type a
 // name" turns into. Imported here so the record shape the UI writes is the record
 // shape these tests plan with — no hand-built fixture drifting away from it.

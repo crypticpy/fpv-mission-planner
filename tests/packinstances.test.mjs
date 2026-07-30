@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import { DRONES } from '../src/catalog/drones.js';
 import { BATTERIES } from '../src/catalog/batteries.js';
-import { planMission, U } from '../src/physics.js';
+import { planMission, U } from '../src/domain/physics.js';
 import {
   normalizeInstance, loadPackInstances, instancesForBattery, savePackInstance,
   deletePackInstance, deletePackInstancesFor, selectedInstanceId, setSelectedInstance,

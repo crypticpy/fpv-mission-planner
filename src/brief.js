@@ -31,7 +31,7 @@
 
 import { f0, f1, mmss, compass, article } from './render/format.js';
 import { plannedCourseDeg } from './terrain.js';
-import { U } from './physics.js';
+import { U } from './domain/physics.js';
 
 /** How many checklist lines the footer may carry. A list nobody reads is not a check. */
 export const MAX_CHECKLIST = 6;
@@ -268,7 +268,7 @@ function checklist({ plan, clock, link, terrain, route, env, u, expert }) {
 /**
  * Build the whole brief.
  *
- * Required: `plan` (a planMission result), `units` (a src/units.js system) and
+ * Required: `plan` (a planMission result), `units` (a src/domain/units.js system) and
  * `now`. Everything else is optional and simply drops its section — a brief
  * generated offline with no terrain profile, no route and no forecast hour is
  * still the artifact the pilot walks out with, which is the point of the feature.

@@ -9,8 +9,8 @@ import { allDrones, compatible, compatibleBatteries as dronePacks } from './regi
 import { calibratedDrone } from './flightlog.js';
 import { instanceBattery } from './packinstances.js';
 import { get as storeGet, set as storeSet } from './store.js';
-import { parallelBattery, GUST_FACTOR_DEFAULT, U } from './physics.js';
-import { unitSystem } from './units.js';
+import { parallelBattery, GUST_FACTOR_DEFAULT, U } from './domain/physics.js';
+import { unitSystem } from './domain/units.js';
 import { CRUISE_ALTS_M, CRUISE_ALT_DEFAULT_M } from './windprofile.js';
 import { planElevM } from './terrain.js';
 import { LINK_BAND_DEFAULT, isLinkBand } from './rf.js';

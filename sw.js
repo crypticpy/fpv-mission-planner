@@ -26,7 +26,7 @@
 // Paths are relative to this file's scope (the app can live at "/" locally
 // or at a GitHub Pages subpath) — never use a leading "/".
 
-const CACHE_NAME = 'fpv-shell-v3';
+const CACHE_NAME = 'fpv-shell-v4';
 
 const PRECACHE_URLS = [
   '.',
@@ -41,15 +41,12 @@ const PRECACHE_URLS = [
   'src/drift.js',
   'src/flightlog.js',
   'src/forms.js',
-  'src/geo.js',
   'src/map.js',
   'src/mission-bridge.js',
   'src/mission-rail.js',
   'src/packinstances.js',
-  'src/physics.js',
   'src/registry.js',
   'src/rf.js',
-  'src/route.js',
   'src/schema.js',
   'src/share.js',
   'src/shell.js',
@@ -59,9 +56,15 @@ const PRECACHE_URLS = [
   'src/terrain.js',
   'src/themes.js',
   'src/thrust.js',
-  'src/units.js',
   'src/weather.js',
   'src/windprofile.js',
+  'src/application/analysis/analysis-contracts.js',
+  'src/application/analysis/analyze.js',
+  'src/application/analysis/constraints.js',
+  'src/domain/geo.js',
+  'src/domain/physics.js',
+  'src/domain/route.js',
+  'src/domain/units.js',
   'src/domain/mission/altitude.js',
   'src/domain/mission/mission-migrations.js',
   'src/domain/mission/mission-reducer.js',

@@ -5,7 +5,7 @@ import { DRONES } from '../src/catalog/drones.js';
 import { BATTERIES } from '../src/catalog/batteries.js';
 import {
   airDensity, discAreaM2, powerAtSpeed, dischargeSim, dischargeToSoc, planMission, U,
-} from '../src/physics.js';
+} from '../src/domain/physics.js';
 import { saveFlightLog, fitForDrone, setCalibrationApplied, calibratedDrone } from '../src/flightlog.js';
 import { driftPoints, driftSummary, rangeBandKm } from '../src/drift.js';
 import { niceTicks } from '../src/charts.js';

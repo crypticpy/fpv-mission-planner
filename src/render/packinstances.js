@@ -20,7 +20,7 @@ import {
   newInstanceId, selectedInstanceId, setSelectedInstance, highCycleCount,
 } from '../packinstances.js';
 import { catalogBattery } from '../state.js';
-import { CHEMISTRY } from '../physics.js';
+import { CHEMISTRY } from '../domain/physics.js';
 import { buildForm, readForm } from '../forms.js';
 import { f0, f1 } from './format.js';
 import { $, fillSelect } from './dom.js';

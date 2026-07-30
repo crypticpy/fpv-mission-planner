@@ -20,7 +20,7 @@ import {
   allDrones, allBatteries, saveCustomDrone, deleteCustomDrone, compatibleBatteries,
 } from '../registry.js';
 import { state, battery, payload, packTemp } from '../state.js';
-import { airDensity, discAreaM2, powerAtSpeed, dischargeSim, U } from '../physics.js';
+import { airDensity, discAreaM2, powerAtSpeed, dischargeSim, U } from '../domain/physics.js';
 import { buildForm, readForm } from '../forms.js';
 import { CONFIDENCE_OPTIONS, normalizeConfidence } from '../schema.js';
 import { THRUST_FIELDS, mountThrustField, syncThrustField, resetThrustField } from './thrustfield.js';

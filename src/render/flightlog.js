@@ -21,7 +21,7 @@ import {
 import { classForDrone } from '../catalog/classes.js';
 import { allBatteries, compatibleBatteries } from '../registry.js';
 import { state, beginner, units, catalogDrone, payload } from '../state.js';
-import { U } from '../physics.js';
+import { U } from '../domain/physics.js';
 import { fetchArchiveEnv, launchPoint } from '../weather.js';
 import { buildForm, readForm } from '../forms.js';
 import { FIELD_FMT, FIELD_SYMBOL, renderCalibrationLine, renderDriftChart } from './calibration.js';

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { DRONES, BATTERIES } from '../src/data.js';
-import { airDensity, discAreaM2, liftEnvelope, parallelBattery, planMission, U } from '../src/physics.js';
+import { airDensity, discAreaM2, liftEnvelope, parallelBattery, planMission, U } from '../src/domain/physics.js';
 
 const moz7 = DRONES.find(d => d.id === 'moz7v2');
 const cinelog = DRONES.find(d => d.id === 'cinelog30v3');

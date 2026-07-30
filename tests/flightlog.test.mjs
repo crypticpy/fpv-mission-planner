@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import { DRONES } from '../src/catalog/drones.js';
 import { BATTERIES } from '../src/catalog/batteries.js';
-import { airDensity, discAreaM2, powerAtSpeed, dischargeSim, dischargeToSoc } from '../src/physics.js';
+import { airDensity, discAreaM2, powerAtSpeed, dischargeSim, dischargeToSoc } from '../src/domain/physics.js';
 import {
   loadFlightLogs, logsForDrone, saveFlightLog, deleteFlightLog, normalizeLog,
   fitForDrone, appliedState, setCalibrationApplied, clearCalibrationApplied,

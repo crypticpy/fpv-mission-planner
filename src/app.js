@@ -3,7 +3,7 @@
 // imports this file, so app-level callbacks (update, setView) reach those
 // modules by one-time injection at boot.
 import { WEATHER, allBatteries, allManufacturers, saveCustomBattery, saveCustomManufacturer } from './data.js';
-import { planMission } from './physics.js';
+import { planMission } from './domain/physics.js';
 import { hideTooltip } from './charts.js';
 import {
   setupMapView, showMapView, renderMapView, pauseMapView, resizeMapView,

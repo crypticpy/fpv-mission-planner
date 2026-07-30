@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { distanceKm, bearingDelta } from '../src/geo.js';
+import { distanceKm, bearingDelta } from '../src/domain/geo.js';
 import { DRONES, BATTERIES } from '../src/data.js';
-import { planMission, U } from '../src/physics.js';
+import { planMission, U } from '../src/domain/physics.js';
 import {
   PROFILE_SAMPLES, CLEARANCE_WARN_M,
   plannedCourseDeg, profileSpanKm, profileCoords, fetchElevationProfile, buildProfile,

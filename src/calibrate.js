@@ -24,7 +24,7 @@
 
 import {
   airDensity, discAreaM2, powerAtSpeed, dischargeSim, dischargeToSoc,
-} from './physics.js';
+} from './domain/physics.js';
 
 // Bisection budget. 80 halvings shrink any bracket this code builds to well
 // below floating-point relevance — and far below the 0.5%-of-charge grid the

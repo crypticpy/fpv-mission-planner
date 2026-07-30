@@ -1,6 +1,6 @@
 // render/session.js — the field session planner: how many of each pack the
 // pilot is bringing, and what that adds up to at the field.
-import { planMission } from '../physics.js';
+import { planMission } from '../domain/physics.js';
 import { state, compatibleBatteries, missionInputs } from '../state.js';
 import { mmss } from './format.js';
 import { $ } from './dom.js';

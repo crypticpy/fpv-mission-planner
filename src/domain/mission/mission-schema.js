@@ -33,7 +33,7 @@
 // therefore chain `launch → wpt₁ → … → wptₙ`, one segment per waypoint, and
 // `segments[i].to === waypoints[i].id` is the structural invariant everything
 // else here leans on. The flight home is described by `route.returnPolicy`
-// rather than materialised as a segment — src/route.js already models the
+// rather than materialised as a segment — src/domain/route.js already models the
 // return as direct-to-launch, and inventing a segment for it would give the
 // pilot a leg they cannot edit.
 
@@ -78,7 +78,7 @@
 /**
  * The minimum of an airframe the physics needs with no catalog present, plus
  * enough identity to say which rig this was. Field set derived from what
- * `planMission`/`discAreaM2`/`liftEnvelope` actually read (src/physics.js) and
+ * `planMission`/`discAreaM2`/`liftEnvelope` actually read (src/domain/physics.js) and
  * what `calibratedDrone` classes on (src/flightlog.js).
  * @typedef {object} AircraftSnapshot
  * @property {string} sourceId          catalog or pilot-authored record id

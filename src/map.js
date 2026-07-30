@@ -4,11 +4,11 @@
 // fly on each course and still make it home — not general reachability.
 
 import * as L from '../vendor/leaflet/leaflet-src.esm.js';
-import { planMission } from './physics.js';
+import { planMission } from './domain/physics.js';
 import { loadMapState, saveMapState } from './store.js';
 import { lineChart, legend } from './charts.js';
 import { adaptiveHalfSweep, radiusAtAlpha, fullCircle, polarAreaKm2 } from './sweep.js';
-import { destination, wrapLng } from './geo.js';
+import { destination, wrapLng } from './domain/geo.js';
 import { plannedCourseDeg } from './terrain.js';
 
 const AUSTIN = { lat: 30.2672, lng: -97.7431 };
@@ -143,7 +143,7 @@ function moveLaunch(latlng, { notify = true } = {}) {
 // (ADR 0002), which is why they now survive a reload and a launch-point move:
 // this file raises `addWaypoint` / `moveWaypoint` / `removeWaypoint` through its
 // injected deps and reads the result back through `deps.routeWaypoints()`. Every
-// number derived from them still lives in src/route.js, every sentence about
+// number derived from them still lives in src/domain/route.js, every sentence about
 // them in src/render/route.js — this file draws and handles the pointer.
 //
 // The *mode* stays here, because it is a view preference rather than part of the
@@ -171,7 +171,7 @@ const routeActive = () => routeModeOn() && !deps.beginner();
 
 /**
  * What the route panel and the drawing pass both read. The waypoints carry their
- * document ids so a pin can name itself in the command it raises; src/route.js
+ * document ids so a pin can name itself in the command it raises; src/domain/route.js
  * and src/render/route.js read nothing but lat/lng off them.
  */
 export function routeState() {

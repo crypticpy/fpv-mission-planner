@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { BATTERIES } from '../src/catalog/batteries.js';
-import { CHEMISTRY } from '../src/physics.js';
+import { CHEMISTRY } from '../src/domain/physics.js';
 import {
   packCrossChecks, packIrFromCells, resolvePackIr, WH_PER_G_RANGE,
 } from '../src/render/batterychecks.js';

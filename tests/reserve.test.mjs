@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   planMission, powerAtSpeed, dischargeSim, GUST_FACTOR_DEFAULT, HUNT_LAND_HOVER_MIN, U,
-} from '../src/physics.js';
+} from '../src/domain/physics.js';
 
 /* Phase 4 item 2 (the get-home reserve in Wh) and item 4 (the gust factor as a
  * parameter). Two loadouts, because the whole complaint against the percent

@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { planMission, U } from '../src/physics.js';
-import { planRoute } from '../src/route.js';
+import { planMission, U } from '../src/domain/physics.js';
+import { planRoute } from '../src/domain/route.js';
 import { adaptiveHalfSweep, fullCircle, polarAreaKm2 } from '../src/sweep.js';
-import { destination } from '../src/geo.js';
-import { unitSystem } from '../src/units.js';
+import { destination } from '../src/domain/geo.js';
+import { unitSystem } from '../src/domain/units.js';
 import { DRONES } from '../src/catalog/drones.js';
 import { BATTERIES } from '../src/catalog/batteries.js';
 import { buildBrief, formatDecimal, formatDegMin, MAX_CHECKLIST, CARDINALS } from '../src/brief.js';

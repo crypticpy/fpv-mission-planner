@@ -7,7 +7,7 @@ import { CLASSES } from '../src/catalog/classes.js';
 import {
   G, PROFILE_MU2, airDensity, discAreaM2, dischargeSim, dischargeToSoc,
   planMission, powerAtSpeed,
-} from '../src/physics.js';
+} from '../src/domain/physics.js';
 import { solveCdA, solveEtaProp } from '../src/calibrate.js';
 
 // Phase 4 item 1: powerAtSpeed grew a speed-dependent profile-power term

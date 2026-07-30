@@ -25,7 +25,7 @@
 
 import { buildBrief } from '../brief.js';
 import { footprintState } from '../map.js';
-import { bearingTo, distanceKm } from '../geo.js';
+import { bearingTo, distanceKm } from '../domain/geo.js';
 import {
   state, beginner, units, drone, battery, loadoutBattery, scenario, payload,
 } from '../state.js';

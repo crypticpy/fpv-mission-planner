@@ -17,7 +17,7 @@
 //     live and that is what gets stored. `irTempC` rides along as provenance —
 //     pack-temperature modeling is Phase 4, and this number is not an input.
 
-import { CHEMISTRY } from '../physics.js';
+import { CHEMISTRY } from '../domain/physics.js';
 import { readForm } from '../forms.js';
 import { f0, f1 } from './format.js';
 import { $ } from './dom.js';

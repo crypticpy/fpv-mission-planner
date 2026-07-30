@@ -24,7 +24,7 @@ import { state, drone, loadoutBattery, payload } from './state.js';
 import { launchPoint } from './weather.js';
 import { loadMapState, saveMapState } from './store.js';
 import { setLaunchPoint } from './map.js';
-import { U } from './physics.js';
+import { U } from './domain/physics.js';
 
 let deps = null; // injected by app.js: { populateControls }
 

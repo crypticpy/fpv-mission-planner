@@ -7,7 +7,7 @@ import {
   launchWind,
 } from '../src/windprofile.js';
 import { fetchLiveEnv, shapeForecast, envAtHour } from '../src/weather.js';
-import { planMission, U } from '../src/physics.js';
+import { planMission, U } from '../src/domain/physics.js';
 
 /* Phase 4 item 9: the wind at more than one height.
  *

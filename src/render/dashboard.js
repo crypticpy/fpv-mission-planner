@@ -1,6 +1,6 @@
 // render/dashboard.js — the planner view: the verdict card, the warning stack,
 // the stat tiles, and the three sweep charts behind them.
-import { planMission, CHEMISTRY, GUST_FACTOR_DEFAULT, U } from '../physics.js';
+import { planMission, CHEMISTRY, GUST_FACTOR_DEFAULT, U } from '../domain/physics.js';
 import { lineChart, missionProfile, legend } from '../charts.js';
 import {
   state, units, beginner, drone, scenario, battery, compatibleBatteries, loadoutBattery, missionInputs,

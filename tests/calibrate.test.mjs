@@ -6,7 +6,7 @@ import { BATTERIES } from '../src/catalog/batteries.js';
 import { CLASSES, classById } from '../src/catalog/classes.js';
 import {
   airDensity, discAreaM2, powerAtSpeed, dischargeSim, dischargeToSoc,
-} from '../src/physics.js';
+} from '../src/domain/physics.js';
 import {
   avgPowerFromFlight, clampToClass, confidence, landedSocFromMahIn,
   solveCdA, solveEtaProp,
