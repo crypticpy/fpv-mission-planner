@@ -22,7 +22,8 @@ import {
 import { state, battery, payload } from '../state.js';
 import { airDensity, discAreaM2, powerAtSpeed, dischargeSim, U } from '../physics.js';
 import { buildForm, readForm } from '../forms.js';
-import { f0, f1, mmss } from './format.js';
+import { THRUST_FIELDS, mountThrustField, syncThrustField, resetThrustField } from './thrustfield.js';
+import { f0, f1, mmss, ratio } from './format.js';
 import { $, fillSelect } from './dom.js';
 
 let deps = null; // injected by app.js: { update, populateControls }
@@ -136,6 +137,8 @@ export const DRONE_FORM = [
         { value: 'estimated', label: 'Estimated — class defaults or a guess' },
         { value: 'measured', label: 'Measured — thrust stand or logged flights' },
       ] },
+    // The escape hatch for the lift ceiling — see render/thrustfield.js.
+    ...THRUST_FIELDS,
   ] } },
 ];
 
@@ -199,6 +202,9 @@ function applyClone(id) {
   if (!src) return;
   const cls = classById(src.classId) || inferClass(src);
   dirty.clear();
+  // The paste box describes whatever rig was in the form a moment ago, not this
+  // one — clear it before the clone's own figure lands below.
+  resetThrustField(form());
   setValue('classId', cls.id);
   applyClassDefaults(cls.id);
   const from = {
@@ -213,6 +219,7 @@ function applyClone(id) {
     if (String(v) !== String(FROM_CLASS[key](cls))) { dirty.add(key); setTag(key, false); }
   }
   setValue('dryMass', src.dryMassG);
+  setValue('maxThrustGPerRotor', src.maxThrustGPerRotor ?? '');
   setValue('confidence', src.confidence || src.propulsion?.confidence || 'estimated');
   setValue('name', '');
   ctrl('name')?.focus();
@@ -277,6 +284,10 @@ export function recordFromForm(v) {
   // says `unknown` instead of inventing a ceiling.
   if (src?.propulsion) rec.propulsion = { ...src.propulsion, confidence };
   if (src?.motor) rec.motor = src.motor;
+  // A measured ceiling, when there is one. On the form rather than carried
+  // silently off the clone source, so clearing the field really does take the
+  // override back off.
+  if (Number.isFinite(v.maxThrustGPerRotor)) rec.maxThrustGPerRotor = v.maxThrustGPerRotor;
   if (Number.isFinite(src?.parallelHarnessMassG)) rec.parallelHarnessMassG = src.parallelHarnessMassG;
   if (Number.isFinite(src?.parallelPackCdA)) rec.parallelPackCdA = src.parallelPackCdA;
   return rec;
@@ -305,6 +316,11 @@ function crossChecks(rec) {
   }, 0);
   const reserve = Math.min(Math.max(state.reservePct, 0), 60) / 100;
   const motorW = rec.propulsion?.motorMaxW ? rec.propulsion.motorMaxW * rec.numRotors : null;
+  // A pasted bench figure answers the lift question outright, so the readout
+  // quotes it while the pilot is still typing — that is the number they came to
+  // the fold for.
+  const benchG = Number.isFinite(rec.maxThrustGPerRotor)
+    ? rec.maxThrustGPerRotor * rec.numRotors : null;
   return {
     pack,
     massKg,
@@ -312,6 +328,7 @@ function crossChecks(rec) {
     discLoadingGcm2: (massKg * 1000) / (areaM2 * 1e4),
     wPerKg: pHover / massKg,
     throttlePct: motorW ? (pHover / motorW) * 100 : null,
+    benchTwr: benchG ? benchG / (massKg * 1000) : null,
   };
 }
 
@@ -376,8 +393,13 @@ function renderReadout() {
       `${f0(c.wPerKg)} W/kg hovering`,
       c.throttlePct != null
         ? `hover ~${f0(c.throttlePct)}% of the motors' rating`
-        : 'no motor limits on record — the lift ceiling stays unmodeled',
-    ].join(' · ');
+        : null,
+      c.benchTwr != null
+        ? `${ratio(c.benchTwr)} thrust-to-weight off your table`
+        : c.throttlePct == null
+          ? 'no motor limits on record — the lift ceiling stays unmodeled'
+          : null,
+    ].filter(Boolean).join(' · ');
   }
   const lines = rangeWarnings(rec);
   warn.textContent = lines.join(' ');
@@ -399,6 +421,7 @@ function onEdit(e) {
   if (key === 'classId') applyClassDefaults(e.target.value);
   else if (key === 'cloneFrom') { if (e.target.value) applyClone(e.target.value); }
   else if (key === 'weighPack' || key === 'weighTotal') applyWeighHelper();
+  else if (key === 'thrustTable') syncThrustField(form(), key);
   else if (key && key in FROM_CLASS) { dirty.add(key); setTag(key, false); }
   queueReadout();
 }
@@ -417,6 +440,7 @@ function onSubmit(e) {
   // that no longer has anything in it, so nothing else needs fixing here.
   e.target.reset();
   dirty.clear();
+  resetThrustField(e.target);
   setValue('cloneFrom', '');
   setValue('classId', rec.classId); // reset() would drop back to the first class
   applyClassDefaults(rec.classId);
@@ -510,6 +534,7 @@ export function buildDroneForm() {
       weighPack: packOptions(),
     },
   });
+  mountThrustField(el);
   setValue('classId', DEFAULT_CLASS);
   applyClassDefaults(DEFAULT_CLASS);
   el.addEventListener('input', onEdit);

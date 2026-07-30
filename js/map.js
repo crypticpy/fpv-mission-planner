@@ -328,7 +328,7 @@ export function renderMapView(rPlan) {
   $('map-canvas').classList.toggle('flight-invalid-map', rPlan.flight.code === 'no_lift');
   if (!anyReal && !anyBest) {
     note(rPlan.flight.code === 'no_lift'
-      ? `WILL NOT FLY — ${rPlan.massKg * 1000 > 0 ? (rPlan.massKg * 1000).toFixed(0) : '—'} g all-up weight exceeds the estimated ${rPlan.flight.maxHoverMassG.toFixed(0)} g continuous lift ceiling.`
+      ? `WILL NOT FLY — ${rPlan.massKg * 1000 > 0 ? (rPlan.massKg * 1000).toFixed(0) : '—'} g all-up weight exceeds the ${rPlan.flight.estimated === false ? 'measured' : 'estimated'} ${rPlan.flight.maxHoverMassG.toFixed(0)} g continuous lift ceiling.`
       : 'No viable mission in these conditions — the footprint collapses to the launch point.');
   } else {
     note(anyReal ? null

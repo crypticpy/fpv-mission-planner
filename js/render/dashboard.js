@@ -3,9 +3,10 @@
 import { planMission, CHEMISTRY, U } from '../physics.js';
 import { lineChart, missionProfile, legend } from '../charts.js';
 import {
-  state, units, drone, scenario, battery, compatibleBatteries, loadoutBattery, missionInputs,
+  state, units, beginner, drone, scenario, battery, compatibleBatteries, loadoutBattery, missionInputs,
 } from '../state.js';
-import { SERIES, f0, f1, mmss, flightLabel, ratio } from './format.js';
+import { rangeBandKm } from '../drift.js';
+import { SERIES, f0, f1, mmss, flightLabel, liftSource, ratio, bandPhrase } from './format.js';
 import { $, setTile } from './dom.js';
 
 /* ---------- rendering ---------- */
@@ -116,7 +117,7 @@ function verdict(r, stranded) {
   const stop = [];
   if (r.flight.code === 'no_lift') {
     stop.push([
-      `${f0(r.massKg * 1000)} g is over this rig’s estimated ${f0(r.flight.maxHoverMassG)} g lift ceiling — it will not leave the ground.`,
+      `${f0(r.massKg * 1000)} g is over this rig’s ${liftSource(r.flight)} ${f0(r.flight.maxHoverMassG)} g lift ceiling — it will not leave the ground.`,
       'Take the camera and any extra weight off, or fly a lighter pack.',
     ]);
   } else if (r.flight.code === 'no_control_margin') {
@@ -243,6 +244,26 @@ function setChartFlightState(id, flight, message = null) {
   host.dataset.flightMessage = invalid ? (message || 'WILL NOT FLY · lift ceiling exceeded') : '';
 }
 
+/**
+ * The §6.2 band beside the headline: "8.4 mi (7.9–8.8, from your 11 flights)".
+ *
+ * Only while a fit is actually applied — `drone().calibration` exists only then,
+ * so nothing here has to ask the logbook — and only when that fit has a spread
+ * to report. Off in beginner mode, where the point is one number. Silent when
+ * there is no plan to put a range around: a band on "WILL NOT FLY", or around a
+ * zero radius, would be arithmetic about a mission that isn't happening.
+ */
+function renderHeroBand(r, u, suppress) {
+  const el = $('hero-band');
+  const cal = drone().calibration;
+  const band = suppress || beginner() || !cal ? null : rangeBandKm(missionInputs(), cal);
+  const text = band
+    ? bandPhrase(u.distanceFromKm(band.loKm), u.distanceFromKm(band.hiKm), band.nFlights)
+    : '';
+  el.textContent = text;
+  el.hidden = !text;
+}
+
 export function renderStats(r) {
   const u = units();
   const noLift = r.flight.code === 'no_lift';
@@ -259,10 +280,11 @@ export function renderStats(r) {
     : land - r.energy.reservePct < 0.5 ? `about ${f0(land)}% left, your landing reserve`
     : `about ${f0(land)}% left — your ${f0(r.energy.reservePct)}% reserve plus the bottom the pack can’t use`;
   $('hero-sub').textContent = noLift
-    ? `${f0(r.massKg * 1000)} g all-up weight exceeds ${f0(r.flight.maxHoverMassG)} g estimated continuous lift`
+    ? `${f0(r.massKg * 1000)} g all-up weight exceeds ${f0(r.flight.maxHoverMassG)} g ${liftSource(r.flight)} continuous lift`
     : stranded
       ? 'Zero radius — you could not fly home from any distance out. See the note above.'
       : `${f1(u.distanceFromKm(r.radiusKm))} ${u.distanceUnit} out — start home at ${mmss(times?.outMin)} on the timer, land at ${mmss(r.timeMin)} with ${landing}`;
+  renderHeroBand(r, u, noLift || stranded);
   setTile('tile-time', noLift ? '—' : mmss(r.timeMin),
     noLift ? 'mission invalid · insufficient lift'
       : times ? `${mmss(times.outMin)} out · ${mmss(times.backMin)} home · ${f1(u.distanceFromKm(r.totalKm))} ${u.distanceUnit} round trip`
@@ -276,9 +298,13 @@ export function renderStats(r) {
   const d = drone();
   setTile('tile-disc', `${r.discLoadingGcm2.toFixed(2)} g/cm²`, `${d.numRotors}× ${d.propDiaIn}″ props`);
   setTile('tile-eff', ratio(r.flight.thrustToWeight),
-    r.flight.code === 'unknown'
-      ? `${flightLabel(r.flight)} · no motor or ESC limits on record`
-      : `${flightLabel(r.flight)} · ${r.flight.limitingComponent} limited · estimated`);
+    // `estimated: false` means the ceiling came off a pasted bench table rather
+    // than out of momentum theory — the one case where this tile isn't a guess.
+    r.flight.estimated === false
+      ? `${flightLabel(r.flight)} · from your thrust table`
+      : r.flight.code === 'unknown'
+        ? `${flightLabel(r.flight)} · no motor or ESC limits on record`
+        : `${flightLabel(r.flight)} · ${r.flight.limitingComponent} limited · estimated`);
   setTile('tile-da', `${f0(U.mToFt(r.densityAltM))} ft`,
     `the altitude this air feels like · air density ${r.rho.toFixed(3)} kg/m³`);
   // Density altitude is a full-only tile, but thin air changes the whole plan —
@@ -388,7 +414,7 @@ export function renderProfile(r) {
   const empty = $('chart-profile-empty');
   empty.hidden = r.timeline.length > 0;
   empty.textContent = r.flight.code === 'no_lift'
-    ? 'WILL NOT FLY — all-up weight exceeds the estimated continuous lift ceiling.'
+    ? `WILL NOT FLY — all-up weight exceeds the ${liftSource(r.flight)} continuous lift ceiling.`
     : 'No viable mission in these conditions.';
   missionProfile($('chart-profile'), {
     timeline: r.timeline,

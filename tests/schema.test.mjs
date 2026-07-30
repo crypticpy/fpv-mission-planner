@@ -130,6 +130,16 @@ test('a required field inside a present group is reported by its dotted path', (
   assert.deepEqual(errors.map(e => e.key), ['propulsion.motorMaxA']);
 });
 
+test('the pasted thrust ceiling is an optional drone field nothing shipped uses', () => {
+  const f = DRONE_FIELDS.find(x => x.key === 'maxThrustGPerRotor');
+  assert.ok(f, 'no descriptor for the pasted thrust ceiling');
+  assert.equal(f.type, 'number');
+  assert.equal(f.required, undefined, 'nobody who builds their own rig owns a thrust stand');
+  // Every shipped airframe still gets its ceiling from momentum theory — the
+  // override exists for the pilot's own bench sheet, not for the catalog.
+  assert.deepEqual(DRONES.filter(d => 'maxThrustGPerRotor' in d).map(d => d.id), []);
+});
+
 /* ---------- serialize / parse ---------- */
 
 test('serialize flattens nested groups to dotted keys of strings', () => {

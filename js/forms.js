@@ -17,10 +17,15 @@
 // as native attributes, so the pilot gets the platform's own error bubbles
 // before submit ever fires.
 //
-// One type beyond schema.js's own: `checkboxes` — a multi-select rendered as a
-// `<fieldset>` of `.check-row` boxes, one per `options` entry (each may carry
-// `checked` to seed it), all sharing `f.key` as their `name`. readForm() below
-// collects the checked subset back into an array the same way `tags` would.
+// Two types beyond schema.js's own:
+//   `checkboxes` — a multi-select rendered as a `<fieldset>` of `.check-row`
+//     boxes, one per `options` entry (each may carry `checked` to seed it), all
+//     sharing `f.key` as their `name`. readForm() below collects the checked
+//     subset back into an array the same way `tags` would.
+//   `textarea` — a multi-line text field (`rows` optional). An `input` strips
+//     newlines out of anything pasted into it, so a field that exists to be
+//     pasted into has to be a textarea; schema.parse reads it back as the
+//     trimmed string it already is.
 
 import { parse } from './schema.js';
 
@@ -67,6 +72,12 @@ function control(f, options) {
       fs.appendChild(row);
     }
     return fs;
+  }
+  if (f.type === 'textarea') {
+    const ta = document.createElement('textarea');
+    ta.rows = f.rows ?? 4;
+    if (f.placeholder) ta.placeholder = f.placeholder;
+    return ta;
   }
   const input = document.createElement('input');
   if (INPUT_TYPES.includes(f.type)) input.type = f.type;
@@ -121,6 +132,9 @@ function field(f, opts) {
   // that is what form.reset() puts back after a save.
   if (f.value !== undefined) {
     if (el.tagName === 'INPUT') el.setAttribute('value', f.value);
+    // A textarea's prefill is its text content — same reasoning, different
+    // element: that is the defaultValue reset() restores.
+    else if (el.tagName === 'TEXTAREA') el.textContent = f.value;
     else el.value = f.value;
   }
 

@@ -106,6 +106,14 @@ export const DRONE_FIELDS = [
   // liftEnvelope() answers a missing block with its honest `unknown` code
   // rather than a fabricated ceiling. Present means complete.
   { key: 'propulsion', label: 'Electrical limits', type: 'group', fields: PROPULSION_FIELDS },
+  // The one number a pasted bench table is kept for (§6.1). Per motor, because
+  // that is how every published table is written; physics.js multiplies by the
+  // rotor count and lets it override the momentum-theory ceiling outright.
+  // Nothing else off the table is stored — §7.4 rules out a thrust-curve
+  // database, and the curve would only invite a second flight model.
+  { key: 'maxThrustGPerRotor', label: 'Measured max thrust per motor', type: 'number', unit: 'g',
+    min: 5, max: 100000, step: 1,
+    help: 'Off a bench or manufacturer thrust table. Overrides the estimated lift ceiling.' },
   { key: 'power', label: 'Battery mounting', type: 'group', fields: POWER_FIELDS,
     help: 'What packs will physically go on this rig. Omitted means "exactly its own connector and cell count".' },
   { key: 'parallelHarnessMassG', label: 'Parallel harness allowance', type: 'number', unit: 'g', min: 0, max: 200, step: 1 },

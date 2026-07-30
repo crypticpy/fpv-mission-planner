@@ -23,6 +23,7 @@ import {
 } from './render/controls.js';
 import { setupDroneForm, buildDroneForm } from './render/droneform.js';
 import { setupFlightLog, buildFlightLogForm } from './render/flightlog.js';
+import { setupCalibration } from './render/calibration.js';
 import {
   resetPackCaches, renderWarnings, zeroRadiusNote, renderVerdict, renderNoBattery,
   renderStats, renderPowerCurve, renderSpeedTradeoff, renderProfile, renderWindSensitivity,
@@ -337,6 +338,9 @@ setupDroneForm({ update, populateControls });
 // Logging a flight can change what the airframe flies like, so the same pair:
 // the rail redraws its own status line and list, then the plan re-renders.
 setupFlightLog({ update, populateControls });
+// Applying a fit changes what the planner is flying, so the status line needs
+// the same pair. The drift chart's view toggle only re-renders itself.
+setupCalibration({ update, populateControls });
 setupLive({ update });
 setupForecast({ update, liveError });
 setupMapView({

@@ -82,14 +82,64 @@ export function parallelBattery(batt, count = 2, {
   };
 }
 
+// What a pasted bench table says the rig can pull, in newtons — total, from the
+// per-motor peak the pilot pasted (thrust.js parses it; §6.1 calls it the escape
+// hatch for the model's shakiest inversion).
+//
+// Deliberately not capped by the continuous electrical ceiling: a published
+// thrust table is a bench figure at a fixed voltage, and clamping it to our
+// current chain would re-import the guess it exists to replace. It is the
+// pilot's own number, and it wins.
+function benchThrustN(drone) {
+  const perRotor = drone.maxThrustGPerRotor;
+  if (!(perRotor > 0)) return null;
+  return (perRotor * drone.numRotors / 1000) * G;
+}
+
+// A thrust figure → the go/no-go verdict, whatever the figure came from. 1.3:1
+// is the margin below which there is nothing left to steer with, and 2:1 is the
+// line under which a gust is a problem.
+function thrustVerdict(maxThrustN, massKg) {
+  const maxThrustG = maxThrustN / G * 1000;
+  const auwG = massKg * 1000;
+  const thrustToWeight = auwG > 0 ? maxThrustG / auwG : 0;
+  let code = 'viable';
+  if (thrustToWeight <= 1) code = 'no_lift';
+  else if (thrustToWeight < 1.3) code = 'no_control_margin';
+  else if (thrustToWeight < 2) code = 'marginal';
+  return {
+    code,
+    viable: code !== 'no_lift',
+    maxThrustN,
+    maxThrustG,
+    maxHoverMassG: maxThrustG,
+    payloadMarginG: maxThrustG - auwG,
+    thrustToWeight,
+  };
+}
+
 // Continuous static lift ceiling from the lowest electrical limit in the
 // battery → ESC → motor chain. No exact motor/prop thrust curves are published
 // for these aircraft, so ideal hover momentum theory is inverted through the
 // same calibrated etaProp used by the mission model. The result is deliberately
-// exposed as an estimate with its limiting component.
+// exposed as an estimate with its limiting component — unless the pilot pasted a
+// bench table, which replaces the inversion with a measurement.
 export function liftEnvelope({ drone, battery, rho, areaM2, tempC, massKg }) {
   const prop = drone.propulsion;
+  const bench = benchThrustN(drone);
   if (!prop) {
+    // A pilot-authored rig has no motor or ESC limits on record, so there is no
+    // electrical ceiling to invert — but a pasted table still answers the
+    // question outright, which is exactly the audience it is for.
+    if (bench !== null) {
+      return {
+        ...thrustVerdict(bench, massKg),
+        estimated: false,
+        confidence: 'measured',
+        maxElectricalW: Infinity,
+        limitingComponent: 'thrust table',
+      };
+    }
     return {
       code: 'unknown', viable: true, estimated: true, thrustToWeight: Infinity,
       maxThrustN: Infinity, maxThrustG: Infinity, maxHoverMassG: Infinity,
@@ -114,14 +164,9 @@ export function liftEnvelope({ drone, battery, rho, areaM2, tempC, massKg }) {
   const rotorElectricalW = Math.max(0, maxElectricalW - drone.avionicsW);
 
   const idealW = rotorElectricalW * drone.etaProp;
-  const maxThrustN = idealW > 0
+  const modelThrustN = idealW > 0
     ? Math.pow(idealW * Math.sqrt(2 * rho * areaM2), 2 / 3)
     : 0;
-  const maxThrustG = maxThrustN / G * 1000;
-  const auwG = massKg * 1000;
-  const thrustToWeight = auwG > 0 ? maxThrustG / auwG : 0;
-  const maxHoverMassG = maxThrustG;
-  const payloadMarginG = maxHoverMassG - auwG;
 
   let limitingComponent = 'motor';
   if (currentLimitedW <= motorLimitedW) {
@@ -130,25 +175,17 @@ export function liftEnvelope({ drone, battery, rho, areaM2, tempC, massKg }) {
     else if (escA <= motorA) limitingComponent = 'ESC';
   }
 
-  let code = 'viable';
-  if (thrustToWeight <= 1) code = 'no_lift';
-  else if (thrustToWeight < 1.3) code = 'no_control_margin';
-  else if (thrustToWeight < 2) code = 'marginal';
-
+  // The electrical ceiling still governs how fast this thing can go — that is a
+  // power question, and maxElectricalW is left alone. Only the lift figure is
+  // replaced.
   return {
-    code,
-    viable: code !== 'no_lift',
-    estimated: true,
-    confidence: prop.confidence || 'estimated',
-    maxThrustN,
-    maxThrustG,
-    maxHoverMassG,
-    payloadMarginG,
-    thrustToWeight,
+    ...thrustVerdict(bench ?? modelThrustN, massKg),
+    estimated: bench === null,
+    confidence: bench !== null ? 'measured' : (prop.confidence || 'estimated'),
     maxCurrentA,
     vLoad,
     maxElectricalW,
-    limitingComponent,
+    limitingComponent: bench !== null ? 'thrust table' : limitingComponent,
     sourceLabel: prop.sourceLabel,
     sourceUrl: prop.sourceUrl,
   };
@@ -490,7 +527,7 @@ export function planMission(inp) {
   if (flight.code === 'no_lift') {
     warnings.push({
       level: 'critical',
-      text: `WILL NOT FLY: ${massKg * 1000 > 0 ? (massKg * 1000).toFixed(0) : '—'} g all-up weight exceeds the estimated ${flight.maxHoverMassG.toFixed(0)} g continuous lift ceiling (${flight.thrustToWeight.toFixed(2)}:1 thrust-to-weight).`,
+      text: `WILL NOT FLY: ${massKg * 1000 > 0 ? (massKg * 1000).toFixed(0) : '—'} g all-up weight exceeds the ${flight.estimated === false ? 'measured' : 'estimated'} ${flight.maxHoverMassG.toFixed(0)} g continuous lift ceiling (${flight.thrustToWeight.toFixed(2)}:1 thrust-to-weight).`,
     });
   } else if (flight.code === 'no_control_margin') {
     warnings.push({

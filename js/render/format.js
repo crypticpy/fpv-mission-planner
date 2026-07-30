@@ -30,6 +30,11 @@ export const compass = (deg) => COMPASS[Math.round((((deg % 360) + 360) % 360) /
 // roughly half of it. Rule of thumb, labeled as one wherever it prints.
 export const surfaceMph = (aloftMph) => aloftMph / 2;
 
+// A lift ceiling is momentum theory's guess unless the pilot pasted a bench
+// table, in which case calling it "estimated" in a don't-fly verdict is a lie
+// about the one number they measured themselves.
+export const liftSource = (flight) => (flight?.estimated === false ? 'measured' : 'estimated');
+
 export function flightLabel(flight) {
   // No propulsion block on the airframe: the energy side of the plan is real,
   // the lift ceiling is simply unmodeled, and saying so beats inventing a verdict.
@@ -38,6 +43,24 @@ export function flightLabel(flight) {
   if (flight.code === 'no_control_margin') return 'NO CONTROL MARGIN';
   if (flight.code === 'marginal') return 'MARGINAL';
   return 'VIABLE';
+}
+
+/**
+ * The §6.2 hero band: "(7.9–8.8, from your 11 flights)". `band` is drift.js's
+ * `{ loKm, hiKm, nFlights }` already converted to display units by the caller,
+ * which is why this takes plain numbers.
+ *
+ * Returns '' when the two ends round to the same figure — a range of "8.4–8.4"
+ * claims a precision the fit doesn't have, and the bare headline already says
+ * that much.
+ */
+export function bandPhrase(lo, hi, nFlights) {
+  if (lo == null || hi == null || !isFinite(lo) || !isFinite(hi)) return '';
+  const a = f1(lo);
+  const b = f1(hi);
+  if (a === b) return '';
+  const n = nFlights > 0 ? `, from your ${nFlights} flight${nFlights === 1 ? '' : 's'}` : '';
+  return `(${a}–${b}${n})`;
 }
 
 const ESTIMATED_LABELS = {

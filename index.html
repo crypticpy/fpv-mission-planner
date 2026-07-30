@@ -63,7 +63,7 @@
         <select id="sel-drone"></select>
       </label>
       <!-- What this airframe's own flights say about it, and the one switch that
-           applies them. Filled by render/flightlog.js; stays hidden until the
+           applies them. Filled by render/calibration.js; stays hidden until the
            logbook has something to be honest about. -->
       <div id="calib-line" class="calib-line full-only" hidden></div>
       <label>Battery manufacturer
@@ -104,6 +104,17 @@
         <p id="flightlog-prefill" class="rail-note" role="status" hidden></p>
         <p id="flightlog-result" class="drone-live" role="status" hidden></p>
         <div id="flightlog-list"></div>
+        <!-- How wrong the model has been, per logged cruise leg (render/
+             calibration.js). Up only once there is a cruise leg to plot. -->
+        <div id="drift-panel" class="drift-panel full-only" hidden>
+          <div class="drift-head">
+            <p class="panel-title">Model vs your flights</p>
+            <button type="button" id="drift-toggle" class="link-btn">show residual vs speed</button>
+          </div>
+          <div id="legend-drift" class="viz-legend"></div>
+          <div id="chart-drift" class="chart"></div>
+          <p id="drift-note" class="rail-note" role="status"></p>
+        </div>
       </details>
       <details class="custom-batt full-only">
         <summary>Add a battery to compare</summary>
@@ -200,7 +211,9 @@
   <main class="content" id="view-dash" role="tabpanel" aria-labelledby="tab-dash">
     <section class="hero-card">
       <p class="tile-label">Mission radius — how far out you can push</p>
-      <p class="hero-figure"><span id="hero-value">—</span><span id="hero-unit" class="hero-unit">mi</span></p>
+      <!-- The band is the spread the pilot's own flights show (§6.2) — present
+           only while a fit with a band is applied. -->
+      <p class="hero-figure"><span id="hero-value">—</span><span id="hero-unit" class="hero-unit">mi</span><span id="hero-band" class="hero-band full-only" hidden></span></p>
       <p class="tile-sub" id="hero-sub"></p>
     </section>
 

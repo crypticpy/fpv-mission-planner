@@ -1,6 +1,8 @@
 // render/flightlog.js — "log a flight" (§6.2). The 30-second form off the OSD
-// and the charger, the solve it shows you straight away, the logbook list, and
-// the calibration status line with the one switch that applies a fit.
+// and the charger, the solve it shows you straight away, and the logbook list.
+//
+// What the fits then argue for — the status line, the apply switch and the drift
+// chart — lives in render/calibration.js. This file is the input half.
 //
 // The three things this file is careful about:
 //   - Tier-1 entry is fast. Kind, pack, time, mAh back in — four controls, and
@@ -10,11 +12,10 @@
 //     cannot believe still gets stored (it happened) and still says why it is
 //     out of the fit, because "check the pack capacity and the landed %" is the
 //     sentence that fixes the pilot's data.
-//   - Nothing is ever applied silently. The status line is the only place a fit
-//     turns into a plan, and when the 'default' tier switches itself on the line
-//     says so in words.
+//   - Nothing is ever applied silently. The status line next door is the only
+//     place a fit turns into a plan.
 import {
-  fitForDrone, appliedState, setCalibrationApplied, clearCalibrationApplied,
+  fitForDrone, clearCalibrationApplied,
   logsForDrone, saveFlightLog, deleteFlightLog, newLogId, solveLog,
 } from '../flightlog.js';
 import { classForDrone } from '../catalog/classes.js';
@@ -23,18 +24,12 @@ import { state, beginner, units, catalogDrone, payload } from '../state.js';
 import { U } from '../physics.js';
 import { fetchArchiveEnv, launchPoint } from '../weather.js';
 import { buildForm, readForm } from '../forms.js';
+import { FIELD_FMT, FIELD_SYMBOL, renderCalibrationLine, renderDriftChart } from './calibration.js';
 import { f0, f1, mmss } from './format.js';
 import { $ } from './dom.js';
 
 let deps = null; // injected by app.js: { update, populateControls }
 export function setupFlightLog(d) { deps = d; }
-
-const etaFmt = (v) => v.toFixed(2);
-const cdaFmt = (v) => v.toFixed(3);
-const FIELD_FMT = { etaProp: etaFmt, cdA: cdaFmt };
-const FIELD_LABEL = { etaProp: 'etaProp', cdA: 'cdA' };
-const FIELD_SYMBOL = { etaProp: 'η', cdA: 'CdA' };
-const FIELD_UNIT = { etaProp: '', cdA: ' m²' };
 
 /* ---------- the descriptor ---------- */
 
@@ -277,102 +272,6 @@ async function runPrefill() {
   }
 }
 
-/* ---------- the calibration status line ---------- */
-
-// What the number being replaced actually is, per airframe. A built-in's is the
-// catalog's own calibration; a pilot-authored rig is running its class template
-// until it says otherwise (§6.1's confidence field).
-function baseLabel(d) {
-  if (!d.custom) return 'catalog';
-  return d.confidence === 'measured' ? 'as you entered it' : 'class default';
-}
-
-function fitLine(field, base, part, d) {
-  const fmt = FIELD_FMT[field];
-  const unit = FIELD_UNIT[field];
-  const n = part.n;
-  return `${FIELD_LABEL[field]} ${fmt(base)}${unit} (${baseLabel(d)}) → ${fmt(part.value)}${unit}`
-    + ` (yours, ${n} flight${n === 1 ? '' : 's'}, ±${fmt(part.band)})`;
-}
-
-/**
- * The §6.2 line: what the catalog says, what the pilot's flights say, and a
- * switch. Hidden entirely until there is a fit to talk about — an airframe with
- * an empty logbook has nothing to be honest about.
- */
-export function renderCalibrationLine() {
-  const host = $('calib-line');
-  host.replaceChildren();
-  const d = catalogDrone();
-  const fit = fitForDrone(d);
-  if (fit.tier === 'none' && !fit.nLogs) {
-    host.hidden = true;
-    return;
-  }
-  host.hidden = false;
-
-  for (const field of ['etaProp', 'cdA']) {
-    if (!fit[field]) continue;
-    const row = document.createElement('p');
-    row.className = 'calib-fit';
-    row.textContent = fitLine(field, d[field], fit[field], d);
-    host.appendChild(row);
-  }
-
-  const applied = appliedState(fit);
-  const row = document.createElement('label');
-  row.className = 'check-row';
-  const cb = document.createElement('input');
-  cb.type = 'checkbox';
-  cb.id = 'calib-apply';
-  cb.checked = applied.on;
-  cb.disabled = !applied.usable;
-  const text = document.createElement('span');
-  text.textContent = 'Fly my numbers instead of the catalog’s';
-  row.append(cb, text);
-  cb.addEventListener('change', () => {
-    setCalibrationApplied(d.id, cb.checked);
-    deps.populateControls();
-    deps.update();
-  });
-  host.appendChild(row);
-
-  const note = document.createElement('p');
-  note.className = 'rail-note calib-note';
-  note.textContent = tierNote(fit, applied);
-  host.appendChild(note);
-}
-
-function tierNote(fit, applied) {
-  const parts = [];
-  if (fit.tier === 'none') {
-    parts.push(fit.nLogs === 1
-      ? 'That flight is logged, but nothing in it could be solved — see the reason under it.'
-      : `${fit.nLogs} flights logged, none of them solvable — see the reasons under them.`);
-  } else if (fit.tier === 'show') {
-    const need = 3 - fit.nFlights;
-    parts.push(`Log ${need} more flight${need === 1 ? '' : 's'} to use this — `
-      + 'one flight is a data point, not a calibration.');
-  } else if (fit.tier === 'offer' && !fit.speedSpreadOk) {
-    parts.push(fit.etaProp && !fit.cdA
-      ? 'Log a cruise leg to separate drag from efficiency — five flights across two speeds turn this on by itself.'
-      : 'Five flights across two speeds turn this on by itself.');
-  }
-  if (applied.announced) {
-    parts.push('Five flights across two speeds earned it, so it is applied now — '
-      + 'switch it off above if you disagree.');
-  }
-  if (fit.cdA && !fit.etaPinned) {
-    parts.push('The drag fit is leaning on the catalog’s efficiency, not yours — a hover test pins that first.');
-  }
-  if (fit.nRefused) {
-    parts.push(`${fit.nRefused} logged flight${fit.nRefused === 1 ? '' : 's'} `
-      + `${fit.nRefused === 1 ? 'is' : 'are'} out of the fit — the model can’t believe `
-      + `${fit.nRefused === 1 ? 'it' : 'them'}.`);
-  }
-  return parts.join(' ');
-}
-
 /* ---------- the logbook list ---------- */
 
 function logRowText(entry, u) {
@@ -498,9 +397,10 @@ export function buildFlightLogForm() {
 
 /**
  * Keep the section in step with the rail: the pack roster for the airframe now
- * selected, the conditions prefill, the logbook, and the status line. Called
- * from populateControls() on every state change — and it rebuilds the form
- * outright when the unit system changes, since half its labels name a unit.
+ * selected, the conditions prefill, the logbook, and next door's status line and
+ * drift chart. Called from populateControls() on every state change — and it
+ * rebuilds the form outright when the unit system changes, since half its labels
+ * name a unit.
  */
 export function renderFlightLog() {
   if (builtForUnits !== state.units) build();
@@ -523,6 +423,7 @@ export function renderFlightLog() {
   syncConditions();
   renderLogList();
   renderCalibrationLine();
+  renderDriftChart();
   // Nothing in here is reachable in beginner mode (the section and the status
   // line both carry .full-only), but an applied fit still flies — the pilot's
   // decision doesn't evaporate because they hid the physics.
