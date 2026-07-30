@@ -19,7 +19,7 @@ import { CLASSES, classById } from '../catalog/classes.js';
 import {
   allDrones, allBatteries, saveCustomDrone, deleteCustomDrone, compatibleBatteries,
 } from '../registry.js';
-import { state, battery, payload } from '../state.js';
+import { state, battery, payload, packTemp } from '../state.js';
 import { airDensity, discAreaM2, powerAtSpeed, dischargeSim, U } from '../physics.js';
 import { buildForm, readForm } from '../forms.js';
 import { CONFIDENCE_OPTIONS, normalizeConfidence } from '../schema.js';
@@ -312,6 +312,9 @@ function crossChecks(rec) {
   if (!pack) return null;
   const tempC = U.fToC(state.env.tempF);
   const { rho } = airDensity(U.ftToM(state.env.elevFt), tempC, state.env.rhPct);
+  // Air for the density, the pack's own temperature for the discharge — the same
+  // split planMission makes, so this readout agrees with the plan above it.
+  const packTempC = packTemp().tempC;
   const p = payload();
   const massKg = (rec.dryMassG + pack.massG + p.massG + (state.extraG || 0)) / 1000;
   const areaM2 = discAreaM2(rec);
@@ -331,7 +334,7 @@ function crossChecks(rec) {
   return {
     pack,
     massKg,
-    hoverMin: pHover > 0 ? dischargeSim(pack, tempC, pHover).deliveredWh * (1 - reserve) / pHover * 60 : 0,
+    hoverMin: pHover > 0 ? dischargeSim(pack, packTempC, pHover).deliveredWh * (1 - reserve) / pHover * 60 : 0,
     discLoadingGcm2: (massKg * 1000) / (areaM2 * 1e4),
     wPerKg: pHover / massKg,
     throttlePct: motorW ? (pHover / motorW) * 100 : null,

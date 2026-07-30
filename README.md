@@ -76,7 +76,16 @@ they just won't load offline.
 3. **Battery** — per-chemistry OCV curve (Li-Ion / LiPo / LiHV), constant-power
    discharge sim with internal-resistance sag (quadratic current solve), cold
    temperature capacity/IR derating, low-voltage cutoff under load. Sag can end
-   the flight before the energy does — the tool warns when that happens.
+   the flight before the energy does — the tool warns when that happens. The
+   temperature those curves read is the **pack's**, and that is not always the
+   air's: by default they are the same number, because a pack that rode to the
+   field in your bag is at air temperature, and ticking **Pack isn't at air
+   temperature** in the Weather rail lets you say otherwise. Preheating packs is
+   the one cold-weather move that really works and the model had no way to hear
+   about it before; the same field says the opposite too, for packs still
+   cold-soaked from a car left out overnight. Air temperature keeps setting air
+   density either way, and the cold warning clears when the pack is warm — read
+   the limitation below before you trust the size of the cold penalty.
 4. **Lift envelope** — continuous battery current, pack sag, ESC limits, and
    published motor electrical limits cap the available rotor power. The model
    inverts hover momentum theory through the calibrated airframe efficiency to
@@ -339,7 +348,9 @@ provenance; the model applies its own temperature curve regardless.
 A pack in the list is a *model*. If you own three of them and one has been
 through 180 cycles, "Which pack is this?" under the battery selector is where you
 say which one is strapped on. Add each physical pack with a name, its cycle
-count, and its measured resistance if you have it; the plan then flies **that
+count, and its measured resistance if you have it (with the bench temperature you
+read it at, which is provenance for that measurement — a different thing from the
+takeoff pack temperature in the Weather rail); the plan then flies **that
 pack** — a measured 34 mΩ replaces the 22 mΩ on record for the model, and the
 footnote under the plan says so. Your selection is remembered per pack model, and
 switching back to "Catalog spec" undoes it.
@@ -388,6 +399,16 @@ from one they typed in.
 - Lift ceilings are physics estimates constrained by published electrical
   limits, not exact thrust-stand curves for the installed motor/prop pairs.
   Replace them with measured thrust/current tables when those become available.
+- The cold rows of the capacity and resistance tables come off gentle bench
+  discharges of a pack held at temperature, and a flying pack does neither: it
+  gets pulled hard in bursts, and the very resistance that costs you the energy
+  heats the cells while they work. So the cold penalty is wrong in two opposite
+  directions. It **under-states the sag on your first hard pull** — that one
+  meets the pack at its full cold resistance — and **over-states what cold costs
+  you across a whole flight**, because minutes in, the pack has warmed itself and
+  is really living on a milder row of the table than the one we hold it at.
+  Preheating is modeled; the pack cooling back down in the airstream is not, so a
+  preheated plan is the optimistic end of what you'll get.
 - Climb/descent energy, rain, and prop wear aren't modeled. The scenario burn
   multiplier is a flat average for the pattern — a single sustained dive-and-punch
   sequence can transiently pull far beyond it, which is what the landing reserve

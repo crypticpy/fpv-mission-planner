@@ -31,6 +31,16 @@ export const state = {
   // How much of the gust spread the planning wind carries, as a percent
   // (physics.GUST_FACTOR_DEFAULT × 100). Expert-only; see populateControls().
   gustFactorPct: 35,
+  // The pack's own temperature at takeoff (°F), or null when it tracks the air
+  // (Phase 4 item 3). Null is the honest default — a pack that rode to the field
+  // in a bag is at air temperature — and a number is the pilot saying otherwise:
+  // warmed on the car dash, or still cold-soaked from a car left out overnight.
+  // Expert-only; beginner mode pins it back to null.
+  //
+  // Not to be confused with a pack instance's `irTempC` (js/packinstances.js):
+  // that records what the bench was at when the charger measured the pack's
+  // resistance. This is how warm the pack is when it leaves the ground.
+  packTempF: null,
   cruiseMode: 'real',
   manualMph: 40,
   speedMetric: 'radius',
@@ -38,6 +48,32 @@ export const state = {
 };
 
 export const beginner = () => state.detail === 'beginner';
+
+/**
+ * The pack-temperature override's own range, in °F — the rail input's min/max and
+ * the bound restoreSession() validates against, in one place so a saved blob can
+ * never hold a temperature the control cannot show.
+ */
+export const PACK_TEMP_RANGE_F = [-20, 120];
+
+/**
+ * What ticking the pack-temperature box starts from: a pack off the car dash or
+ * out of an inside pocket. Never colder than the air it is standing in, so
+ * turning the control on can't make the plan worse by surprise — the pilot has to
+ * type a colder number to say the pack is cold-soaked.
+ */
+export const packPreheatSeedF = () => Math.max(70, Math.round(state.env.tempF));
+
+/**
+ * The pack temperature the plan actually runs on: the pilot's override when there
+ * is one, otherwise the air. `overridden` is what the UI says out loud, and the
+ * only reason this returns a shape rather than a number.
+ */
+export function packTemp() {
+  const overridden = state.packTempF != null;
+  const tempF = overridden ? state.packTempF : state.env.tempF;
+  return { overridden, tempF, tempC: U.fToC(tempF) };
+}
 
 /* ---------- session persistence ---------- */
 
@@ -77,6 +113,14 @@ export function restoreSession() {
   const gustFactor = s.gustFactorPct === undefined ? GUST_FACTOR_DEFAULT * 100
     : num(s.gustFactorPct, 0, 100) ? s.gustFactorPct
     : null;
+  // Same tolerance for the pack temperature, with the wrinkle that `null` is a
+  // real, meaningful value here (the pack tracks the air) rather than an absence
+  // — so a missing key and a stored null land on the same place, and only a
+  // number out of the input's own range voids the blob. `false` sentinels the
+  // void, since null is taken.
+  const packTemp = s.packTempF === undefined || s.packTempF === null ? null
+    : num(s.packTempF, PACK_TEMP_RANGE_F[0], PACK_TEMP_RANGE_F[1]) ? s.packTempF
+    : false;
   // allDrones(), not the catalog: a rig the pilot added themselves has to survive
   // a reload exactly like a built-in, and store.js is import-time safe so the
   // custom records are readable this early in boot.
@@ -100,7 +144,8 @@ export function restoreSession() {
     && ['radius', 'time'].includes(s.speedMetric)
     && ['headOut', 'tailOut', 'cross'].includes(env.windMode)
     && typeof s.parallelPacks === 'boolean'
-    && num(s.extraG, 0, 500) && landFloor !== null && gustFactor !== null && num(s.manualMph, 5, 120)
+    && num(s.extraG, 0, 500) && landFloor !== null && gustFactor !== null && packTemp !== false
+    && num(s.manualMph, 5, 120)
     && num(env.elevFt, -1500, 30000) && num(env.tempF, -60, 140) && num(env.rhPct, 0, 100)
     && num(env.windMph, 0, 120) && num(env.gustMph, 0, 160) && num(env.windFromDeg, 0, 359);
   if (!ok) return null;
@@ -108,7 +153,7 @@ export function restoreSession() {
     units: s.units, droneId: s.droneId, manufacturerId: s.manufacturerId, batteryId: s.batteryId,
     parallelPacks: s.parallelPacks, payloadId: s.payloadId, extraG: s.extraG,
     weatherId: s.weatherId, scenarioId: s.scenarioId,
-    landFloorPct: landFloor, gustFactorPct: gustFactor,
+    landFloorPct: landFloor, gustFactorPct: gustFactor, packTempF: packTemp,
     cruiseMode: s.cruiseMode, manualMph: s.manualMph, speedMetric: s.speedMetric,
     detail: ['full', 'beginner'].includes(s.detail) ? s.detail : 'full',
     env: {
@@ -210,6 +255,12 @@ export function missionInputs(batt = battery(), envOverride = null) {
       windFromDeg: env.windFromDeg,
       windMode: env.windMode,
     },
+    // The pack's temperature, resolved against whichever air this call is
+    // planning — `env` may be a swept copy of the rail (the wind-sensitivity
+    // chart), and the pilot's override stands over all of them. Equal to
+    // `env.tempC` to the last bit while it tracks the air, which is what keeps an
+    // untouched plan identical to one from before this input existed.
+    packTempC: U.fToC(state.packTempF ?? env.tempF),
     landFloorPct: state.landFloorPct,
     gustFactor: state.gustFactorPct / 100,
     cruiseMode: state.cruiseMode,

@@ -206,6 +206,19 @@
         <input id="in-gustf" type="range" min="0" max="100" step="5" aria-describedby="gustf-note">
       </label>
       <p id="gustf-note" class="rail-note full-only"></p>
+      <!-- Pack temperature, apart from the air (Phase 4 item 3). Preheating packs
+           is the biggest thing a pilot does about cold and the model could not
+           represent it: one temperature drove both the air density and the cell
+           chemistry. Off by default — a pack that rode here in a bag is at air
+           temperature — and expert-only, so beginner mode always plans that. -->
+      <label class="check-row full-only">
+        <input id="in-packtemp-on" type="checkbox">
+        <span>Pack isn’t at air temperature</span>
+      </label>
+      <label id="packtemp-row" class="full-only" hidden>Pack temp at takeoff (°F)
+        <input id="in-packtemp" type="number" step="1" min="-20" max="120" aria-describedby="packtemp-note">
+      </label>
+      <p id="packtemp-note" class="rail-note full-only"></p>
       <div id="forecast-strip" class="forecast-strip" hidden>
         <p id="forecast-banner" class="forecast-banner" hidden></p>
         <label>Plan for <span id="forecast-when" class="range-val"></span>
@@ -351,7 +364,8 @@
 
     <p class="footnote" id="battery-note"></p>
     <p class="footnote">Model: momentum-theory rotor power on total disc area, humid-air density (elevation · temp · humidity),
-      per-chemistry discharge simulation with internal-resistance sag and cold-weather derating, wind-split cruise optimization
+      per-chemistry discharge simulation with internal-resistance sag and cold-weather derating off the pack’s own
+      temperature, wind-split cruise optimization
       per leg. Calibrated to logged flights (see README). Physics is a planning estimate — always fly with margin.</p>
   </main>
 

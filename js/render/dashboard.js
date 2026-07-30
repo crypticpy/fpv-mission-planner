@@ -158,8 +158,10 @@ function verdict(r, stranded) {
   const gustMs = U.mphToMs(state.env.gustMph);
   const gustShare = r.speedLimitMs > 0 ? gustMs / r.speedLimitMs : 0;
   const iRatio = b.maxContA ? r.hover.iA / b.maxContA : 0;
-  const tempC = U.fToC(state.env.tempF);
-  const coldPack = b.chem === 'liion' ? tempC <= 0 : tempC <= 5;
+  // Cold is the *pack's* temperature now, not the air's (Phase 4 item 3), so a
+  // preheated pack in freezing air stops being warned about — which is the whole
+  // point of being able to say the pack is warm.
+  const coldPack = r.temps.cold;
   const times = legTimes(r);
 
   const stop = [];
@@ -219,8 +221,12 @@ function verdict(r, stranded) {
   }
   if (coldPack) {
     care.push([
-      'The pack is cold: expect less capacity than the plan assumes and heavy sag on the first pull.',
-      'Keep packs in a pocket until launch, and cut a minute off the timer.',
+      'The pack is cold: expect less capacity than the plan assumes and heavy sag on the first pull. '
+        + 'The cold figures come off a gentle bench discharge, so they run pessimistic over the whole flight '
+        + 'and optimistic about that first pull.',
+      r.temps.packOverride
+        ? 'That is the pack temperature you set — get it warmer still, and cut a minute off the timer.'
+        : 'Keep packs in a pocket until launch, tell the rail they are preheated, and cut a minute off the timer.',
     ]);
   }
   if (r.densityAltM > 2500) {
@@ -250,6 +256,13 @@ function verdict(r, stranded) {
   }
   if (b.maxContA) chips.push(`hover ${f0(iRatio * 100)}% of pack rating`);
   chips.push(r.energy.sagLimited ? 'sag-limited' : 'sag headroom OK');
+  // A pack temperature apart from the air changes capacity, sag and radius without
+  // appearing in any other figure on screen, so the margin line carries it — the
+  // plan above is answering a question the pilot asked, and this is where it says
+  // so. Silent while the pack tracks the air, which is the default.
+  if (r.temps.packOverride) {
+    chips.push(`pack ${f0(U.cToF(r.temps.packC))}°F in ${f0(U.cToF(r.temps.airC))}°F air`);
+  }
   // The get-home headline, compressed: the strongest headwind the retained energy
   // beats on the way back from the turnaround.
   if (r.energy.holdsHeadwindMs != null) chips.push(`reserve holds to ${spd(r.energy.holdsHeadwindMs)}`);

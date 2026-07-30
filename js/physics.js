@@ -193,6 +193,10 @@ function thrustVerdict(maxThrustN, massKg) {
 // same calibrated etaProp used by the mission model. The result is deliberately
 // exposed as an estimate with its limiting component — unless the pilot pasted a
 // bench table, which replaces the inversion with a measurement.
+//
+// Two temperatures reach this function and they are not the same one: `rho` was
+// computed from the air, while `tempC` is the *pack's* temperature and is only
+// read by the chemistry's internal-resistance factor below (Phase 4 item 3).
 export function liftEnvelope({ drone, battery, rho, areaM2, tempC, massKg }) {
   const prop = drone.propulsion;
   const bench = benchThrustN(drone);
@@ -262,7 +266,30 @@ export function liftEnvelope({ drone, battery, rho, areaM2, tempC, massKg }) {
 
 /* ---------------- Battery chemistry ---------------- */
 
-// OCV per cell vs state-of-charge (%), capacity & internal-resistance factors vs °C.
+/**
+ * OCV per cell vs state-of-charge (%), capacity & internal-resistance factors vs
+ * temperature — the *pack's* temperature, not the air's, which is why
+ * planMission takes the two apart (Phase 4 item 3).
+ *
+ * What the cold rows are, and what they are not. Both temperature tables come
+ * off low-rate bench discharges of a cell held at the stated temperature for the
+ * whole sweep. A pack bolted to an airframe does neither: it gets pulled hard in
+ * bursts, and it heats itself while it works — the I²R the cold `irTemp` factor
+ * describes is a loss that lands inside the cells. So the tables err in two
+ * opposite directions, and it matters which is which:
+ *
+ *   the first pull is worse than this says. A cold pack meets the climb-out at
+ *     its full cold resistance, and that sag is deeper than any steady-state
+ *     curve at the same temperature predicts.
+ *   the rest of the flight is better than this says. Minutes in, the pack has
+ *     warmed itself and is really living on a milder row of the table than the
+ *     one we hold it at, so the whole-flight penalty here reads pessimistic.
+ *
+ * Fixing that properly needs a thermal mass and a heat-transfer coefficient per
+ * pack — numbers nobody can type. So the tables stay as they are, the pack/air
+ * split lets a pilot say the pack started warm, and the cold warning and the
+ * README both say out loud which way each error runs.
+ */
 export const CHEMISTRY = {
   liion: {
     label: 'Li-Ion',
@@ -290,6 +317,17 @@ export const CHEMISTRY = {
     irTemp: [[-10, 3.0], [0, 2.0], [10, 1.4], [25, 1], [50, 0.9]],
   },
 };
+
+/**
+ * Is the pack cold enough to say something about? Li-Ion holds together down to
+ * freezing where LiPo/LiHV are already giving up capacity and punch by 5 °C —
+ * the two thresholds the mission warnings and the verdict card have always used,
+ * in one place now that both of them read the pack's temperature instead of the
+ * air's.
+ */
+export function isColdPack(chem, packTempC) {
+  return packTempC <= (chem === 'liion' ? 0 : 5);
+}
 
 export function interp(table, x) {
   if (x <= table[0][0]) return table[0][1];
@@ -508,6 +546,9 @@ function headwindLimitMs(radiusKm, budgetWh, solveLeg, vMaxMs) {
  * inputs: {
  *   drone, battery, payloadG, extraG,
  *   env: { elevM, tempC, rhPct, windAvgMs, windGustMs, windMode, windFromDeg },
+ *   packTempC,    // the pack's own temperature at takeoff; defaults to env.tempC
+ *                 // (a pack that cold-soaked in the bag). Air temp keeps the air
+ *                 // density; this drives every chemistry curve — see below
  *   landFloorPct, // pack-care floor: charge (% of delivered Wh) not to land below
  *   gustFactor,   // share of the gust spread the planning wind carries
  *   getHome,      // get-home reserve policy: false to size the mission with no
@@ -531,6 +572,25 @@ export function planMission(inp) {
   if (!battery) return { code: 'no_battery', warnings: [] };
   const warnings = [];
   const { rho, densityAltM } = airDensity(env.elevM, env.tempC, env.rhPct);
+
+  /* ---- Pack temperature, apart from air temperature (Phase 4 item 3) ----
+   *
+   * Preheating packs is the single biggest thing a pilot does about cold, and
+   * until now the model could not express it: one temperature fed both the air
+   * density and the cell chemistry, so warming a pack meant lying about the air.
+   * They are split here — air density still reads `env.tempC`, while capacity,
+   * internal resistance and the sag ceiling in liftEnvelope() read the pack.
+   *
+   * The default is that they are the same number, because that is usually true:
+   * a pack that rode to the field in a backpack is at air temperature. An
+   * override is the pilot saying otherwise, in either direction (off the car
+   * dash and warm, or still cold-soaked from a car left out overnight), so
+   * `packOverride` is derived by comparison rather than from the field being
+   * present — passing a pack temperature equal to the air claims nothing, and
+   * changes nothing.
+   */
+  const packTempC = inp.packTempC ?? env.tempC;
+  const packOverride = packTempC !== env.tempC;
 
   const massKg = (drone.dryMassG + battery.massG + inp.payloadG + (inp.extraG || 0)) / 1000;
   const areaM2 = discAreaM2(drone);
@@ -562,7 +622,7 @@ export function planMission(inp) {
   const vNomPack = battery.s > 0 ? battery.s * CHEMISTRY[battery.chem].vNom : 1;
   const iHover = pHover / vNomPack;
   const discLoadingGcm2 = (massKg * 1000) / (areaM2 * 1e4);
-  const flight = liftEnvelope({ drone, battery, rho, areaM2, tempC: env.tempC, massKg });
+  const flight = liftEnvelope({ drone, battery, rho, areaM2, tempC: packTempC, massKg });
 
   // The published top speed is only usable while the loaded aircraft remains
   // inside both its continuous power and thrust envelopes.
@@ -611,7 +671,7 @@ export function planMission(inp) {
   const pOut = legOut ? pOutSteady * overheadF : pHover;
   const pBack = legBack ? pBackSteady * overheadF : pHover;
   const pAvg = (pOut + pBack) / 2;
-  const sim = dischargeSim(battery, env.tempC, pAvg);
+  const sim = dischargeSim(battery, packTempC, pAvg);
 
   /* ---- The get-home reserve (Phase 4 item 2) ----
    *
@@ -702,7 +762,7 @@ export function planMission(inp) {
   // Hovering over your own feet has no leg to fly home, so only the pack-care
   // floor applies to this one.
   const hoverTimeMin = inp.lite ? 0
-    : dischargeSim(battery, env.tempC, pHover).deliveredWh * (1 - floorFrac) / pHover * 60;
+    : dischargeSim(battery, packTempC, pHover).deliveredWh * (1 - floorFrac) / pHover * 60;
   const cruiseTimeMin = usableWh / pAvg * 60; // loiter at cruise power
   // The headline: what the retained energy is actually worth, read back out of
   // the plan rather than asserted. Equal to gh.windMs to bisection precision
@@ -719,8 +779,8 @@ export function planMission(inp) {
     const outMin = radiusKm / (legOut.vg * 3.6) * 60;
     const backMin = radiusKm / (legBack.vg * 3.6) * 60;
     const whPerPct = sim.deliveredWh > 0 ? sim.deliveredWh / (100 - sim.stopSoc) : 1;
-    const simOut = dischargeSim(battery, env.tempC, pOut);
-    const simBack = dischargeSim(battery, env.tempC, pBack);
+    const simOut = dischargeSim(battery, packTempC, pOut);
+    const simBack = dischargeSim(battery, packTempC, pBack);
     let soc = 100;
     const steps = 120;
     for (let i = 0; i <= steps; i++) {
@@ -773,12 +833,40 @@ export function planMission(inp) {
   }
   if (sim.sagLimited) warnings.push({ level: 'serious', text: 'Voltage sag cuts the flight before the capacity is used — the pack is the limiter, not the energy.' });
   if (env.windGustMs > 0.45 * vMax) warnings.push({ level: 'serious', text: 'Gusts are a large fraction of this craft\'s top speed — expect control-authority margins to shrink.' });
-  if (env.tempC <= 5 && battery.chem !== 'liion') warnings.push({ level: 'warning', text: 'Cold LiPo/LiHV: expect reduced capacity and heavy early sag. Keep packs warm until launch.' });
-  if (env.tempC <= 0 && battery.chem === 'liion') warnings.push({ level: 'warning', text: 'Sub-freezing Li-Ion: capacity and current capability drop. Warm packs before flight.' });
+  // Cold is a property of the pack, so this reads the pack: preheating one is a
+  // real mitigation and the warning has to clear when the pilot has done it.
+  // Both halves of the honesty go in the text — what cold costs, and which way
+  // the table behind the figure is wrong (see CHEMISTRY).
+  if (isColdPack(battery.chem, packTempC)) {
+    warnings.push({
+      level: 'warning',
+      text: `Cold ${CHEMISTRY[battery.chem].label} pack: less capacity than the plan would like and heavy sag on the first pull. `
+        + (packOverride
+          ? 'This is the temperature you set for the pack, not the air — warm it further before launch. '
+          : 'Keep the packs somewhere warm until launch, and say so above if you preheat them. ')
+        + 'The cold numbers behind this come off a gentle bench discharge, so they under-state that first-pull sag '
+        + 'and over-state the penalty later on, once the pack has warmed itself up under load.',
+    });
+  }
+  // A warm pack in cold air does not stay warm, and nothing in this model cools
+  // it down. Say that where the pilot claimed the head start.
+  if (packOverride && packTempC > env.tempC && isColdPack(battery.chem, env.tempC)) {
+    warnings.push({
+      level: 'warning',
+      text: 'Preheated pack in cold air: the chemistry here reads the pack, not the air, and nothing models it cooling '
+        + 'down in the airstream. Insulate it, launch soon after it comes off the warmer, and treat these figures as '
+        + 'the optimistic end.',
+    });
+  }
   if (densityAltM > 2500) warnings.push({ level: 'warning', text: `Density altitude ${(densityAltM * 3.28084).toFixed(0)} ft — thrust margin and efficiency are both reduced up here.` });
 
   return {
     rho, densityAltM, massKg, discLoadingGcm2, areaM2,
+    // The two temperatures the plan ran on, and whether they differ. `airC` is
+    // what set the density; `packC` is what every chemistry curve read. The UI
+    // says the split out loud whenever `packOverride` is true, because it moves
+    // the answer without appearing in any other figure on screen.
+    temps: { airC: env.tempC, packC: packTempC, packOverride, cold: isColdPack(battery.chem, packTempC) },
     hover: { pW: pHover, iA: iHover, gPerW: (massKg * 1000) / pHover },
     endurance: endur ? { vMs: endur.v, pW: endur.p } : null,
     wind: { planningMs: windMs, out: vecOut, back: vecBack, gustFactor },

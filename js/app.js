@@ -13,12 +13,12 @@ import { setupThemes } from './themes.js';
 import { readForm } from './forms.js';
 import {
   state, beginner, drone, battery, compatibleBatteries, missionInputs, scenario, units,
-  saveSession, restoreSession,
+  saveSession, restoreSession, packPreheatSeedF, PACK_TEMP_RANGE_F,
 } from './state.js';
 import { $, fillSelect } from './render/dom.js';
 import { f0 } from './render/format.js';
 import {
-  setupControls, populateControls, renderWindNotes, renderBatteryNote,
+  setupControls, populateControls, renderWindNotes, renderPackTempNote, renderBatteryNote,
   buildAuthoringForms, BATTERY_FORM, MANUFACTURER_FORM,
 } from './render/controls.js';
 import { setupDroneForm, buildDroneForm } from './render/droneform.js';
@@ -53,6 +53,10 @@ function update() {
   $('scenario-desc').textContent =
     `${sc.desc} Burns about ${f0((sc.overheadFactor - 1) * 100)}% more than steady cruise.`;
   $('cmp-radius-title').textContent = `Mission radius (${u.distanceUnit})`;
+  // Ahead of the no-pack bail-out below, because this one owns the visibility of
+  // its own control: a rig with no compatible pack still has a rail the pilot can
+  // tick the pack-temperature box on.
+  renderPackTempNote();
   const r = planMission(missionInputs());
   // Handled, not thrown: with no pack there is no plan, and every render below
   // this line reads one. Say it in the verdict card and stop here.
@@ -234,6 +238,23 @@ function bind() {
   $('in-gustf').addEventListener('input', e => {
     state.gustFactorPct = Math.min(100, Math.max(0, +e.target.value || 0));
     $('gustf-val').textContent = `${state.gustFactorPct}%`;
+    update();
+  });
+  $('in-packtemp-on').addEventListener('change', e => {
+    // On, the pack starts at a plausible preheat rather than an empty field; off,
+    // it goes back to tracking the air, which is the default and the honest one.
+    state.packTempF = e.target.checked ? packPreheatSeedF() : null;
+    update();
+  });
+  $('in-packtemp').addEventListener('input', e => {
+    // An empty or half-typed field ("-", "") is someone mid-edit, not a pack at
+    // 0 °F — leave the last good number in place and wait.
+    const v = e.target.value === '' ? NaN : +e.target.value;
+    if (!Number.isFinite(v)) return;
+    // Clamped to the input's own range for the same reason in-extra is: a typed
+    // out-of-range value would void the whole session restore.
+    const [lo, hi] = PACK_TEMP_RANGE_F;
+    state.packTempF = Math.min(hi, Math.max(lo, v));
     update();
   });
   $('sel-cruise').addEventListener('change', e => {

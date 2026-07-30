@@ -7,9 +7,9 @@ import {
 } from '../data.js';
 import {
   state, beginner, units, drone, droneBatteries, compatibleBatteries, battery,
-  manufacturer, loadoutBattery, EXPERT_CRUISE_MODES,
+  manufacturer, loadoutBattery, packTemp, EXPERT_CRUISE_MODES,
 } from '../state.js';
-import { GUST_FACTOR_DEFAULT } from '../physics.js';
+import { GUST_FACTOR_DEFAULT, isColdPack, U } from '../physics.js';
 import { deletePackInstancesFor } from '../packinstances.js';
 import { buildForm } from '../forms.js';
 import { classById } from '../catalog/classes.js';
@@ -60,6 +60,43 @@ export function renderWindNotes() {
     + 'so this spread is borrowed from lower air than the drone is in.';
 }
 
+/**
+ * The pack-temperature control and the sentence under it (Phase 4 item 3).
+ *
+ * Live like renderWindNotes(), and for the same reason: the air temperature it
+ * quotes, the pack it is comparing against, and the chemistry deciding what
+ * counts as cold all move without the rail being rebuilt.
+ *
+ * The honesty about the cold table lands here, next to the knob, whenever cold is
+ * in play at either temperature — the rest of the app shows the cold penalty as a
+ * smaller radius, and this is the only place that can say which way the figure is
+ * wrong before the pilot trusts it.
+ */
+export function renderPackTempNote() {
+  const { overridden, tempF } = packTemp();
+  const airF = state.env.tempF;
+  $('in-packtemp-on').checked = overridden;
+  $('packtemp-row').hidden = !overridden;
+  if (overridden) $('in-packtemp').value = Math.round(tempF);
+  const chem = battery()?.chem || 'lipo';
+  const cold = isColdPack(chem, U.fToC(tempF)) || isColdPack(chem, U.fToC(airF));
+  const lead = !overridden
+    ? `Pack temperature follows the air — ${f0(airF)}°F. That is the right assumption for packs that rode `
+      + 'here in a bag. Tick the box if you preheat them: it is the biggest thing you can do about cold, '
+      + 'and until now the plan had no way to hear about it.'
+    : `Planning ${f0(tempF)}°F packs in ${f0(airF)}°F air. Capacity, resistance and sag read the pack; air `
+      + 'density still reads the air.'
+      + (tempF > airF
+        ? ' Nothing here models the pack cooling down once it is flying, so insulate it and launch soon.'
+        : '');
+  const caveat = cold
+    ? ' Note what the cold numbers are: a gentle bench discharge of a pack held at temperature. A real pack '
+      + 'heats itself up while it works, so this under-states the sag on your first hard pull and over-states '
+      + 'what cold costs you over the whole flight.'
+    : '';
+  $('packtemp-note').textContent = lead + caveat;
+}
+
 export function populateControls() {
   const u = units();
   // Beginner mode can never sit on an expert control that is off screen: the
@@ -67,6 +104,9 @@ export function populateControls() {
   if (beginner() && EXPERT_CRUISE_MODES.includes(state.cruiseMode)) state.cruiseMode = 'real';
   if (beginner() && state.parallelPacks) state.parallelPacks = false;
   if (beginner()) state.gustFactorPct = GUST_FACTOR_DEFAULT * 100;
+  // Same rule: a pack temperature the pilot cannot see is a pack temperature they
+  // cannot put back, so beginner mode always plans the pack at air temperature.
+  if (beginner()) state.packTempF = null;
   document.body.dataset.detail = state.detail;
   $('sel-detail').value = state.detail;
   $('sel-units').value = state.units;
@@ -112,6 +152,7 @@ export function populateControls() {
   $('in-winddir').value = state.env.windFromDeg;
   $('in-gustf').value = state.gustFactorPct;
   renderWindNotes();
+  renderPackTempNote();
   $('sel-windmode').value = state.env.windMode;
   $('in-reserve').value = state.landFloorPct;
   $('reserve-val').textContent = `${state.landFloorPct}%`;

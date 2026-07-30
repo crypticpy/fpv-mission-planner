@@ -51,8 +51,9 @@ export const INSTANCE_FORM = [
         + 'replaces the model’s resistance in the sag model.' },
     { key: 'tempC', label: 'Measured at', type: 'number', unit: '°C', min: -20, max: 60, step: 'any',
       id: 'pack-instance-temp',
-      help: 'The pack’s temperature when you read it. Provenance, not an input — resistance rises '
-        + 'as a pack cools, and the model has its own temperature curve.' },
+      help: 'The pack’s temperature on the bench when you read it. Provenance, not an input — resistance '
+        + 'rises as a pack cools, and the model has its own temperature curve. Different thing from the '
+        + 'takeoff pack temperature in the Weather rail, which is how warm the pack is when it flies.' },
   ] },
 ];
 
