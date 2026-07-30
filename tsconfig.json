@@ -26,6 +26,13 @@
     "src/catalog/manufacturers.js",
     "src/catalog/payloads.js",
     "src/catalog/scenarios.js",
-    "src/catalog/weather.js"
+    "src/catalog/weather.js",
+    "src/domain/mission/mission-schema.js",
+    "src/domain/mission/mission-migrations.js",
+    "src/domain/mission/mission-reducer.js",
+    "src/domain/mission/altitude.js",
+    "src/infrastructure/persistence/mission-repository.js",
+    "src/infrastructure/persistence/indexeddb-store.js",
+    "src/infrastructure/persistence/memory-store.js"
   ]
 }
