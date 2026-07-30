@@ -6,6 +6,7 @@ import {
   state, units, beginner, drone, scenario, battery, compatibleBatteries, loadoutBattery, missionInputs,
 } from '../state.js';
 import { rangeBandKm } from '../drift.js';
+import { SEVERITY_RANK } from '../application/analysis/analysis-contracts.js';
 import {
   SERIES, f0, f1, mmss, article, flightLabel, liftSource, confidenceWord, ratio, bandPhrase,
 } from './format.js';
@@ -27,31 +28,81 @@ export function packCache(b) {
 /** Drop the memo. update() calls this at the top of every render pass. */
 export function resetPackCaches() { packCaches = new Map(); }
 
-export function renderWarnings(warnings) {
+/**
+ * Worst first, in ADR 0008's order. Exported so the mission brief sorts the same
+ * array the same way — two surfaces showing the same findings in a different
+ * order is the sort of disagreement the coded taxonomy exists to end.
+ * @param {readonly {severity: string}[]} constraints
+ */
+export function bySeverity(constraints) {
+  return [...constraints].sort((a, b) =>
+    (SEVERITY_RANK[a.severity] ?? SEVERITY_RANK.unknown) - (SEVERITY_RANK[b.severity] ?? SEVERITY_RANK.unknown));
+}
+
+/** The glyph each severity wears on the rail. */
+const WARN_ICON = {
+  critical: '✕', warning: '▲', caution: '●', unknown: '?', advisory: 'i', 'low-forcing': '~',
+};
+
+/**
+ * The warning stack, straight off the analysis snapshot's constraints.
+ *
+ * Every row carries its code and severity as data attributes: they are what the
+ * brief is checked against, what a dismissal will one day be keyed on, and what
+ * makes "this warning" a thing a test can name rather than a sentence it has to
+ * match. The text is the producer's, verbatim (ADR 0008).
+ *
+ * @param {readonly import('../application/analysis/analysis-contracts.js').Constraint[]} constraints
+ */
+export function renderWarnings(constraints) {
   const host = $('warnings');
   host.replaceChildren();
-  const order = { critical: 0, serious: 1, warning: 2 };
-  for (const w of warnings.sort((a, b) => order[a.level] - order[b.level])) {
+  for (const c of bySeverity(constraints)) {
     const el = document.createElement('div');
-    el.className = `warn warn-${w.level}`;
+    el.className = `warn warn-${c.severity}`;
+    el.dataset.code = c.code;
+    el.dataset.severity = c.severity;
     const icon = document.createElement('span');
     icon.className = 'warn-icon';
-    icon.textContent = w.level === 'critical' ? '✕' : w.level === 'serious' ? '▲' : '●';
+    icon.textContent = WARN_ICON[c.severity] ?? '●';
     const label = document.createElement('span');
     label.className = 'warn-level';
-    label.textContent = w.level;
+    label.textContent = c.severity;
     const text = document.createElement('span');
-    text.textContent = w.text;
+    text.textContent = c.text;
     el.append(icon, label, text);
     host.appendChild(el);
   }
-  host.hidden = warnings.length === 0;
+  host.hidden = constraints.length === 0;
+}
+
+/**
+ * The stranded-mission sentence as the analysis settled on it, or null when the
+ * mission closes. Read off the snapshot rather than recomputed: analyze.js is
+ * handed zeroRadiusNote() as its `strandedNote` port and has already substituted
+ * it for the planner's generic line, so this is the same sentence the warning
+ * stack and the brief are showing.
+ *
+ * The condition is the planner's own — the constraint carries the generic text
+ * whenever the note declined to name a lever, and the verdict card must not gain
+ * a stop reason it never had.
+ *
+ * @param {import('../application/analysis/analysis-contracts.js').AnalysisSnapshot} snapshot
+ * @returns {string|null}
+ */
+export function strandedFrom(snapshot) {
+  const r = snapshot?.plan;
+  if (!r || !r.flight.viable || (r.legs.out && r.legs.back && r.legs.home)) return null;
+  return snapshot.constraints.find((c) => c.code === 'W-WIND-NO-CLOSE')?.text ?? null;
 }
 
 /**
  * The zero-radius state reads as a broken app: dashes everywhere while Lift
  * still says VIABLE. Name the lever that actually moves, in the pilot's units.
  * Null unless the craft flies but no out-and-back closes.
+ *
+ * Injected into the analysis as the `strandedNote` port; nothing renders from it
+ * directly (see strandedFrom above).
  */
 export function zeroRadiusNote(r) {
   // `home` is the get-home leg: the same planning wind taken as a pure headwind.
@@ -272,8 +323,11 @@ export function verdict(r, stranded) {
   return { level, label, why, fix, margins: chips.join(' · ') };
 }
 
-export function renderVerdict(r, stranded) {
-  const v = verdict(r, stranded);
+/**
+ * @param {import('../application/analysis/analysis-contracts.js').AnalysisSnapshot} snapshot
+ */
+export function renderVerdict(snapshot) {
+  const v = verdict(snapshot.plan, strandedFrom(snapshot));
   const host = $('verdict');
   host.className = `verdict verdict-${v.level}`;
   $('verdict-badge').textContent = v.label;
@@ -301,7 +355,9 @@ export function renderNoBattery() {
   fix.textContent = 'Add a pack with a matching connector and cell count, or widen what this rig accepts.';
   fix.hidden = false;
   $('verdict-margins').textContent = '';
-  renderWarnings([]);
+  // The warning stack is not cleared here: the no-pack snapshot states the
+  // absence as a coded constraint of its own, and the render pass has already
+  // put it on the rail.
   // Nothing downstream of the verdict has been re-rendered — there is no plan to
   // render — so hide it rather than leave the previous rig's radius, tiles and
   // charts on screen under a NO PACK badge. app.js's update() clears this the

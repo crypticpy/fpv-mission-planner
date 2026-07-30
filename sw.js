@@ -26,13 +26,14 @@
 // Paths are relative to this file's scope (the app can live at "/" locally
 // or at a GitHub Pages subpath) — never use a leading "/".
 
-const CACHE_NAME = 'fpv-shell-v4';
+const CACHE_NAME = 'fpv-shell-v5';
 
 const PRECACHE_URLS = [
   '.',
   'index.html',
   'manifest.webmanifest',
   'css/style.css',
+  'src/analysis-host.js',
   'src/app.js',
   'src/brief.js',
   'src/calibrate.js',
@@ -43,7 +44,7 @@ const PRECACHE_URLS = [
   'src/forms.js',
   'src/map.js',
   'src/mission-bridge.js',
-  'src/mission-rail.js',
+  'src/mission-commands.js',
   'src/packinstances.js',
   'src/registry.js',
   'src/rf.js',

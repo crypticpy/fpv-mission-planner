@@ -16,9 +16,11 @@ const AUSTIN = { lat: 30.2672, lng: -97.7431 };
 const $ = id => document.getElementById(id);
 
 // Injected by app.js: { missionInputs, units, beginner, requestRender, goLive,
-// onLaunchMove } plus the route port — { routeWaypoints, onAddWaypoint,
-// onMoveWaypoint, onRemoveWaypoint, onClearRoute } — which is how this file
-// reads and edits a route it no longer owns (see the route-mode section below).
+// onLaunchChanged, onLaunchMove } plus the route port — { routeWaypoints,
+// onAddWaypoint, onMoveWaypoint, onRemoveWaypoint, onClearRoute } — which is how
+// this file reads and edits a route it no longer owns (see the route-mode
+// section below). `onLaunchChanged` raises the launch onto the mission document;
+// `onLaunchMove` is the weather rail's cue to refetch for the new spot.
 let deps = null;
 let map = null;
 let marker = null;
@@ -122,17 +124,19 @@ function persist() {
   });
 }
 
-function moveLaunch(latlng, { notify = true } = {}) {
+function moveLaunch(latlng, { notify = true, raise = true } = {}) {
   launch = { lat: latlng.lat, lng: wrapLng(latlng.lng) };
   marker.setLatLng(launch);
   needsFit = true;
-  // The route survives (ADR 0002). Moving the pin used to throw the waypoints
-  // away; it is now a `setLaunch` command on the mission document — raised by
-  // the render pass this triggers, which is the one place every launch change in
-  // the app passes through — and the waypoints keep their absolute coordinates.
-  // What the document drops is the *resolved* altitude behind each leg, because
-  // the new site's elevation is not the old one's.
   persist();
+  // The route survives (ADR 0002). Moving the pin used to throw the waypoints
+  // away; it is a `setLaunch` command on the mission document now — raised here,
+  // at the gesture, rather than inferred from the rail by a later render pass —
+  // and the waypoints keep their absolute coordinates. What the document drops
+  // is the *resolved* altitude behind each leg, because the new site's elevation
+  // is not the old one's. `raise: false` is the other direction: the document
+  // moved first and the pin is following it.
+  if (raise) deps.onLaunchChanged?.({ ...launch });
   deps.requestRender();
   if (notify) deps.onLaunchMove?.({ ...launch }); // live weather refetches for the new spot
 }
@@ -206,7 +210,7 @@ function moveWaypoint(id, latlng) {
    this skips the onLaunchMove notification. Before the map first initializes
    there is nothing to sync — initMap reads the saved point. */
 export function setLaunchPoint(latlng) {
-  if (map) moveLaunch(latlng, { notify: false });
+  if (map) moveLaunch(latlng, { notify: false, raise: false });
 }
 
 /* ---------- saved spots ---------- */
@@ -525,8 +529,10 @@ export function renderMapView(rPlan, link = null, route = null) {
  * verdict — a route the budget can't cover is drawn in the critical color, so the
  * map agrees with the panel below it without anyone reading the panel.
  *
- * `route` is null whenever there is nothing to draw (mode off, no waypoints, or
- * beginner mode), and this clears back to a bare footprint.
+ * `route` is the analysis snapshot's integrated route, which exists whenever the
+ * document has waypoints — the snapshot describes the mission, not the view. The
+ * two view states that hide the line live here: the route tool being off, and
+ * beginner mode, which has no route affordances at all.
  */
 function drawRoute(route) {
   for (const l of routeLayers) l.remove();
@@ -538,7 +544,7 @@ function drawRoute(route) {
   btn.textContent = on ? 'Route · on' : 'Route';
   $('btn-route-clear').hidden = !on || wps.length === 0;
   $('map-canvas').classList.toggle('route-mode', on);
-  if (!route || route.empty) return;
+  if (!on || !route || route.empty) return;
 
   const ll = (p) => [p.lat, p.lng];
   const color = route.fits === false ? 'var(--status-critical)' : 'var(--series-2)';

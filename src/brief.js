@@ -32,6 +32,10 @@
 import { f0, f1, mmss, compass, article } from './render/format.js';
 import { plannedCourseDeg } from './terrain.js';
 import { U } from './domain/physics.js';
+import { SEVERITY_RANK } from './application/analysis/analysis-contracts.js';
+
+/** @param {string} severity */
+const rank = (severity) => SEVERITY_RANK[severity] ?? SEVERITY_RANK.unknown;
 
 /** How many checklist lines the footer may carry. A list nobody reads is not a check. */
 export const MAX_CHECKLIST = 6;
@@ -338,11 +342,13 @@ export function buildBrief({
     clock,
     energy,
     // Verbatim, worst first — the wording on paper has to be the wording that was
-    // on screen, or the brief becomes a second opinion.
+    // on screen, or the brief becomes a second opinion. Same array, same order and
+    // the same ADR 0008 ranking the warning rail sorts by, so the codes that print
+    // here are the first N codes on that rail (ADR 0008's cross-surface rule).
     warnings: [...warnings]
-      .sort((a, b) => ({ critical: 0, serious: 1, warning: 2 }[a.level] - { critical: 0, serious: 1, warning: 2 }[b.level]))
+      .sort((a, b) => rank(a.severity) - rank(b.severity))
       .slice(0, MAX_WARNINGS)
-      .map(w => ({ level: w.level, text: w.text })),
+      .map(w => ({ code: w.code, severity: w.severity, text: w.text })),
     warningsHeld: Math.max(0, warnings.length - MAX_WARNINGS),
     terrainLine: terrainLine(terr, u),
     linkLine: expert ? linkLine(link, plan, u) : null,

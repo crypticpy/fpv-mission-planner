@@ -13,6 +13,7 @@ import { parallelBattery, GUST_FACTOR_DEFAULT, U } from './domain/physics.js';
 import { unitSystem } from './domain/units.js';
 import { CRUISE_ALTS_M, CRUISE_ALT_DEFAULT_M } from './windprofile.js';
 import { planElevM } from './terrain.js';
+import { missionLaunch } from './mission-bridge.js';
 import { LINK_BAND_DEFAULT, isLinkBand } from './rf.js';
 
 export const state = {
@@ -273,8 +274,22 @@ export function loadoutBattery(batt = battery()) {
  * probe pass that discovers how far out the plan turns around has to run at the
  * launch elevation, or it would be reading a turnaround it hasn't found yet.
  */
+/**
+ * The elevation the launch site stands at, in feet.
+ *
+ * The mission document owns the launch point (ADR 0002), elevation included, so
+ * that is what the plan runs on. The rail's own field is the fallback for the
+ * moments the document cannot answer: the boot render before the repository has
+ * opened, and a mission whose launch elevation has never been established.
+ */
+function launchElevFt(env) {
+  const launch = missionLaunch();
+  return launch && launch.elevationMslM != null ? U.mToFt(launch.elevationMslM) : env.elevFt;
+}
+
 export function missionInputs(batt = battery(), envOverride = null, { terrain = true } = {}) {
   const env = envOverride || state.env;
+  const elevFt = launchElevFt(env);
   const configuredBatt = loadoutBattery(batt);
   return {
     drone: drone(),
@@ -289,7 +304,7 @@ export function missionInputs(batt = battery(), envOverride = null, { terrain = 
       // the thrust margin has to hold. Falls back to the rail's own elevation
       // whenever no terrain profile describes this launch point — which is every
       // offline flight, and every plan this app made before the profile existed.
-      elevM: terrain ? planElevM(env.elevFt) : U.ftToM(env.elevFt),
+      elevM: terrain ? planElevM(elevFt) : U.ftToM(elevFt),
       tempC: U.fToC(env.tempF),
       rhPct: env.rhPct,
       windAvgMs: U.mphToMs(env.windMph),

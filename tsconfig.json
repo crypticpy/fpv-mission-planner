@@ -37,11 +37,13 @@
     "src/infrastructure/persistence/mission-repository.js",
     "src/infrastructure/persistence/indexeddb-store.js",
     "src/infrastructure/persistence/memory-store.js",
-    // The mission bridge reaches the rail through an injected port rather than by
-    // importing src/state.js, which is exactly what keeps it checkable here while
-    // the rail modules are still untyped. Its two companions — src/mission-rail.js
-    // and src/render/missions.js — import those rail modules and cannot join until
-    // they are typed (M2).
+    // The mission bridge takes its seed and its launch-restored callback from the
+    // caller rather than importing src/state.js, which is exactly what keeps it
+    // checkable here. Its companions cannot join yet: src/analysis-host.js,
+    // src/mission-commands.js and src/render/missions.js all import the rail and
+    // the physics module, and an entry here pulls its imports into the program —
+    // adding one drags those unannotated bodies in with it. They join when
+    // src/domain/physics.js and src/state.js are typed (M3).
     "src/mission-bridge.js"
   ]
 }

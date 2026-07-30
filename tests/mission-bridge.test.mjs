@@ -37,11 +37,11 @@ function failingRepo() {
   };
 }
 
-const rail = {
-  readLaunch: () => ({ ...LAUNCH }),
-  writeLaunch: () => {},
-  seed: () => ({ title: 'Field test' }),
-};
+/* The caller's side of the bridge: a whole mission's worth of starting state on
+   the way in, and a callback that puts the map pin back on the way out. */
+const seed = () => ({ title: 'Field test', launch: { ...LAUNCH } });
+const restored = [];
+const onLaunchRestored = (launch) => restored.push(launch);
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -52,12 +52,14 @@ const repo = failingRepo();
 
 test('a persistently failing save does not become a retry loop', async () => {
   setupMissionBridge({
-    rail,
+    seed,
+    onLaunchRestored,
     requestRender: () => {},
     onStorage: (s) => events.push(s.save),
     repository: repo,
   });
   await openMissionBridge();
+  assert.equal(restored.length, 0, 'a seeded mission is not a restored one');
   // Boot seeds a mission and schedules its first save (300 ms debounce). Give
   // a would-be loop ten debounce periods to show itself.
   await sleep(3000);

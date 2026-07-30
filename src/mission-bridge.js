@@ -9,27 +9,10 @@
 // commands. That single-writer rule is what makes "the document is the source of
 // truth for the route" a fact rather than an aspiration.
 //
-// ---------------------------------------------------------------------------
-// THE TRANSITIONAL LAUNCH BRIDGE (M1b only — M2 deletes it)
-// ---------------------------------------------------------------------------
-// The route already lives here. The launch point does not, yet: weather fetches,
-// terrain probes, saved spots and the physics inputs all still read it off the
-// rail (src/state.js + the `map` key in src/store.js). Rewriting those five
-// consumers is M2's job, so for one milestone the two are kept in step, in one
-// direction each and in exactly one place:
-//
-//   boot     — the rail is set FROM the restored document (`railFromDocument`),
-//              so a reload and an "open mission" both land the pin where the
-//              mission says it is;
-//   render   — `syncMissionFromRail()` runs once per render pass and dispatches
-//              `setLaunch` only when the rail has genuinely moved away from the
-//              document. Every launch change in the app therefore reaches the
-//              document, whichever control made it.
-//
-// The rail itself is reached through an injected port (src/mission-rail.js), not
-// imported: this module stays free of the untyped rail modules, which is what
-// lets it sit under `strict` in tsconfig's include list. When M2 moves the
-// consumers onto the document, the port and both directions above go with it.
+// The launch point lives here too: every consumer that used to read it off the
+// rail — the physics inputs, the weather client, the terrain probe, the saved
+// spots — reads it back from this module, and every control that moves it
+// raises `setLaunch` at its own call site.
 //
 // Storage failures are never swallowed. `MissionRepositoryError` messages are
 // written for pilots and point at the export escape hatch, so they travel
@@ -48,21 +31,19 @@ import { openMissionRepository } from './infrastructure/persistence/mission-repo
 /** @typedef {import('./infrastructure/persistence/mission-repository.js').MissionSummary} MissionSummary */
 /** @typedef {Awaited<ReturnType<typeof openMissionRepository>>} MissionRepository */
 
-/** The launch point as both sides of the transitional bridge speak it. */
+/** Where a mission is flown from. */
 /** @typedef {{ latitude: number, longitude: number, elevationMslM: number|null }} LaunchPoint */
 
 /**
- * The rail, as much of it as this module is allowed to know about.
- * @typedef {object} RailPort
- * @property {() => LaunchPoint} readLaunch   where the rail thinks the launch is
- * @property {(launch: LaunchPoint) => void} writeLaunch  put the rail there instead
- * @property {() => Omit<CreateMissionOptions, 'launch'>} seed  loadout snapshots,
- *   environment reference and planning policy for a mission being created now
- */
-
-/**
  * @typedef {object} BridgeDeps
- * @property {RailPort} rail
+ * @property {() => Omit<CreateMissionOptions, 'launch'> & { launch: LaunchPoint }} seed
+ *   a whole mission's worth of starting state — loadout snapshots, environment
+ *   reference, planning policy and the launch point — for a mission being
+ *   created now. Supplied by the caller because it is the rail's business, not
+ *   this module's.
+ * @property {(launch: LaunchPoint) => void} [onLaunchRestored] a document just
+ *   became the open one; put the map pin and the rail's elevation field where it
+ *   says the launch is
  * @property {() => void} requestRender          app.js's update()
  * @property {() => void} [onMissionChanged]     the open mission's identity or title moved
  * @property {(state: MissionStorageState) => void} [onStorage]
@@ -89,7 +70,6 @@ const SAVE_DEBOUNCE_MS = 300;
 /** @type {MissionRepository|null} */ let repo = null;
 /** @type {MissionDocumentV1|null} */ let doc = null;
 /** @type {Promise<void>|null} */ let inflight = null;
-let booted = false;
 let dirty = false;
 let saveTimer = 0;
 
@@ -115,8 +95,9 @@ function report(save, message = '') {
 function onWarning(w) {
   // A rejected command is never silent — the console always gets it. It is not
   // a storage failure, though, so it must stay out of the storage banner (which
-  // shows its message only inside the red failed state). M2's coded-warning
-  // surface (ADR 0008) is where these get a pilot-facing home.
+  // shows its message only inside the red failed state), and it is not a finding
+  // about the mission either: the rail simply keeps the value the reducer would
+  // not take, and the pilot sees their own number unchanged.
   console.warn(`mission: ${w.message}`);
 }
 
@@ -178,6 +159,13 @@ export function missionId() { return doc ? doc.id : null; }
 
 /** @returns {MissionStorageState} */
 export function missionStorage() { return { ...storage }; }
+
+/**
+ * Where this mission is flown from, or null before one is open. The source of
+ * truth for every consumer that used to read the launch point off the rail.
+ * @returns {LaunchPoint|null}
+ */
+export function missionLaunch() { return doc ? { ...doc.launch } : null; }
 
 /**
  * The route as the map and src/domain/route.js read it: plain `{ id, lat, lng }`, in
@@ -243,48 +231,19 @@ export function clearRoute() {
   if (changed) deps?.requestRender();
 }
 
-/* ---------- the transitional launch bridge ---------- */
-
-/** Below this the two sides are saying the same thing in different units. */
-const SAME_DEGREES = 1e-9;   // ~0.1 mm
-const SAME_ELEV_M = 0.5;     // the rail types whole feet; half a metre is noise
-
-/**
- * Reconcile the rail's launch point into the document. Called once per render
- * pass, from app.js's update(), which is the one place every launch change in
- * the app — pin drag, map click, saved spot, live weather's elevation — has
- * already passed through.
- */
-export function syncMissionFromRail() {
-  if (!booted || !doc || !deps) return;
-  const rail = deps.rail.readLaunch();
-  if (!Number.isFinite(rail.latitude) || !Number.isFinite(rail.longitude)) return;
-  const here = doc.launch;
-  const moved = Math.abs(here.latitude - rail.latitude) > SAME_DEGREES
-    || Math.abs(here.longitude - rail.longitude) > SAME_DEGREES;
-  const elev = rail.elevationMslM;
-  const elevMoved = elev != null
-    && (here.elevationMslM == null || Math.abs(here.elevationMslM - elev) > SAME_ELEV_M);
-  if (!moved && !elevMoved) return;
-  dispatch({
-    type: 'setLaunch',
-    payload: { latitude: rail.latitude, longitude: rail.longitude, elevationMslM: elev },
-  }, { render: false });
-}
-
-/** Put the rail where the open mission says the launch is. */
-function railFromDocument() {
-  if (!doc || !deps) return;
-  deps.rail.writeLaunch(doc.launch);
-}
-
 /* ---------- boot, and the mission list ---------- */
+
+/** Put the map pin and the rail where the open mission says the launch is. */
+function launchRestored() {
+  if (!doc || !deps) return;
+  deps.onLaunchRestored?.({ ...doc.launch });
+}
 
 /** @returns {MissionDocumentV1|null} */
 function seededMission() {
   if (!deps) return null;
   try {
-    return createMission({ ...deps.rail.seed(), launch: deps.rail.readLaunch() });
+    return createMission(deps.seed());
   } catch (e) {
     report('failed', `A new mission could not be started: ${reason(e)}`);
     return null;
@@ -318,10 +277,9 @@ export async function openMissionBridge() {
     }
   }
 
-  booted = true;
   if (loaded) {
     doc = resolveMissionAltitudes(loaded, deps.terrainSampler ?? null).doc;
-    railFromDocument();
+    launchRestored();
     report('saved');
   } else {
     doc = seededMission();
@@ -355,7 +313,7 @@ export async function openMission(id) {
   const next = await repo.get(id);
   if (!next) return false;
   doc = resolveMissionAltitudes(next, deps?.terrainSampler ?? null).doc;
-  railFromDocument();
+  launchRestored();
   report('saved');
   deps?.onMissionChanged?.();
   deps?.requestRender();
@@ -403,7 +361,7 @@ export async function deleteMission(id) {
   if (id === missionId()) {
     doc = seededMission();
     if (doc) scheduleSave();
-    railFromDocument();
+    launchRestored();
     deps?.onMissionChanged?.();
     deps?.requestRender();
   }
@@ -437,7 +395,7 @@ export async function importMission(text) {
   const result = await repo.importJson(text);
   if (result.ok) {
     doc = resolveMissionAltitudes(result.doc, deps?.terrainSampler ?? null).doc;
-    railFromDocument();
+    launchRestored();
     report('saved');
     deps?.onMissionChanged?.();
     deps?.requestRender();

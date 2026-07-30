@@ -3,13 +3,23 @@
 // historical prefill. Two endpoints: /v1/forecast for now and the next three
 // days, and the ERA5 archive for an hour that has already happened.
 import { loadMapState } from './store.js';
+import { missionLaunch } from './mission-bridge.js';
 import { CRUISE_ALTS_M, levelWindPatch } from './windprofile.js';
 
 export const DEFAULT_LAUNCH = { lat: 30.2672, lng: -97.7431 }; // Austin
 export const DEFAULT_LAUNCH_NAME = 'Austin, TX';
 
-/** Best-known launch point without requiring the map to be initialized. */
+/**
+ * Where this mission launches from, without requiring the map to be initialized.
+ *
+ * The open mission document is the source of truth (ADR 0002). The saved map
+ * state behind it is what answers during the boot render, before the repository
+ * has finished opening — and it is the same point the restored document writes
+ * back, so the two never disagree for long.
+ */
 export function launchPoint() {
+  const launch = missionLaunch();
+  if (launch) return { lat: launch.latitude, lng: launch.longitude };
   const saved = loadMapState();
   return saved ? { lat: saved.lat, lng: saved.lng } : { ...DEFAULT_LAUNCH };
 }

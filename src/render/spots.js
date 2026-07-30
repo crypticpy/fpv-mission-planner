@@ -13,6 +13,7 @@ import { f0, f1 } from './format.js';
 import { $ } from './dom.js';
 import { populateControls } from './controls.js';
 import { goLive } from './live.js';
+import { pushLaunch, pushLoadout } from '../mission-commands.js';
 
 /* ---------- saved launch spots ----------
    The Map tab's roster of named launch points. A spot carries the elevation
@@ -152,8 +153,13 @@ function flyToSpot(spot) {
   setSpotsNote(notes.join(' '));
 
   // The pin move renders through requestRender and deliberately skips map.js's
-  // onLaunchMove, so live weather is refetched exactly once, here.
+  // onLaunchMove, so live weather is refetched exactly once, here. The document
+  // is written from here too, for the same reason: setLaunchPoint no-ops until
+  // the map has initialized, and a spot chosen from the dash tab still moves the
+  // mission (ADR 0002).
   setLaunchPoint(pt);
+  pushLaunch(pt);
+  pushLoadout();
   populateControls();
   if (live) goLive(pt);
 }

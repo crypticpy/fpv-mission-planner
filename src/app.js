@@ -3,7 +3,6 @@
 // imports this file, so app-level callbacks (update, setView) reach those
 // modules by one-time injection at boot.
 import { WEATHER, allBatteries, allManufacturers, saveCustomBattery, saveCustomManufacturer } from './data.js';
-import { planMission } from './domain/physics.js';
 import { hideTooltip } from './charts.js';
 import {
   setupMapView, showMapView, renderMapView, pauseMapView, resizeMapView,
@@ -27,7 +26,7 @@ import { resolvePackIr, resetBatteryChecks } from './render/batterychecks.js';
 import { setupFlightLog, buildFlightLogForm } from './render/flightlog.js';
 import { setupCalibration } from './render/calibration.js';
 import {
-  resetPackCaches, renderWarnings, zeroRadiusNote, renderVerdict, renderNoBattery, renderReserveNote,
+  resetPackCaches, renderWarnings, renderVerdict, renderNoBattery, renderReserveNote,
   renderStats, renderPowerCurve, renderSpeedTradeoff, renderProfile, renderWindSensitivity,
 } from './render/dashboard.js';
 import { renderComparison } from './render/comparison.js';
@@ -35,18 +34,18 @@ import { setupLive, goLive, useMyLocation, updateLiveUI, liveError } from './ren
 import {
   setupForecast, renderForecastStrip, setForecastHour, reapplyForecastHour,
 } from './render/forecast.js';
-import {
-  setupTerrain, refreshTerrain, terrainWarnings, renderTerrainCard, linkStats, linkWarnings,
-} from './render/terrain.js';
-import { setTurnaroundKm } from './terrain.js';
+import { setupTerrain, renderTerrainCard } from './render/terrain.js';
 import { isLinkBand } from './rf.js';
 import { isCruiseAlt, activeLevelPatch } from './windprofile.js';
-import { routePlan, renderRouteCard } from './render/route.js';
+import { renderRouteCard } from './render/route.js';
 import {
-  setupMissionBridge, openMissionBridge, syncMissionFromRail, missionWaypoints,
+  setupMissionBridge, openMissionBridge, missionWaypoints,
   addWaypoint, moveWaypoint, removeWaypoint, clearRoute,
 } from './mission-bridge.js';
-import { setupMissionRail, railPort } from './mission-rail.js';
+import { analyzeNow, analysisRevision, acceptAsync } from './analysis-host.js';
+import {
+  missionSeed, restoreLaunch, pushLaunch, pushLoadout, pushEnvironment, pushPolicy,
+} from './mission-commands.js';
 import { renderMissions, renderMissionStorage, bindMissions } from './render/missions.js';
 import { setupBrief, bindBrief } from './render/brief.js';
 import { renderSpots, bindSpots } from './render/spots.js';
@@ -54,16 +53,26 @@ import { setupShare, bindShare } from './render/share.js';
 import { renderSessionPlanner } from './render/session.js';
 
 /**
- * What the last render pass solved, for the mission brief (Phase 4 item 8).
+ * The analysis snapshot this render pass drew, for the mission brief (Phase 4
+ * item 8).
  *
  * The brief has to print the plan the pilot is looking at, not a fresh one it
  * solved for itself — a re-plan a keystroke later would be a different document
- * from the screen it was opened off. So the pass hands its own results over here
- * and render/brief.js reads them through injection, the same way every other
- * render module reaches update(): nothing imports this file.
+ * from the screen it was opened off. So the pass hands its own snapshot over here
+ * and render/brief.js reads it through injection, the same way every other render
+ * module reaches update(): nothing imports this file.
+ *
+ * @type {import('./application/analysis/analysis-contracts.js').AnalysisSnapshot|null}
  */
 let latest = null;
 
+/**
+ * One render pass: refresh the rail's own text, ask the analysis host for the
+ * snapshot, and hand that one object to everything that draws. Nothing below
+ * this line computes physics — every number and every warning on screen comes
+ * out of the snapshot, which is what makes the brief and the rail incapable of
+ * disagreeing (ADR 0008).
+ */
 function update() {
   latest = null;
   updateLiveUI();
@@ -74,11 +83,6 @@ function update() {
     fillSelect($('sel-battery'), batts.map(b => ({ value: b.id, label: `${b.name} · ${b.massG} g` })), state.batteryId);
   }
   saveSession();
-  // The launch point still lives on the rail while M1's bridge is in place, and
-  // this is the single place it reaches the mission document: every control that
-  // can move it — the pin, a saved spot, live weather's elevation — has already
-  // passed through here by the time this line runs. Quiet when nothing moved.
-  syncMissionFromRail();
   resetPackCaches();
   const sc = scenario();
   // The speed now rides on the option itself, so this line carries what the
@@ -90,45 +94,27 @@ function update() {
   // its own control: a rig with no compatible pack still has a rail the pilot can
   // tick the pack-temperature box on.
   renderPackTempNote();
-  // Terrain (Phase 4 item 5) plans on the air at the turnaround, not the air at
-  // the launch point — and how far out the turnaround is depends, weakly, on that
-  // same air. Probe once at the rail's own elevation, latch the radius, and let
-  // the real plan read the ground under it. Without a fetched profile planElevM()
-  // hands back the rail elevation and this pass changes nothing.
-  setTurnaroundKm(planMission({
-    ...missionInputs(battery(), null, { terrain: false }), lite: true,
-  }).radiusKm);
-  const r = planMission(missionInputs());
+  const snapshot = analyzeNow();
+  // Nothing to draw until the repository has handed a document back — a round
+  // trip to IndexedDB at boot, after which openMissionBridge() asks for its own
+  // render. The rail above this line is already up, which is what the pilot sees.
+  if (!snapshot) return;
+  // The warning stack is the one render that survives a mission with no plan:
+  // "no pack selected" is itself a coded constraint on the snapshot.
+  renderWarnings(snapshot.constraints);
   // Handled, not thrown: with no pack there is no plan, and every render below
   // this line reads one. Say it in the verdict card and stop here.
-  if (r.code === 'no_battery') {
+  if (!snapshot.plan) {
     renderNoBattery();
     return;
   }
   document.body.dataset.plan = 'ok'; // undoes renderNoBattery()'s panel blackout
-  // Ask for the ground along the leg this plan actually flies (debounced, and a
-  // no-op while the profile on hand still answers the question). Its callouts
-  // join the model's own on the verdict rail, which shows on both tabs.
-  refreshTerrain(r.radiusKm);
-  r.warnings.push(...terrainWarnings(r));
-  // The radio over that same ground (Phase 4 item 6). Computed once and handed to
-  // everything that draws it, so the warning, the chart and the map's outbound leg
-  // cannot disagree about where the link quits.
-  const link = linkStats(r);
-  r.warnings.push(...linkWarnings(r, link));
-  const stranded = zeroRadiusNote(r);
-  if (stranded) {
-    // physics.js emits one generic line for this case; swap in the version that
-    // names the lever to move.
-    const i = r.warnings.findIndex(w => w.text.startsWith('Wind or loaded propulsion'));
-    if (i >= 0) r.warnings[i] = { level: 'critical', text: stranded };
-    else r.warnings.unshift({ level: 'critical', text: stranded });
-  }
   // Both live outside the tab panels — the field answer and its callouts stay
   // on screen whichever tab is open.
-  latest = { plan: r, link, route: null };
-  renderVerdict(r, stranded);
-  renderWarnings(r.warnings);
+  latest = snapshot;
+  const r = snapshot.plan;
+  const link = snapshot.link;
+  renderVerdict(snapshot);
   renderForecastStrip(r);
   // Rail text that tracks the sliders rather than the tabs: both of these sit
   // beside the controls that move them, and both stay live on the map tab.
@@ -140,13 +126,12 @@ function update() {
   // Render only the visible view: charts measure container width and freeze at
   // a fallback size when drawn inside a hidden container.
   if (state.view === 'map') {
-    // The route (Phase 4 item 7) is integrated once and handed to both the map
-    // that draws it and the card that explains it, so the line and the verdict
-    // under it cannot disagree about whether it fits.
-    const route = routePlan(r);
-    latest.route = route;
-    renderMapView(r, link, route);
-    renderRouteCard(r, route);
+    // The route (Phase 4 item 7) is integrated once, inside the analysis, and
+    // handed to both the map that draws it and the card that explains it — so the
+    // line and the verdict under it cannot disagree about whether it fits. Both
+    // decide for themselves whether route mode is showing.
+    renderMapView(r, link, snapshot.route);
+    renderRouteCard(r, snapshot.route);
     renderTerrainCard(r, link);
     return;
   }
@@ -211,6 +196,7 @@ function clearSwapNotice() {
  */
 function setCruiseAlt(m) {
   state.cruiseAltM = m;
+  pushPolicy();
   if (reapplyForecastHour()) return; // re-plans on its own
   if (state.weatherId === 'live') {
     const patch = activeLevelPatch(m);
@@ -219,6 +205,15 @@ function setCruiseAlt(m) {
   populateControls();
   update();
 }
+
+/* A rail edit is a mission edit (ADR 0002). Each control's own handler says which
+   part of the document it moved and then re-plans, so the write happens where the
+   intent is rather than being inferred by a later comparison pass. A command the
+   reducer refuses returns false and warns on the console; the rail keeps the value
+   the pilot typed, and this pass renders it either way. */
+const editLoadout = () => { pushLoadout(); update(); };
+const editEnv = () => { pushEnvironment(); update(); };
+const editPolicy = () => { pushPolicy(); update(); };
 
 function bind() {
   $('tab-dash').addEventListener('click', () => setView('dash'));
@@ -256,30 +251,30 @@ function bind() {
     } else {
       clearSwapNotice();
     }
-    update();
+    editLoadout();
   });
   $('sel-manufacturer').addEventListener('change', e => {
     state.manufacturerId = e.target.value;
     state.batteryId = compatibleBatteries()[0]?.id;
     populateControls();
-    update();
+    editLoadout();
   });
   $('sel-battery').addEventListener('change', e => {
     state.batteryId = e.target.value;
     clearSwapNotice();
-    update();
+    editLoadout();
   });
   $('in-parallel').addEventListener('change', e => {
     state.parallelPacks = e.target.checked;
     populateControls();
-    update();
+    editLoadout();
   });
-  $('sel-payload').addEventListener('change', e => { state.payloadId = e.target.value; update(); });
+  $('sel-payload').addEventListener('change', e => { state.payloadId = e.target.value; editLoadout(); });
   $('in-extra').addEventListener('input', e => {
     // Clamp to the input's own range: browsers don't enforce max on typed values,
     // and an out-of-range save would void the whole session restore.
     state.extraG = Math.min(500, Math.max(0, +e.target.value || 0));
-    update();
+    editLoadout();
   });
   $('btn-live').addEventListener('click', () => goLive());
   $('btn-geo').addEventListener('click', useMyLocation);
@@ -291,7 +286,7 @@ function bind() {
       state.env = { ...state.env, elevFt: w.elevFt, tempF: w.tempF, rhPct: w.rhPct, windMph: w.windMph, gustMph: w.gustMph, windFromDeg: w.windFromDeg };
       populateControls();
     }
-    update();
+    editEnv();
   });
   $('sel-scenario').addEventListener('change', e => { state.scenarioId = e.target.value; update(); });
   $('sel-speed-metric').addEventListener('change', e => { state.speedMetric = e.target.value; update(); });
@@ -301,7 +296,10 @@ function bind() {
       state.env[key] = +e.target.value || 0;
       state.weatherId = 'custom';
       $('sel-weather').value = 'custom';
-      update();
+      // Typing an elevation moves the launch point's elevation, which is the
+      // document's, not the rail's — so that field raises both commands.
+      if (key === 'elevFt') pushLaunch();
+      editEnv();
     });
   }
   for (const [id, key] of [['in-wind', 'windMph'], ['in-gust', 'gustMph']]) {
@@ -309,10 +307,10 @@ function bind() {
       state.env[key] = units().speedToMph(+e.target.value || 0);
       state.weatherId = 'custom';
       $('sel-weather').value = 'custom';
-      update();
+      editEnv();
     });
   }
-  $('sel-windmode').addEventListener('change', e => { state.env.windMode = e.target.value; update(); });
+  $('sel-windmode').addEventListener('change', e => { state.env.windMode = e.target.value; editEnv(); });
   $('sel-cruise-alt').addEventListener('change', e => {
     const m = +e.target.value;
     if (!isCruiseAlt(m)) return; // a select value from nowhere is not a level
@@ -321,17 +319,17 @@ function bind() {
   $('sel-link-band').addEventListener('change', e => {
     if (!isLinkBand(e.target.value)) return; // a select value from nowhere is not a band
     state.linkBand = e.target.value;
-    update();
+    editPolicy();
   });
   $('in-reserve').addEventListener('input', e => {
     state.landFloorPct = +e.target.value;
     $('reserve-val').textContent = `${state.landFloorPct}%`;
-    update();
+    editPolicy();
   });
   $('in-gustf').addEventListener('input', e => {
     state.gustFactorPct = Math.min(100, Math.max(0, +e.target.value || 0));
     $('gustf-val').textContent = `${state.gustFactorPct}%`;
-    update();
+    editPolicy();
   });
   $('in-packtemp-on').addEventListener('change', e => {
     // On, the pack starts at a plausible preheat rather than an empty field; off,
@@ -435,7 +433,7 @@ function bind() {
     // has an empty form to describe.
     resetBatteryChecks();
     populateControls();
-    update();
+    editLoadout();
   });
 
   $('in-forecast-hour').addEventListener('input', e => setForecastHour(+e.target.value));
@@ -484,12 +482,13 @@ setupFlightLog({ update, populateControls });
 // the same pair. The drift chart's view toggle only re-renders itself.
 setupCalibration({ update, populateControls });
 setupShare({ update, populateControls });
-setupLive({ update });
+// The two async fetches land after the render that asked for them, so both need
+// a way back in — and a way to find out whether the mission has moved on since,
+// which is the analysis host's staleness guard (M2b §5).
+const asyncPorts = { update, revision: analysisRevision, accept: acceptAsync };
+setupLive(asyncPorts);
 setupForecast({ update, liveError });
-// The terrain fetch lands after the render that asked for it, so it needs a way
-// back in — the profile, the clearance warnings and the density altitude all
-// change when it does.
-setupTerrain({ update });
+setupTerrain(asyncPorts);
 setupMapView({
   missionInputs,
   units,
@@ -497,6 +496,9 @@ setupMapView({
   requestRender: update,
   goLive,
   onLaunchMove: (pt) => { if (state.weatherId === 'live') goLive(pt); },
+  // Dragging or clicking the pin moves the mission's launch point, and says so
+  // here rather than being noticed by a later comparison pass (ADR 0002/0005).
+  onLaunchChanged: pushLaunch,
   // The route belongs to the mission document now (ADR 0002): the map draws what
   // it reads back through here, and every edit it makes is a command.
   routeWaypoints: missionWaypoints,
@@ -505,11 +507,12 @@ setupMapView({
   onRemoveWaypoint: removeWaypoint,
   onClearRoute: clearRoute,
 });
-// The mission document and the rail adapter that keeps the launch point in step
-// with it for one milestone (src/mission-bridge.js's header has the whole story).
-setupMissionRail({ populateControls });
+// The mission document itself: seeded from the rail when there is nothing saved
+// to open, and restoring the launch point onto the map and the rail when there
+// is (src/mission-bridge.js's header has the whole story).
 setupMissionBridge({
-  rail: railPort,
+  seed: missionSeed,
+  onLaunchRestored: restoreLaunch,
   requestRender: update,
   onMissionChanged: renderMissions,
   onStorage: renderMissionStorage,

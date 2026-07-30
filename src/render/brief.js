@@ -24,12 +24,12 @@
 //     rectangle.
 
 import { buildBrief } from '../brief.js';
-import { footprintState } from '../map.js';
+import { footprintState, routeState } from '../map.js';
 import { bearingTo, distanceKm } from '../domain/geo.js';
 import {
   state, beginner, units, drone, battery, loadoutBattery, scenario, payload,
 } from '../state.js';
-import { verdict, zeroRadiusNote, legTimes } from './dashboard.js';
+import { verdict, strandedFrom, legTimes } from './dashboard.js';
 import { terrainStatsFor } from './terrain.js';
 import { plannedLaunchTime } from './forecast.js';
 import { f0 } from './format.js';
@@ -310,8 +310,12 @@ function renderSheet(b, fp, route, u) {
   if (b.warnings.length) {
     const warn = section('Warnings');
     for (const w of b.warnings) {
-      const p = h('p', `brief-warn brief-warn-${w.level}`);
-      p.append(h('span', 'brief-warn-level', w.level), h('span', null, w.text));
+      // Same code, same severity, same sentence as the row on the planner rail —
+      // the attributes are what make that checkable rather than aspirational.
+      const p = h('p', `brief-warn brief-warn-${w.severity}`);
+      p.dataset.code = w.code;
+      p.dataset.severity = w.severity;
+      p.append(h('span', 'brief-warn-level', w.severity), h('span', null, w.text));
       warn.appendChild(p);
     }
     if (b.warningsHeld > 0) {
@@ -352,12 +356,14 @@ export function openBrief() {
   if (!latest || !latest.plan) return;
   const u = units();
   const fp = footprintState();
-  const route = latest.route;
+  // The analysis integrates whatever route the document holds; route mode being
+  // off is a presentation choice, and a brief must print what is on screen.
+  const route = routeState().on ? latest.route : null;
   const r = latest.plan;
   const b = buildBrief({
     plan: r,
-    verdict: verdict(r, zeroRadiusNote(r)),
-    warnings: r.warnings,
+    verdict: verdict(r, strandedFrom(latest)),
+    warnings: latest.constraints,
     footprint: fp,
     route,
     link: latest.link,

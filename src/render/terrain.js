@@ -21,7 +21,7 @@ import { lineChart, legend } from '../charts.js';
 import { f0, f1, compass } from './format.js';
 import { $ } from './dom.js';
 
-let deps = null; // injected by app.js: { update }
+let deps = null; // injected by app.js: { update, revision, accept }
 export function setupTerrain(d) { deps = d; }
 
 /* ---------- fetching ---------- */
@@ -31,6 +31,7 @@ let timer = 0;
 let fetching = false;
 let errMsg = null;
 let failedSig = null; // the ask that failed; retried only once the ask changes
+let lastRadiusKm = 0; // what the last render asked to profile, so a dropped fetch can re-ask
 
 const sigOf = ({ launch, bearingDeg, spanKm }) =>
   `${launch.lat.toFixed(4)},${launch.lng.toFixed(4)}@${Math.round(bearingDeg)}/${spanKm.toFixed(1)}`;
@@ -56,6 +57,7 @@ function currentAsk(radiusKm) {
  * feature existed.
  */
 export function refreshTerrain(radiusKm) {
+  lastRadiusKm = radiusKm;
   const ask = currentAsk(radiusKm);
   if (profileMatches(activeProfile(), ask)) { errMsg = null; return; }
   const sig = sigOf(ask);
@@ -64,24 +66,44 @@ export function refreshTerrain(radiusKm) {
   timer = setTimeout(() => { void runFetch(ask, sig); }, 500);
 }
 
+/**
+ * Fetch one profile and hand it over — unless the mission moved on first.
+ *
+ * Two guards, not one, because they answer different questions. `seq` is local:
+ * did *this module* start a newer fetch? `deps.accept` is the analysis host's:
+ * is the mission this was asked about still the mission on screen? A profile
+ * drawn for a launch point the pilot has already left is not evidence about
+ * anything, so it is dropped rather than rendered — and re-asked immediately,
+ * because a drop with no re-ask would leave the app waiting on an answer that
+ * had already come and gone.
+ */
 async function runFetch(ask, sig) {
   const mine = ++seq;
+  const asked = deps.revision();
   fetching = true;
   errMsg = null;
+  let stale = false;
   try {
     const coords = profileCoords(ask.launch, ask.bearingDeg, ask.spanKm, PROFILE_SAMPLES);
     const elevsM = await fetchElevationProfile(coords);
     if (mine !== seq) return; // a later ask superseded this one
+    stale = !deps.accept(asked, 'terrain profile');
+    if (stale) return;
     setProfile(buildProfile({ launch: ask.launch, bearingDeg: ask.bearingDeg, coords, elevsM }));
     failedSig = null;
   } catch (err) {
     if (mine !== seq) return;
+    stale = !deps.accept(asked, 'terrain profile');
+    if (stale) return;
     errMsg = err.message;
     failedSig = sig;
   } finally {
     if (mine === seq) {
       fetching = false;
-      deps.update();
+      // A dropped result renders nothing — that is the point — so it has to put
+      // the question back on the wire itself.
+      if (stale) refreshTerrain(lastRadiusKm);
+      else deps.update();
     }
   }
 }

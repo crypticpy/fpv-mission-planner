@@ -252,10 +252,16 @@ test('the hemisphere letters follow the sign, and both halves stay padded', () =
 
 test('warnings print worst-first, unedited, capped with a held count', () => {
   const plan = planFor();
+  // Constraints now, not loose warnings — and in ADR 0008's taxonomy, which the
+  // legacy levels map onto as critical → critical, serious → warning,
+  // warning → caution. Same six findings, same expected order.
   const warnings = [
-    { level: 'warning', text: 'w1' }, { level: 'critical', text: 'c1' },
-    { level: 'serious', text: 's1' }, { level: 'warning', text: 'w2' },
-    { level: 'critical', text: 'c2' }, { level: 'warning', text: 'w3' },
+    { code: 'W-A', severity: 'caution', text: 'w1' },
+    { code: 'W-B', severity: 'critical', text: 'c1' },
+    { code: 'W-C', severity: 'warning', text: 's1' },
+    { code: 'W-D', severity: 'caution', text: 'w2' },
+    { code: 'W-E', severity: 'critical', text: 'c2' },
+    { code: 'W-F', severity: 'caution', text: 'w3' },
   ];
   const b = buildBrief({
     plan, warnings, launch: AUSTIN, drone: moz7, battery: nav5000,

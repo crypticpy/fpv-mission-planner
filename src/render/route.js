@@ -2,34 +2,16 @@
 // polyline the pilot drew on the map, the verdict against the same budget the
 // footprint ring is solved from, and how long they can hold station at the end.
 //
-// All the arithmetic is src/domain/route.js; the waypoints themselves are map-interaction
-// state in src/map.js, beside the launch point. This module owns the wording and
-// the one piece of policy a render module is the right place for: the route is an
-// expert feature, so beginner mode never sees a route at all — not the panel, not
-// the line on the map.
-import { planRoute } from '../domain/route.js';
+// All the arithmetic is src/domain/route.js, run inside the analysis pipeline; the
+// waypoints themselves belong to the mission document. This module owns the
+// wording and the one piece of policy a render module is the right place for: the
+// route is an expert feature, so beginner mode never sees a route at all — not the
+// panel, not the line on the map. The analysis always integrates whatever route
+// the document holds, and this card simply declines to draw it.
 import { routeState } from '../map.js';
-import { state, beginner, units, missionInputs } from '../state.js';
+import { beginner, units } from '../state.js';
 import { f0, f1, mmss, compass } from './format.js';
 import { $ } from './dom.js';
-
-/**
- * The route integrated against this render pass's plan, or null when there is no
- * route to speak of. Called once in app.js and handed to both the map (which
- * draws it) and the card below (which explains it), so the two cannot disagree
- * about whether it fits.
- */
-export function routePlan(r) {
-  if (beginner()) return null;
-  const rt = routeState();
-  if (!rt.on || !rt.launch || rt.waypoints.length === 0) return null;
-  return planRoute(r, {
-    launch: rt.launch,
-    waypoints: rt.waypoints,
-    windFromDeg: state.env.windFromDeg,
-    inputs: missionInputs(),
-  });
-}
 
 /** "8 mph head · 3 mph cross", in the pilot's units. */
 function windCell(leg, u) {

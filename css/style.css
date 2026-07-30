@@ -438,13 +438,24 @@ body[data-plan="none"] #view-map .leaflet-overlay-pane { display: none; }
   font-size: 12.5px;
   color: var(--ink-2);
 }
+/* ADR 0008's six severities, in display order. The three legacy levels map onto
+   the top three — critical stays critical, serious became warning, warning became
+   caution — so the colours a pilot already reads keep their meaning. The three new
+   ones are quieter by design: unknown is the tool saying it could not check, which
+   is grey rather than alarming; advisory is a fact; low-forcing is a calm sky. */
 .warn-critical { border-left-color: var(--status-critical); }
-.warn-serious { border-left-color: var(--status-serious); }
-.warn-warning { border-left-color: var(--status-warning); }
+.warn-warning { border-left-color: var(--status-serious); }
+.warn-caution { border-left-color: var(--status-warning); }
+.warn-unknown { border-left-color: var(--muted); }
+.warn-advisory { border-left-color: var(--accent); }
+.warn-low-forcing { border-left-color: var(--status-good); }
 .warn-icon { font-size: 10px; }
 .warn-critical .warn-icon { color: var(--status-critical); }
-.warn-serious .warn-icon { color: var(--status-serious); }
-.warn-warning .warn-icon { color: var(--status-warning); }
+.warn-warning .warn-icon { color: var(--status-serious); }
+.warn-caution .warn-icon { color: var(--status-warning); }
+.warn-unknown .warn-icon { color: var(--muted); }
+.warn-advisory .warn-icon { color: var(--accent); }
+.warn-low-forcing .warn-icon { color: var(--status-good); }
 .warn-level {
   font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
   color: var(--muted); flex-shrink: 0;
@@ -1248,7 +1259,8 @@ body.brief-open { overflow: hidden; }
 .brief-warn { display: flex; gap: 8px; font-size: 13.5px; margin-bottom: 8px; break-inside: avoid; }
 .brief-warn-level {
   flex: none;
-  width: 66px;
+  /* Wide enough for LOW-FORCING, still a fixed column for the short ones. */
+  min-width: 66px;
   font-family: var(--font-display);
   font-size: 10.5px;
   font-weight: 700;
@@ -1257,10 +1269,17 @@ body.brief-open { overflow: hidden; }
   border: 2px solid #000;
   border-radius: 3px;
   text-align: center;
-  padding: 1px 0;
+  padding: 1px 5px;
   height: fit-content;
 }
+/* The brief is black on white in every theme, so severity is weight and stroke
+   rather than hue: solid for critical, heavy for warning, plain for caution, and
+   dashed for unknown — a box the tool could not fill in. */
 .brief-warn-critical .brief-warn-level { background: #000; color: #fff; }
+.brief-warn-warning .brief-warn-level { border-width: 3px; }
+.brief-warn-unknown .brief-warn-level { border-style: dashed; }
+.brief-warn-advisory .brief-warn-level,
+.brief-warn-low-forcing .brief-warn-level { border-width: 1px; font-weight: 600; }
 
 .brief-checks { list-style: none; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .brief-checks li { display: flex; gap: 10px; font-size: 14.5px; break-inside: avoid; }
