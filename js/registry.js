@@ -57,7 +57,7 @@ export function allManufacturers() {
 export function loadCustomBatteries() {
   const raw = storeGet('custom-batteries', []);
   return Array.isArray(raw) ? raw.filter(b => b && b.id && b.capAh > 0 && b.massG > 0
-    && b.s >= 1 && Array.isArray(b.fits) && ['liion', 'lipo', 'lihv'].includes(b.chem))
+    && b.s >= 1 && (b.fits === undefined || Array.isArray(b.fits)) && ['liion', 'lipo', 'lihv'].includes(b.chem))
     .map(b => ({
       ...b,
       manufacturerId: b.manufacturerId || 'custom',

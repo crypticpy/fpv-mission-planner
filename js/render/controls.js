@@ -64,7 +64,6 @@ export function populateControls() {
   parallelSummary.textContent = state.parallelPacks && configuredBatt
     ? `${configuredBatt.config} effective · ${f0(configuredBatt.capAh * 1000)} mAh · ${f0(configuredBatt.massG)} g batteries + harness`
     : '';
-  fillSelect($('custom-manufacturer'), allManufacturers().map(m => ({ value: m.id, label: m.name })), 'custom');
   fillSelect($('sel-payload'), PAYLOADS.map(p => ({ value: p.id, label: p.name })), state.payloadId);
   fillSelect($('sel-weather'), [
     { value: 'live', label: 'Live — current conditions' },
@@ -105,6 +104,20 @@ export function populateControls() {
   $('in-extra').value = state.extraG;
   renderCustomList();
   renderManufacturerList();
+  renderManufacturerDatalist();
+}
+
+// The battery form's brand input autocompletes against this — native
+// datalist, no JS widget — so it has to stay in step with the registry the
+// same way the manufacturer rail select does.
+function renderManufacturerDatalist() {
+  const host = $('manufacturer-datalist');
+  host.replaceChildren();
+  for (const m of allManufacturers()) {
+    const opt = document.createElement('option');
+    opt.value = m.name;
+    host.appendChild(opt);
+  }
 }
 
 function renderCustomList() {
@@ -189,7 +202,10 @@ export function renderBatteryNote() {
 // mapping from these keys onto a record.
 export const BATTERY_FORM = [
   { key: 'name', label: 'Name', type: 'text', required: true, placeholder: 'Auline 6S 4000' },
-  { key: 'manufacturer', label: 'Manufacturer', type: 'select', id: 'custom-manufacturer' },
+  // Free text, not a mandatory pick from the manufacturer registry: the
+  // submit handler dedupes it against allManufacturers() (case-insensitive)
+  // and auto-creates a custom-builder entry behind the scenes on no match.
+  { key: 'brand', label: 'Brand', type: 'text', placeholder: 'Auline', list: 'manufacturer-datalist' },
   { grid: [
     { key: 'cellMaker', label: 'Cell maker', type: 'text', placeholder: 'EVE' },
     { key: 'cellModel', label: 'Cell model', type: 'text', placeholder: '50PL' },
@@ -209,6 +225,15 @@ export const BATTERY_FORM = [
     { key: 'connector', label: 'Connector', type: 'text', placeholder: 'XT60' },
     { key: 'price', label: 'Price', type: 'number', unit: 'USD', min: 0, max: 5000, step: 0.01 },
   ] },
+  // Computed compatibility (connector + cell count, via registry.compatible())
+  // is the default and the common case — a shared pack no longer has to be
+  // entered once per drone. "Only specific drones" is the pinned-fits escape
+  // hatch for a hand-verified odd pairing.
+  { key: 'fitsMode', label: 'Fits', type: 'select', id: 'battery-fits-mode', options: [
+    { value: 'any', label: 'Any drone that matches (connector + cell count)' },
+    { value: 'specific', label: 'Only specific drones' },
+  ] },
+  { key: 'fitsDrones', label: 'Only these drones', type: 'checkboxes', id: 'battery-fits-drones' },
 ];
 
 export const MANUFACTURER_FORM = [
@@ -216,12 +241,34 @@ export const MANUFACTURER_FORM = [
   { key: 'url', label: 'Website', type: 'url', placeholder: 'https://example.com' },
 ];
 
-// Runs before the first populateControls(), which then keeps the manufacturer
-// select in step with the registry as packs and builders come and go.
+// Runs before the first populateControls(), which then keeps the
+// manufacturer datalist in step with the registry as packs and builders come
+// and go.
 export function buildAuthoringForms() {
+  // The brand input's autocomplete list isn't part of index.html's markup —
+  // built once here, like the forms themselves, and kept in step with the
+  // registry by renderManufacturerDatalist() on every populateControls().
+  if (!$('manufacturer-datalist')) {
+    const dl = document.createElement('datalist');
+    dl.id = 'manufacturer-datalist';
+    document.body.appendChild(dl);
+  }
   buildForm($('custom-form'), BATTERY_FORM, {
     submitLabel: 'Save battery',
-    options: { manufacturer: allManufacturers().map(m => ({ value: m.id, label: m.name })) },
+    // Pre-checks the drone in the rail right now, so switching "Fits" to
+    // "Only specific drones" starts from a sane default instead of an empty
+    // list.
+    options: {
+      fitsDrones: DRONES.map(d => ({ value: d.id, label: d.name, checked: d.id === state.droneId })),
+    },
   });
   buildForm($('manufacturer-form'), MANUFACTURER_FORM, { submitLabel: 'Save manufacturer' });
+
+  // The drone checklist only matters in "specific" mode — hidden the rest of
+  // the time so the default, common path stays a one-line select.
+  const fitsMode = $('battery-fits-mode');
+  const fitsDrones = $('battery-fits-drones');
+  const syncFitsVisibility = () => { fitsDrones.hidden = fitsMode.value !== 'specific'; };
+  syncFitsVisibility();
+  fitsMode.addEventListener('change', syncFitsVisibility);
 }

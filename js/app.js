@@ -2,7 +2,7 @@
 // State lives in state.js and every render lives in js/render/*; nothing
 // imports this file, so app-level callbacks (update, setView) reach those
 // modules by one-time injection at boot.
-import { WEATHER, allBatteries, saveCustomBattery, saveCustomManufacturer } from './data.js';
+import { WEATHER, allBatteries, allManufacturers, saveCustomBattery, saveCustomManufacturer } from './data.js';
 import { planMission } from './physics.js';
 import { hideTooltip } from './charts.js';
 import {
@@ -250,7 +250,26 @@ function bind() {
     e.preventDefault();
     const v = readForm(e.target, BATTERY_FORM);
     if (!v.name) return;
-    const manufacturerId = v.manufacturer || 'custom';
+    // Free-text brand, deduped behind the scenes: reuse an existing builder by
+    // name (case-insensitive) so "gnb" and "GNB" don't fork into two rows, and
+    // silently register a new one otherwise. Blank brand keeps the old
+    // fallback id — 'custom' is a real catalog entry ("Ungrouped custom").
+    const brand = (v.brand || '').trim();
+    let manufacturerId = 'custom';
+    if (brand) {
+      const existing = allManufacturers().find(m => m.name.toLowerCase() === brand.toLowerCase());
+      if (existing) {
+        manufacturerId = existing.id;
+      } else {
+        // Same id shape the manufacturer form below already mints by hand.
+        manufacturerId = 'manufacturer-' + brand.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+        saveCustomManufacturer({ id: manufacturerId, name: brand, url: null });
+      }
+    }
+    // "Any matching" (the default) omits `fits` entirely and leaves
+    // registry.compatible()'s computed connector/cell-count rule to decide;
+    // "Only specific drones" pins it to whatever got checked.
+    const fits = v.fitsMode === 'specific' && v.fitsDrones?.length ? v.fitsDrones : undefined;
     const id = `custom-${manufacturerId}-${v.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
     const s = v.s || 0;
     const p = v.p || 1;
@@ -263,7 +282,7 @@ function bind() {
       irPackMilliOhm: v.ir || 25,
       maxContA: v.amps || null,
       connector: v.connector || drone().connector,
-      fits: [state.droneId],
+      fits,
       manufacturerId,
       cellMaker: v.cellMaker,
       cellModel: v.cellModel,
@@ -274,6 +293,9 @@ function bind() {
     state.manufacturerId = manufacturerId;
     state.batteryId = id;
     e.target.reset();
+    // reset() doesn't fire 'change', so nudge the fits checklist's visibility
+    // back in step with the mode select it just reset to 'any'.
+    $('battery-fits-mode').dispatchEvent(new Event('change'));
     populateControls();
     update();
   });
