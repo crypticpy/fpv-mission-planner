@@ -25,7 +25,7 @@ function calmInputs(drone, battery, overrides = {}) {
       windMode: 'headOut',
       windFromDeg: 170,
     },
-    reservePct: 20,
+    landFloorPct: 20,
     cruiseMode: 'real',
     realVMs: drone.cruiseMs,
     overheadF: 1.05,

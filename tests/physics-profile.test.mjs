@@ -178,11 +178,16 @@ test('a synthetic cruise log still recovers cdA under the new model', () => {
 
 // Steady flight at the airframe's calibrated hands-on cruise, no reserve and no
 // maneuvering overhead: what "flew 15 km in 16 minutes" measures.
-function anchorFlight(drone, battery, { windMs = 0, reservePct = 0, cruiseMode = 'real' } = {}) {
+//
+// `getHome: false` is what makes it a measurement rather than a plan: the pilot
+// who flew 15 km flew the pack, not the pack minus a get-home margin. With the
+// margin on, the anchor would read whatever margin this version happens to keep.
+function anchorFlight(drone, battery, { windMs = 0, landFloorPct = 0, cruiseMode = 'real' } = {}) {
   const plan = planMission({
     drone, battery, payloadG: 0, extraG: 0,
     env: { ...ENV, windAvgMs: windMs, windGustMs: windMs, windMode: 'headOut' },
-    reservePct, gustFactor: 0, cruiseMode, realVMs: drone.cruiseMs, overheadF: 1,
+    landFloorPct, getHome: false, gustFactor: 0,
+    cruiseMode, realVMs: drone.cruiseMs, overheadF: 1,
   });
   return {
     km: plan.totalKm, min: plan.timeMin, hoverMin: plan.hoverTimeMin,
@@ -211,7 +216,7 @@ test('Cinelog30 V3 still reproduces both of its anchor figures', () => {
   assert.ok(claimed.min > 8.3 && claimed.min < 9.4,
     `720 mAh endurance ${claimed.min.toFixed(2)} min no longer brackets the 8:10 claim`);
 
-  const measured = anchorFlight(cinelog, tattu850, { reservePct: 20 });
+  const measured = anchorFlight(cinelog, tattu850, { landFloorPct: 20 });
   assert.ok(measured.min >= 7 && measured.min <= 7.6,
     `850 mAh endurance ${measured.min.toFixed(2)} min left the measured 7–7.5 min window`);
 

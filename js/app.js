@@ -18,7 +18,7 @@ import {
 import { $, fillSelect } from './render/dom.js';
 import { f0 } from './render/format.js';
 import {
-  setupControls, populateControls, renderBatteryNote,
+  setupControls, populateControls, renderWindNotes, renderBatteryNote,
   buildAuthoringForms, BATTERY_FORM, MANUFACTURER_FORM,
 } from './render/controls.js';
 import { setupDroneForm, buildDroneForm } from './render/droneform.js';
@@ -27,7 +27,7 @@ import { resolvePackIr, resetBatteryChecks } from './render/batterychecks.js';
 import { setupFlightLog, buildFlightLogForm } from './render/flightlog.js';
 import { setupCalibration } from './render/calibration.js';
 import {
-  resetPackCaches, renderWarnings, zeroRadiusNote, renderVerdict, renderNoBattery,
+  resetPackCaches, renderWarnings, zeroRadiusNote, renderVerdict, renderNoBattery, renderReserveNote,
   renderStats, renderPowerCurve, renderSpeedTradeoff, renderProfile, renderWindSensitivity,
 } from './render/dashboard.js';
 import { renderComparison } from './render/comparison.js';
@@ -74,6 +74,10 @@ function update() {
   renderVerdict(r, stranded);
   renderWarnings(r.warnings);
   renderForecastStrip(r);
+  // Rail text that tracks the sliders rather than the tabs: both of these sit
+  // beside the controls that move them, and both stay live on the map tab.
+  renderWindNotes();
+  renderReserveNote(r);
   // The saved-spots roster lives on the Map tab, and its
   // distance-from-pin metas go stale whenever the pin moves.
   if (state.view === 'map') renderSpots();
@@ -223,8 +227,13 @@ function bind() {
   }
   $('sel-windmode').addEventListener('change', e => { state.env.windMode = e.target.value; update(); });
   $('in-reserve').addEventListener('input', e => {
-    state.reservePct = +e.target.value;
-    $('reserve-val').textContent = `${state.reservePct}%`;
+    state.landFloorPct = +e.target.value;
+    $('reserve-val').textContent = `${state.landFloorPct}%`;
+    update();
+  });
+  $('in-gustf').addEventListener('input', e => {
+    state.gustFactorPct = Math.min(100, Math.max(0, +e.target.value || 0));
+    $('gustf-val').textContent = `${state.gustFactorPct}%`;
     update();
   });
   $('sel-cruise').addEventListener('change', e => {

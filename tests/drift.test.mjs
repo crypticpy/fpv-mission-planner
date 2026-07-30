@@ -217,7 +217,7 @@ const baseInputs = (drone) => ({
     windAvgMs: U.mphToMs(3), windGustMs: U.mphToMs(5),
     windMode: 'headOut', windFromDeg: 170,
   },
-  reservePct: 20,
+  landFloorPct: 20,
   cruiseMode: 'real',
   realVMs: drone.cruiseMs,
   overheadF: 1.05,

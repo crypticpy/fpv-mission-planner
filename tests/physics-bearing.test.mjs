@@ -19,7 +19,7 @@ function inputs(overrides = {}, envOverrides = {}) {
       windMode: 'headOut', windFromDeg: 170,
       ...envOverrides,
     },
-    reservePct: 20, cruiseMode: 'real', realVMs: 18, manualVMs: 0,
+    landFloorPct: 20, cruiseMode: 'real', realVMs: 18, manualVMs: 0,
     overheadF: 1.05,
     ...overrides,
   };

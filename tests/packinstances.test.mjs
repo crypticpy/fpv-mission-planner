@@ -169,7 +169,7 @@ test('the overlaid resistance reaches the plan', () => {
       windAvgMs: U.mphToMs(3), windGustMs: U.mphToMs(5),
       windMode: 'headOut', windFromDeg: 170,
     },
-    reservePct: 20, cruiseMode: 'real', realVMs: moz7.cruiseMs, overheadF: 1.05, lite: true,
+    landFloorPct: 20, cruiseMode: 'real', realVMs: moz7.cruiseMs, overheadF: 1.05, lite: true,
   });
   const spec = planMission(inputs(pack)).radiusKm;
 

@@ -9,6 +9,7 @@ import {
   state, beginner, units, drone, droneBatteries, compatibleBatteries, battery,
   manufacturer, loadoutBattery, EXPERT_CRUISE_MODES,
 } from '../state.js';
+import { GUST_FACTOR_DEFAULT } from '../physics.js';
 import { deletePackInstancesFor } from '../packinstances.js';
 import { buildForm } from '../forms.js';
 import { classById } from '../catalog/classes.js';
@@ -31,12 +32,41 @@ function configureNumericInput(input, config, value) {
   input.value = Math.round(value / config.step) * config.step;
 }
 
+/**
+ * The two sentences under the wind fields: what wind the plan is actually flying,
+ * and how much of the gust spread is in it.
+ *
+ * Separate from populateControls() because these two are the only rail text that
+ * has to track a slider or a number field live — every wind edit and every drag
+ * of the gust knob moves the figures in them, and update() runs on all of those.
+ * Re-running the whole rail (which rebuilds every select) on each keystroke would
+ * be the wrong trade.
+ */
+export function renderWindNotes() {
+  const u = units();
+  $('wind-note').textContent =
+    `The plan flies the 80 m wind — ${f0(u.speedFromMph(state.env.windMph))} ${u.speedUnit} from ${state.env.windFromDeg}° (${compass(state.env.windFromDeg)}). `
+    + `At the launch point you’ll feel roughly half of it, about ${f0(u.speedFromMph(surfaceMph(state.env.windMph)))} ${u.speedUnit}.`;
+  // The gust blend, and the honest caveat on it: the gust figure Open-Meteo
+  // publishes is a 10 m reading, while the wind the plan flies is the 80 m one,
+  // so the spread being blended is not measured in the air the aircraft is in.
+  const gustF = state.gustFactorPct / 100;
+  const planningMph = state.env.windMph + gustF * Math.max(0, state.env.gustMph - state.env.windMph);
+  $('gustf-val').textContent = `${state.gustFactorPct}%`;
+  $('gustf-note').textContent =
+    `Planning wind ${f0(u.speedFromMph(planningMph))} ${u.speedUnit} — the average plus `
+    + `${state.gustFactorPct}% of the way up to the gusts. 0% plans the average, 100% plans the full gust. `
+    + 'Note the mismatch: gusts are measured at 10 m, near the ground, while the plan flies the 80 m wind — '
+    + 'so this spread is borrowed from lower air than the drone is in.';
+}
+
 export function populateControls() {
   const u = units();
   // Beginner mode can never sit on an expert control that is off screen: the
   // thing that would change it back is hidden. Same rule for both.
   if (beginner() && EXPERT_CRUISE_MODES.includes(state.cruiseMode)) state.cruiseMode = 'real';
   if (beginner() && state.parallelPacks) state.parallelPacks = false;
+  if (beginner()) state.gustFactorPct = GUST_FACTOR_DEFAULT * 100;
   document.body.dataset.detail = state.detail;
   $('sel-detail').value = state.detail;
   $('sel-units').value = state.units;
@@ -80,12 +110,11 @@ export function populateControls() {
   $('wind-label').textContent = `Wind aloft (${u.speedUnit})`;
   $('gust-label').textContent = `Gusts (${u.speedUnit})`;
   $('in-winddir').value = state.env.windFromDeg;
-  $('wind-note').textContent =
-    `The plan flies the 80 m wind — ${f0(u.speedFromMph(state.env.windMph))} ${u.speedUnit} from ${state.env.windFromDeg}° (${compass(state.env.windFromDeg)}). `
-    + `At the launch point you’ll feel roughly half of it, about ${f0(u.speedFromMph(surfaceMph(state.env.windMph)))} ${u.speedUnit}.`;
+  $('in-gustf').value = state.gustFactorPct;
+  renderWindNotes();
   $('sel-windmode').value = state.env.windMode;
-  $('in-reserve').value = state.reservePct;
-  $('reserve-val').textContent = `${state.reservePct}%`;
+  $('in-reserve').value = state.landFloorPct;
+  $('reserve-val').textContent = `${state.landFloorPct}%`;
   fillSelect($('sel-cruise'), [
     { value: 'real', label: 'Realistic — how you’d fly it' },
     ...(beginner() ? [] : [

@@ -60,7 +60,7 @@ const baseInputs = {
     windMode: 'headOut',
     windFromDeg: 170,
   },
-  reservePct: 20,
+  landFloorPct: 20,
   cruiseMode: 'real',
   realVMs: moz7.cruiseMs,
   overheadF: 1.05,

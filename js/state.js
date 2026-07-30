@@ -9,7 +9,7 @@ import { allDrones, compatible, compatibleBatteries as dronePacks } from './regi
 import { calibratedDrone } from './flightlog.js';
 import { instanceBattery } from './packinstances.js';
 import { get as storeGet, set as storeSet } from './store.js';
-import { parallelBattery, U } from './physics.js';
+import { parallelBattery, GUST_FACTOR_DEFAULT, U } from './physics.js';
 import { unitSystem } from './units.js';
 
 export const state = {
@@ -24,7 +24,13 @@ export const state = {
   weatherId: 'live', // 'live' | preset id | 'custom' — live is the boot default
   scenarioId: 'longrange',
   env: { elevFt: 800, tempF: 75, rhPct: 40, windMph: 3, gustMph: 5, windFromDeg: 170, windMode: 'headOut' },
-  reservePct: 20,
+  // The charge the pilot doesn't want to land below — pack care, not get-home
+  // margin. The get-home margin is solved in Wh by planMission (Phase 4 item 2);
+  // this is all that is left for a percent to mean.
+  landFloorPct: 20,
+  // How much of the gust spread the planning wind carries, as a percent
+  // (physics.GUST_FACTOR_DEFAULT × 100). Expert-only; see populateControls().
+  gustFactorPct: 35,
   cruiseMode: 'real',
   manualMph: 40,
   speedMetric: 'radius',
@@ -47,12 +53,30 @@ export function saveSession() {
  * `detail` is the one exception: it is a view preference, not part of the plan,
  * so it falls back to 'full' on its own rather than voiding a blob written
  * before the toggle existed.
+ *
+ * Two fields are read with a migration in front of them rather than voiding an
+ * older blob — see `landFloor` and `gustFactor` below.
  */
 export function restoreSession() {
   const s = storeGet('session', null);
   if (!s || typeof s !== 'object' || !s.env || typeof s.env !== 'object') return null;
   const env = s.env;
   const num = (v, lo, hi) => Number.isFinite(v) && v >= lo && v <= hi;
+  // Phase 4 item 2 renamed this field as its meaning narrowed. A blob written
+  // before the change carries `reservePct`, which used to withhold that share of
+  // the pack as the get-home margin; the number is carried over verbatim as the
+  // pack-care floor, because the slider it came off was already labeled "battery
+  // left when you land" — the figure means what it always displayed, and the
+  // get-home margin it used to double as is now solved in Wh instead. Out-of-
+  // range values still void the blob, the same as every other number here.
+  const landFloor = num(s.landFloorPct, 0, 40) ? s.landFloorPct
+    : s.landFloorPct === undefined && num(s.reservePct, 10, 40) ? s.reservePct
+    : null;
+  // Written for the first time by this version; an older blob simply gets the
+  // default rather than being thrown away over a knob that did not exist.
+  const gustFactor = s.gustFactorPct === undefined ? GUST_FACTOR_DEFAULT * 100
+    : num(s.gustFactorPct, 0, 100) ? s.gustFactorPct
+    : null;
   // allDrones(), not the catalog: a rig the pilot added themselves has to survive
   // a reload exactly like a built-in, and store.js is import-time safe so the
   // custom records are readable this early in boot.
@@ -76,14 +100,15 @@ export function restoreSession() {
     && ['radius', 'time'].includes(s.speedMetric)
     && ['headOut', 'tailOut', 'cross'].includes(env.windMode)
     && typeof s.parallelPacks === 'boolean'
-    && num(s.extraG, 0, 500) && num(s.reservePct, 10, 40) && num(s.manualMph, 5, 120)
+    && num(s.extraG, 0, 500) && landFloor !== null && gustFactor !== null && num(s.manualMph, 5, 120)
     && num(env.elevFt, -1500, 30000) && num(env.tempF, -60, 140) && num(env.rhPct, 0, 100)
     && num(env.windMph, 0, 120) && num(env.gustMph, 0, 160) && num(env.windFromDeg, 0, 359);
   if (!ok) return null;
   Object.assign(state, {
     units: s.units, droneId: s.droneId, manufacturerId: s.manufacturerId, batteryId: s.batteryId,
     parallelPacks: s.parallelPacks, payloadId: s.payloadId, extraG: s.extraG,
-    weatherId: s.weatherId, scenarioId: s.scenarioId, reservePct: s.reservePct,
+    weatherId: s.weatherId, scenarioId: s.scenarioId,
+    landFloorPct: landFloor, gustFactorPct: gustFactor,
     cruiseMode: s.cruiseMode, manualMph: s.manualMph, speedMetric: s.speedMetric,
     detail: ['full', 'beginner'].includes(s.detail) ? s.detail : 'full',
     env: {
@@ -185,7 +210,8 @@ export function missionInputs(batt = battery(), envOverride = null) {
       windFromDeg: env.windFromDeg,
       windMode: env.windMode,
     },
-    reservePct: state.reservePct,
+    landFloorPct: state.landFloorPct,
+    gustFactor: state.gustFactorPct / 100,
     cruiseMode: state.cruiseMode,
     realVMs: drone().cruiseMs * scenario().speedFactor,
     manualVMs: U.mphToMs(state.manualMph),

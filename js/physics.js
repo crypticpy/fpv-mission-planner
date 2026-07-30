@@ -396,6 +396,35 @@ export function dischargeToSoc(batt, tempC, pW, minutes) {
 
 const WIND_MODES = ['headOut', 'tailOut', 'cross'];
 
+/**
+ * Share of the gust spread the planning wind carries: the planning wind is
+ * `avg + GUST_FACTOR·(gust − avg)`. Exported because the control rail now owns
+ * this number (Phase 4 item 4) and both sides have to agree on the default.
+ *
+ * Note what the blend is actually mixing: Open-Meteo publishes gusts at 10 m
+ * and sustained wind at 80 m, which is the altitude band this tool plans in. So
+ * the spread is a 10 m spread laid over an 80 m mean — it reads harsher than
+ * the air the aircraft is in, and the honest thing to do is say so next to the
+ * knob rather than bury a 0.35 in the model.
+ */
+export const GUST_FACTOR_DEFAULT = 0.35;
+
+/**
+ * The get-home reserve's hunt-and-land allowance, in minutes of hover power
+ * (Phase 4 item 2). Hover is the right power scale: finding the landing spot,
+ * an aborted approach and a controlled descent are all low-speed station
+ * keeping, not cruise. 90 seconds buys about 30 s of looking, 30 s of approach
+ * and 30 s of margin.
+ *
+ * Deliberately a time, not an energy or a percentage: `min × pHover` scales with
+ * the aircraft rather than with the pack, which is the whole complaint against
+ * the percent reserve it replaces. On the MOZ7 + 6S 5000 Li-Ion it comes out at
+ * 4.5 Wh of a 108 Wh pack (4.2%); on the Cinelog30 + 4S 850 it is 0.95 Wh of
+ * 12.6 Wh (7.5%) — the small pack gets the bigger share of itself, which is the
+ * way round it should have been all along.
+ */
+export const HUNT_LAND_HOVER_MIN = 1.5;
+
 // Ground speed holding a course line against a signed along-track headwind and
 // a crosswind component. The crab that cancels the cross component spends
 // airspeed; a cross component at or beyond airspeed makes the course unholdable
@@ -449,11 +478,42 @@ function bestEnduranceSpeed(vMax, pAt) {
 }
 
 /**
+ * The strongest pure headwind the aircraft could still fly `radiusKm` home
+ * against on `budgetWh` — the headline the Wh reserve exists to produce
+ * ("reserve holds to an 18 mph headwind").
+ *
+ * Wh per ground-km rises monotonically with headwind (the power is the same or
+ * higher, the ground speed strictly lower), so the feasible set is an interval
+ * from zero and bisection is exact to within the last step. Returns the wind in
+ * m/s, capped at `vMaxMs` — a headwind at the aircraft's own top speed is the
+ * end of the scale, not a number worth resolving past.
+ */
+function headwindLimitMs(radiusKm, budgetWh, solveLeg, vMaxMs) {
+  const fits = (w) => {
+    const leg = solveLeg({ head: w, cross: 0 });
+    return !!leg && radiusKm * leg.whPerKm <= budgetWh;
+  };
+  if (!(vMaxMs > 0) || !fits(0)) return 0;
+  if (fits(vMaxMs)) return vMaxMs;
+  let lo = 0, hi = vMaxMs;
+  for (let i = 0; i < 24; i++) {
+    const mid = (lo + hi) / 2;
+    if (fits(mid)) lo = mid; else hi = mid;
+  }
+  return lo;
+}
+
+/**
  * Plan an out-and-back mission.
  * inputs: {
  *   drone, battery, payloadG, extraG,
  *   env: { elevM, tempC, rhPct, windAvgMs, windGustMs, windMode, windFromDeg },
- *   reservePct, gustFactor,
+ *   landFloorPct, // pack-care floor: charge (% of delivered Wh) not to land below
+ *   gustFactor,   // share of the gust spread the planning wind carries
+ *   getHome,      // get-home reserve policy: false to size the mission with no
+ *                 // reserve at all (a measurement, not a plan), or
+ *                 // { windMs, huntLandMin } to override either half — windMs
+ *                 // rescales the adverse return wind, huntLandMin its allowance
  *   cruiseMode: 'real'|'range'|'manual', realVMs, manualVMs,
  *   overheadF,  // scenario maneuvering burn, ×steady cruise power (≥1)
  *   courseDeg,  // optional absolute out-leg course; with env.windFromDeg it
@@ -478,8 +538,9 @@ export function planMission(inp) {
   const cfg = { massKg, rho, areaM2, cdA, etaProp: drone.etaProp, avionicsW: drone.avionicsW };
   const modelVMax = drone.maxSpeedMs;
 
-  // Planning wind: average plus a slice of the gust spread (conservatism knob).
-  const gustFactor = inp.gustFactor ?? 0.35;
+  // Planning wind: average plus a slice of the gust spread (conservatism knob,
+  // exposed on the rail since Phase 4 item 4 — see GUST_FACTOR_DEFAULT).
+  const gustFactor = inp.gustFactor ?? GUST_FACTOR_DEFAULT;
   const windMs = env.windAvgMs + gustFactor * Math.max(0, env.windGustMs - env.windAvgMs);
   // Leg wind components: an absolute course (map footprint) wins over the
   // relative windMode (dashboard); both see the same gust-blended wind.
@@ -523,30 +584,26 @@ export function planMission(inp) {
   const fixedV = inp.cruiseMode === 'manual' ? (inp.manualVMs || 0)
     : inp.cruiseMode === 'real' ? Math.min(inp.realVMs || 0, 0.95 * vMax)
     : 0;
-  let legOut, legBack;
-  if (!flight.viable) {
-    legOut = null;
-    legBack = null;
-  } else if (fixedV > 0) {
-    const mk = (vec) => {
+  // One leg of the mission against a given wind vector, at whatever cruise
+  // policy is in force. The scenario maneuvering burn scales the whole leg (it
+  // cancels out of the best-range argmin, so it's applied after speed
+  // selection). legs.pOut / legs.pBack stay steady-flight so power-curve
+  // markers sit on the curve; whPerKm and the discharge sim carry the overhead.
+  const solveLeg = (vec) => {
+    if (!flight.viable) return null;
+    let leg;
+    if (fixedV > 0) {
       if (fixedV > vMax + 1e-9) return null;
       const vg = groundSpeedVec(fixedV, vec.head, vec.cross);
-      return vg > 0.5
-        ? { v: fixedV, vg, whPerKm: pAt(fixedV) / (3.6 * vg) }
-        : null;
-    };
-    legOut = mk(vecOut);
-    legBack = mk(vecBack);
-  } else {
-    legOut = bestRangeSpeed(vecOut, vMax, pAt);
-    legBack = bestRangeSpeed(vecBack, vMax, pAt);
-  }
-  // Scenario maneuvering burn scales the whole cruise leg (it cancels out of
-  // the best-range argmin, so it's applied after speed selection). legs.pOut /
-  // legs.pBack stay steady-flight so power-curve markers sit on the curve;
-  // whPerKm and the discharge sim carry the overhead.
-  if (legOut) legOut.whPerKm *= overheadF;
-  if (legBack) legBack.whPerKm *= overheadF;
+      leg = vg > 0.5 ? { v: fixedV, vg, whPerKm: pAt(fixedV) / (3.6 * vg) } : null;
+    } else {
+      leg = bestRangeSpeed(vec, vMax, pAt);
+    }
+    if (leg) leg.whPerKm *= overheadF;
+    return leg;
+  };
+  const legOut = solveLeg(vecOut);
+  const legBack = solveLeg(vecBack);
 
   // Usable energy at the mission's average power draw.
   const pOutSteady = legOut ? pAt(legOut.v) : pHover;
@@ -555,19 +612,106 @@ export function planMission(inp) {
   const pBack = legBack ? pBackSteady * overheadF : pHover;
   const pAvg = (pOut + pBack) / 2;
   const sim = dischargeSim(battery, env.tempC, pAvg);
-  const reserve = Math.min(Math.max(inp.reservePct ?? 20, 0), 60) / 100;
-  const usableWh = sim.deliveredWh * (1 - reserve);
+
+  /* ---- The get-home reserve (Phase 4 item 2) ----
+   *
+   * Two separate things used to share one percent slider, and percent was the
+   * wrong unit for both of them:
+   *
+   *   the pack-care floor — the charge you don't want to land below, because
+   *     that is what wears cells. A percent, correctly: cell state of charge is
+   *     the thing being protected. Stays the pilot's knob (`landFloorPct`).
+   *   the get-home margin — the energy it takes to actually reach the launch
+   *     point from the turnaround if the wind is against you. An amount of
+   *     work, in Wh, and 20% of a 6S2P Li-Ion (43 Wh) versus 20% of an 850
+   *     (2.5 Wh) held the margin back-to-front: the small pack, with the least
+   *     absolute energy and the shortest legs, got the least.
+   *
+   * The margin is solved, not set. Two constraints on the turnaround radius R:
+   *
+   *   floor:    R·(whOut + whBack) ≤ delivered·(1 − floor)
+   *   get-home: R·whOut + R·whHome + huntLand ≤ delivered
+   *
+   * where `whHome` is the same aircraft, at the same cruise policy, flying the
+   * return leg it might actually get instead of the one it planned: the planned
+   * return with the along-wind component turned adverse. The second constraint
+   * rearranges to a closed form, so the whole thing costs no iteration and — at
+   * the default wind — not even an extra leg solve. The mission takes whichever
+   * radius binds first, and `reserveWh` is what the pack is holding when it lands
+   * from that mission.
+   *
+   * What "worst case" is and isn't. It is the *blended* planning wind, not the
+   * raw gust peak: a whole leg flown at the peak is a wind that doesn't exist for
+   * the minutes the leg takes, and the gust factor above is already the knob for
+   * how much of the peak to believe (so turning that knob up widens the reserve
+   * too). And it is the forecast wind with its *sign* made adverse, not a wind
+   * from a new direction: the free tailwind home is the assumption that strands
+   * people, but a 90° shift on top of the forecast is double-counting, and
+   * demanding headwind-home capability on a crosswind route would collapse the
+   * whole map footprint the moment the rig couldn't out-fly the wind head-on.
+   *
+   * Because |head| and cross are shared between the two legs, the adverse return
+   * IS one of the two legs already solved — whichever of them faces the wind. So
+   * `legHome` closes exactly when the mission's own legs close: the reserve
+   * shortens missions, and never invents a new collapse. (An explicit
+   * `getHome.windMs` override rescales the vector and does cost a solve.)
+   */
+  const gh = inp.getHome === false ? null : {
+    windMs: inp.getHome?.windMs ?? windMs,
+    huntLandMin: inp.getHome?.huntLandMin ?? HUNT_LAND_HOVER_MIN,
+  };
+  // With no reserve policy at all the planned return leg stands in, which
+  // collapses the get-home constraint into the floor one and leaves the mission
+  // an unreserved measurement.
+  const homeScale = gh ? (windMs > 0 ? gh.windMs / windMs : 0) : 0;
+  const vecHome = !gh ? null
+    : windMs > 0 ? { head: Math.abs(vecBack.head) * homeScale, cross: vecBack.cross * homeScale }
+    : { head: gh.windMs, cross: 0 }; // dead calm, overridden: a pure headwind is all there is to scale
+  const sameVec = (a, b) => Math.abs(a.head - b.head) < 1e-12 && Math.abs(a.cross - b.cross) < 1e-12;
+  const legHome = !gh ? legBack
+    : sameVec(vecHome, vecOut) ? legOut
+    : sameVec(vecHome, vecBack) ? legBack
+    : solveLeg(vecHome);
+  const huntLandWh = gh ? gh.huntLandMin * pHover / 60 : 0;
+
+  const floorFrac = Math.min(Math.max(inp.landFloorPct ?? 20, 0), 60) / 100;
+  const floorUsableWh = sim.deliveredWh * (1 - floorFrac);
 
   // Mission radius & time.
   let radiusKm = 0, timeMin = 0, totalKm = 0;
-  if (legOut && legBack) {
-    radiusKm = usableWh / (legOut.whPerKm + legBack.whPerKm);
+  let usableWh = floorUsableWh; // no mission closes → the tile still reads the floor
+  let reserveBinds = null;
+  if (legOut && legBack && legHome) {
+    const whPerKmRound = legOut.whPerKm + legBack.whPerKm;
+    const rFloor = floorUsableWh / whPerKmRound;
+    const rHome = Math.max(0, sim.deliveredWh - huntLandWh) / (legOut.whPerKm + legHome.whPerKm);
+    reserveBinds = rHome < rFloor ? 'getHome' : 'floor';
+    radiusKm = Math.min(rFloor, rHome);
+    usableWh = radiusKm * whPerKmRound;
     totalKm = radiusKm * 2;
     timeMin = (radiusKm / (legOut.vg * 3.6) + radiusKm / (legBack.vg * 3.6)) * 60;
   }
+  const reserveWh = sim.deliveredWh - usableWh;
+  // The get-home reserve as the doc defines it: the energy the worst-case return
+  // from this turnaround actually costs, hunt-and-land included. Distinct from
+  // `reserveWh`, which is what the pack lands on after the *planned* return —
+  // downwind-home missions land on far less than the upwind return would need,
+  // and the plan is safe precisely because the radius was capped so the expensive
+  // return still fits from the turnaround.
+  const getHomeWh = gh && legHome && radiusKm > 0 ? radiusKm * legHome.whPerKm + huntLandWh : 0;
+  // Hovering over your own feet has no leg to fly home, so only the pack-care
+  // floor applies to this one.
   const hoverTimeMin = inp.lite ? 0
-    : dischargeSim(battery, env.tempC, pHover).deliveredWh * (1 - reserve) / pHover * 60;
+    : dischargeSim(battery, env.tempC, pHover).deliveredWh * (1 - floorFrac) / pHover * 60;
   const cruiseTimeMin = usableWh / pAvg * 60; // loiter at cruise power
+  // The headline: what the retained energy is actually worth, read back out of
+  // the plan rather than asserted. Equal to gh.windMs to bisection precision
+  // whenever the get-home constraint is the binding one, and higher when the
+  // pack-care floor held more back than getting home needs. Display only, so
+  // the sweep callers skip it.
+  const holdsHeadwindMs = inp.lite || !(radiusKm > 0) ? null
+    : headwindLimitMs(radiusKm, sim.deliveredWh - radiusKm * legOut.whPerKm - huntLandWh,
+                      solveLeg, vMax);
 
   // Timeline for the mission-profile chart.
   const timeline = [];
@@ -615,7 +759,11 @@ export function planMission(inp) {
       text: `Parallel mode assumes ${battery.packCount} identical, equally charged packs and includes ${battery.harnessMassG || 0} g of harness/restraint allowance.`,
     });
   }
-  if (!legOut || !legBack) {
+  // `legHome` joins the other two: a mission whose worst-case return leg cannot
+  // be flown at all has no safe turnaround point, which is the same dead end.
+  // One text for all three, because render/dashboard.js's zeroRadiusNote()
+  // replaces this line with the version that names the lever to move.
+  if (!legOut || !legBack || !legHome) {
     if (flight.viable) warnings.push({ level: 'critical', text: 'Wind or loaded propulsion limits prevent a safe out-and-back at these settings.' });
   }
   if (battery.maxContA) {
@@ -633,12 +781,24 @@ export function planMission(inp) {
     rho, densityAltM, massKg, discLoadingGcm2, areaM2,
     hover: { pW: pHover, iA: iHover, gPerW: (massKg * 1000) / pHover },
     endurance: endur ? { vMs: endur.v, pW: endur.p } : null,
-    wind: { planningMs: windMs, out: vecOut, back: vecBack },
-    legs: { out: legOut, back: legBack, pOut: pOutSteady, pBack: pBackSteady },
+    wind: { planningMs: windMs, out: vecOut, back: vecBack, gustFactor },
+    legs: { out: legOut, back: legBack, home: legHome, pOut: pOutSteady, pBack: pBackSteady },
     overheadF,
-    energy: { packWh: battery.capAh * battery.s * CHEMISTRY[battery.chem].vNom,
-              deliveredWh: sim.deliveredWh, usableWh, reservePct: reserve * 100,
-              capF: sim.capF, sagLimited: sim.sagLimited },
+    energy: {
+      packWh: battery.capAh * battery.s * CHEMISTRY[battery.chem].vNom,
+      deliveredWh: sim.deliveredWh, usableWh,
+      // The reserve as an amount of work, and the same amount as the share of
+      // the pack the mission lands on (what the profile chart's marker line and
+      // the hero sentence read). Derived now, not set.
+      reserveWh,
+      reservePct: sim.deliveredWh > 0 ? reserveWh / sim.deliveredWh * 100 : 0,
+      landFloorPct: floorFrac * 100,
+      getHomeWh, huntLandWh,
+      getHomeWindMs: gh ? gh.windMs : null,
+      holdsHeadwindMs,
+      reserveBinds,
+      capF: sim.capF, sagLimited: sim.sagLimited,
+    },
     radiusKm, totalKm, timeMin, hoverTimeMin, cruiseTimeMin,
     curve: inp.lite ? [] : powerCurve(cfg, modelVMax),
     cfg, flight, speedLimitMs: vMax, timeline, warnings,

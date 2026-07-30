@@ -6,6 +6,15 @@ export const SERIES = ['var(--series-1)', 'var(--series-2)', 'var(--series-3)', 
 export const f0 = (x) => x != null && isFinite(x) ? x.toLocaleString('en-US', { maximumFractionDigits: 0 }) : '—';
 export const f1 = (x) => x != null && isFinite(x) ? x.toLocaleString('en-US', { maximumFractionDigits: 1, minimumFractionDigits: 1 }) : '—';
 
+// "an 18 mph headwind", "a 22 mph headwind" — the article that goes in front of a
+// formatted number, by how the number is said rather than how it is spelled.
+// Eight, eleven, eighteen and the eighties are the ones that lead with a vowel
+// sound in the ranges this app prints; everything else takes "a".
+export const article = (formatted) => {
+  const n = Math.floor(Math.abs(parseFloat(formatted)));
+  return n === 8 || n === 11 || n === 18 || (n >= 80 && n <= 89) ? 'an' : 'a';
+};
+
 // Pilots fly the OSD clock, not a decimal minute. Durations render mm:ss, and
 // only grow an hours field if something absurd asks for one.
 export const mmss = (min) => {

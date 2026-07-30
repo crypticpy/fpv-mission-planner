@@ -318,7 +318,10 @@ function crossChecks(rec) {
   const pHover = powerAtSpeed({
     massKg, rho, areaM2, cdA: rec.cdA + (p.cdA || 0), etaProp: rec.etaProp, avionicsW: rec.avionicsW,
   }, 0);
-  const reserve = Math.min(Math.max(state.reservePct, 0), 60) / 100;
+  // The hover readout is a hover, so the pack-care floor is the only reserve that
+  // applies — there is no turnaround to hold get-home energy for. Same clamp
+  // planMission uses on `landFloorPct`.
+  const reserve = Math.min(Math.max(state.landFloorPct, 0), 60) / 100;
   const motorW = rec.propulsion?.motorMaxW ? rec.propulsion.motorMaxW * rec.numRotors : null;
   // A pasted bench figure answers the lift question outright, so the readout
   // quotes it while the pilot is still typing — that is the number they came to

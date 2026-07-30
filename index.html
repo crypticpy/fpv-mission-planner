@@ -199,6 +199,13 @@
         <label>Wind from (°) <input id="in-winddir" type="number" step="5" min="0" max="359"></label>
       </div>
       <p id="wind-note" class="rail-note wind-note"></p>
+      <!-- The gust conservatism knob (Phase 4 item 4): the planning wind is the
+           average plus this share of the gust spread. Hardcoded at 35% and
+           invisible until now. Expert-only — beginner mode plans the default. -->
+      <label class="full-only">How much of the gusts to plan for <span id="gustf-val" class="range-val"></span>
+        <input id="in-gustf" type="range" min="0" max="100" step="5" aria-describedby="gustf-note">
+      </label>
+      <p id="gustf-note" class="rail-note full-only"></p>
       <div id="forecast-strip" class="forecast-strip" hidden>
         <p id="forecast-banner" class="forecast-banner" hidden></p>
         <label>Plan for <span id="forecast-when" class="range-val"></span>
@@ -224,10 +231,14 @@
           <option value="cross">Crosswind both ways</option>
         </select>
       </label>
-      <label>Battery left when you land <span id="reserve-val" class="range-val"></span>
-        <input id="in-reserve" type="range" min="10" max="40" step="5">
+      <!-- Pack care only (Phase 4 item 2). The get-home margin used to share
+           this slider as a percent of the pack, which scaled backwards; it is
+           now solved in Wh and reported in #reserve-note. -->
+      <label>Don’t land below <span id="reserve-val" class="range-val"></span>
+        <input id="in-reserve" type="range" min="0" max="40" step="5" aria-describedby="reserve-note">
       </label>
       <p class="rail-note">Landing below about 20% wears LiPo packs fast.</p>
+      <p id="reserve-note" class="rail-note" role="status"></p>
       <label>Cruise speed
         <!-- Options are rebuilt in populateControls(): beginner mode keeps only
              the realistic cruise. -->

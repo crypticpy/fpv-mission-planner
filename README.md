@@ -84,16 +84,32 @@ they just won't load offline.
    weight and rejects a mission below 1:1. Exact motor/prop thrust curves are
    not published for these aircraft, so lift limits are explicitly labeled
    **estimated** rather than presented as thrust-stand measurements.
-5. **Mission** — planning wind = average + 35% of the gust spread. **Weather**
-   (place + season presets) is separate from the **scenario** (how you fly):
-   each scenario sets a realistic cruise speed as a fraction of the airframe's
-   calibrated hands-on cruise (MOZ7 ~40 mph, Cinelog ~20 mph) and a maneuvering
-   burn multiplier (+5% steady cruise up to +40% cliff dives) on top of
-   steady-flight power. Cruise speed modes: *Realistic* (default — the speed
-   you'd actually fly), *Theoretical best range* (per-leg Wh-per-ground-km
-   optimum — the ceiling, not a prediction), or *Manual*. Radius solves
-   `usable energy = radius × (Wh/km out + Wh/km back)` after the landing
-   reserve.
+5. **Mission** — planning wind = average + a share of the gust spread, set by
+   **How much of the gusts to plan for** (default 35%, expert view only; the
+   rail states the planning wind it produces). Be aware of what the blend
+   mixes: Open-Meteo publishes gusts at 10 m and sustained wind at 80 m, so the
+   spread is borrowed from lower air than the aircraft is in — the control's
+   note says so. **Weather** (place + season presets) is separate from the
+   **scenario** (how you fly): each scenario sets a realistic cruise speed as a
+   fraction of the airframe's calibrated hands-on cruise (MOZ7 ~40 mph,
+   Cinelog ~20 mph) and a maneuvering burn multiplier (+5% steady cruise up to
+   +40% cliff dives) on top of steady-flight power. Cruise speed modes:
+   *Realistic* (default — the speed you'd actually fly), *Theoretical best
+   range* (per-leg Wh-per-ground-km optimum — the ceiling, not a prediction),
+   or *Manual*. Radius solves `usable energy = radius × (Wh/km out + Wh/km
+   back)`, capped by whichever reserve binds first (below).
+6. **Reserves** — two separate things, in the units that suit each.
+   **Don't land below** (percent, your knob) is pack care: the state of charge
+   you don't want to land under, because that is what wears cells.
+   The **get-home reserve** is solved in Wh, not set: the energy to fly home
+   from the turnaround on the return leg you might actually get — the planned
+   return with the along-wind component turned adverse, at the planning wind —
+   plus 90 seconds of hover power to find a spot and land. Because that
+   allowance is a time, it scales with the aircraft instead of the pack: 4.5 Wh
+   of a 108 Wh 6S Li-Ion, 0.95 Wh of a 12.6 Wh 4S 850, where a flat percentage
+   gave the small pack the smaller cushion. The rail reports the result as a
+   wind — "reserve holds to an 18 mph headwind" — and says which of the two
+   reserves is the one shortening the mission.
 
 ## Parallel batteries
 
@@ -161,6 +177,13 @@ course, turn around, come home — not general reachability. Because both legs
 pay for the same wind, upwind and downwind reach are equal and the crosswind
 axis is slightly longer; a dogleg route can beat the ring. Bearings the aircraft
 can't make headway on collapse to the launch point.
+
+The sweep samples every 5° off the wind axis and **refines itself where adjacent
+rays disagree**, bisecting down to 0.625° across the edge of a collapsed sector
+(up to 20 extra rays per ring, spent sharpest-first). Without it, the boundary
+between "reachable" and "collapsed" is a 5° linear ramp that hands you reach on
+headings the model says are dead. Smooth footprints — anything short of a
+collapse — cost exactly the base 37 rays, so calm air pays nothing for this.
 
 **Live weather is the default.** On load the planner fetches current conditions
 at the launch point from [Open-Meteo](https://open-meteo.com/) (free, no key)

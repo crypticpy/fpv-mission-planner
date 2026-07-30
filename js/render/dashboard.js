@@ -1,12 +1,14 @@
 // render/dashboard.js — the planner view: the verdict card, the warning stack,
 // the stat tiles, and the three sweep charts behind them.
-import { planMission, CHEMISTRY, U } from '../physics.js';
+import { planMission, CHEMISTRY, GUST_FACTOR_DEFAULT, U } from '../physics.js';
 import { lineChart, missionProfile, legend } from '../charts.js';
 import {
   state, units, beginner, drone, scenario, battery, compatibleBatteries, loadoutBattery, missionInputs,
 } from '../state.js';
 import { rangeBandKm } from '../drift.js';
-import { SERIES, f0, f1, mmss, flightLabel, liftSource, confidenceWord, ratio, bandPhrase } from './format.js';
+import {
+  SERIES, f0, f1, mmss, article, flightLabel, liftSource, confidenceWord, ratio, bandPhrase,
+} from './format.js';
 import { $, setTile } from './dom.js';
 
 /* ---------- rendering ---------- */
@@ -52,11 +54,20 @@ export function renderWarnings(warnings) {
  * Null unless the craft flies but no out-and-back closes.
  */
 export function zeroRadiusNote(r) {
-  if (!r.flight.viable || (r.legs.out && r.legs.back)) return null;
+  // `home` is the get-home leg: the same planning wind taken as a pure headwind.
+  // It can fail to close while out/back still do — a crosswind plan whose legs
+  // are both flyable, against a headwind straight home that isn't — and that is
+  // still a zero radius the pilot needs named.
+  if (!r.flight.viable || (r.legs.out && r.legs.back && r.legs.home)) return null;
   const u = units();
   const spd = (ms) => f1(u.speedFromMs(ms));
   const ceiling = `${spd(r.speedLimitMs)} ${u.speedUnit}`;
-  const wind = `${spd(r.wind.planningMs)} ${u.speedUnit} ${state.env.windMode === 'cross' ? 'crosswind' : 'headwind'}`;
+  // When it is only the get-home leg that won't close, the wind that beat the rig
+  // was a straight headwind whatever the mission geometry says — don't call it a
+  // crosswind because that is how the out-and-back was set up.
+  const homeOnly = !!(r.legs.out && r.legs.back);
+  const wind = `${spd(r.wind.planningMs)} ${u.speedUnit} `
+    + (state.env.windMode === 'cross' && !homeOnly ? 'crosswind' : 'headwind');
   // Only worth suggesting a faster cruise while the wind is inside the envelope.
   const outrunnable = r.speedLimitMs > r.wind.planningMs;
   const noWayOut = `even this loadout’s ${ceiling} top speed can’t beat it — wait for calmer wind, or fly a lighter setup.`;
@@ -99,6 +110,43 @@ function landingSoc(r) {
 }
 
 /**
+ * The get-home reserve, in the rail under the slider it replaced (Phase 4 item 2).
+ *
+ * The headline the doc asks for is a wind, not an energy: "reserve holds to an
+ * 18 mph headwind" is a thing a pilot can check against the sky, where "7.2 Wh"
+ * is not. Both print — the wind first, the Wh as the supporting figure — plus
+ * which of the two constraints is the one shortening the mission, because the
+ * slider above is only half of it now and a pilot dragging it needs to see when
+ * it has stopped mattering.
+ *
+ * Silent whenever no out-and-back closes: the verdict card and zeroRadiusNote()
+ * already own that state, and a reserve figure for a mission that isn't happening
+ * is arithmetic nobody asked for.
+ */
+export function renderReserveNote(r) {
+  const el = $('reserve-note');
+  const e = r.energy;
+  if (!(r.radiusKm > 0) || e.holdsHeadwindMs == null || !r.legs.home) {
+    el.textContent = '';
+    el.hidden = true;
+    return;
+  }
+  const u = units();
+  const holds = f0(u.speedFromMs(e.holdsHeadwindMs));
+  const out = `${f1(u.distanceFromKm(r.radiusKm))} ${u.distanceUnit}`;
+  const hunt = e.huntLandWh > 0 ? `, ${f1(e.huntLandWh)} Wh of it to find a spot and land` : '';
+  const holdsTo = `Reserve holds to ${article(holds)} ${holds} ${u.speedUnit} headwind: `;
+  el.textContent = e.reserveBinds === 'getHome'
+    ? `${holdsTo}${f1(e.getHomeWh)} Wh is still in the pack at the turnaround, the energy to fly `
+      + `home from ${out} out into that wind${hunt}. Getting home is what caps the radius here, `
+      + `not the ${f0(e.landFloorPct)}% floor.`
+    : `${holdsTo}flying home from ${out} out costs ${f1(e.getHomeWh)} Wh${hunt}, and the `
+      + `${f0(e.landFloorPct)}% floor leaves more than that at the turnaround — the floor is what `
+      + 'caps the radius.';
+  el.hidden = false;
+}
+
+/**
  * "Can I fly this, here, now?" — the question the app is opened with. Pure
  * synthesis over the plan: one level, the binding constraint worst-first, and
  * the lever that moves it. Every number here is already on screen elsewhere.
@@ -137,7 +185,8 @@ function verdict(r, stranded) {
   const care = [];
   if (gustShare > 0.45) {
     care.push([
-      `Gusts to ${spd(gustMs)} are a big slice of this rig’s ${spd(r.speedLimitMs)} usable top speed.`,
+      `Gusts to ${spd(gustMs)} are a big slice of this rig’s ${spd(r.speedLimitMs)} usable top speed`
+        + `, and the plan only flies ${f0(r.wind.gustFactor * 100)}% of the spread between average and gust.`,
       'Stay closer, keep it low behind cover, and save the long lines for a calmer day.',
     ]);
   }
@@ -191,9 +240,19 @@ function verdict(r, stranded) {
   ];
 
   const chips = liftKnown ? [`lift ${r.flight.thrustToWeight.toFixed(2)}:1`] : ['lift not modeled'];
-  if (r.speedLimitMs > 0) chips.push(`gusts ${f0(gustShare * 100)}% of top speed`);
+  if (r.speedLimitMs > 0) {
+    // The gust factor is the pilot's knob now, so the margin line says which
+    // setting produced this — but only when it isn't the default, because a
+    // beginner's chips shouldn't carry a number they can't see or change.
+    const tuned = Math.abs(r.wind.gustFactor - GUST_FACTOR_DEFAULT) > 1e-9;
+    chips.push(`gusts ${f0(gustShare * 100)}% of top speed`
+      + (tuned ? ` · planning ${f0(r.wind.gustFactor * 100)}% of the spread` : ''));
+  }
   if (b.maxContA) chips.push(`hover ${f0(iRatio * 100)}% of pack rating`);
   chips.push(r.energy.sagLimited ? 'sag-limited' : 'sag headroom OK');
+  // The get-home headline, compressed: the strongest headwind the retained energy
+  // beats on the way back from the turnaround.
+  if (r.energy.holdsHeadwindMs != null) chips.push(`reserve holds to ${spd(r.energy.holdsHeadwindMs)}`);
   const land = landingSoc(r);
   if (land != null) chips.push(`lands ~${f0(land)}%`);
 
@@ -271,14 +330,17 @@ export function renderStats(r) {
   hero.classList.toggle('flight-invalid-card', noLift);
   $('hero-value').textContent = noLift ? 'WILL NOT FLY' : f1(u.distanceFromKm(r.radiusKm));
   $('hero-unit').textContent = noLift ? '' : u.distanceUnit;
-  const stranded = !noLift && !(r.legs.out && r.legs.back);
+  const stranded = !noLift && !(r.legs.out && r.legs.back && r.legs.home);
   const times = legTimes(r);
   const land = landingSoc(r);
-  // Reserve plus whatever sag strands under it — say which, so "35%" doesn't
-  // read as the app disagreeing with the reserve slider.
-  const landing = land == null ? `${f0(r.energy.reservePct)}% reserve`
-    : land - r.energy.reservePct < 0.5 ? `about ${f0(land)}% left, your landing reserve`
-    : `about ${f0(land)}% left — your ${f0(r.energy.reservePct)}% reserve plus the bottom the pack can’t use`;
+  // What is still in the pack at the landing, and why. The reserve is a Wh figure
+  // now, so lead with the energy and let the percent qualify it — and say when the
+  // pack strands more under it than the floor asked for, so "35%" doesn't read as
+  // the app disagreeing with the slider.
+  const held = `${f1(r.energy.reserveWh)} Wh held back`;
+  const landing = land == null ? held
+    : land - r.energy.reservePct < 0.5 ? `${held} — about ${f0(land)}% left`
+    : `${held} — about ${f0(land)}% left, the reserve plus the bottom the pack can’t use`;
   $('hero-sub').textContent = noLift
     ? `${f0(r.massKg * 1000)} g all-up weight exceeds ${f0(r.flight.maxHoverMassG)} g ${liftSource(r.flight)} continuous lift`
     : stranded
