@@ -37,6 +37,10 @@ export const WH_PER_G_RANGE = [0.08, 0.33];
 // that is already a derated high-rate LiHV.
 const MAX_PLAUSIBLE_C = 120;
 
+// The pack `ir` field's own max (schema and form agree on 500). A computed sum
+// above it is almost always a whole-pack reading typed into the per-cell box.
+const MAX_PACK_IR = 500;
+
 /** Pack resistance from a per-cell reading: cells in series add, parallel groups divide. */
 export function packIrFromCells(irCellMilliOhm, s, p) {
   if (!(irCellMilliOhm > 0) || !(s > 0)) return null;
@@ -78,6 +82,11 @@ export function packCrossChecks({ chem, s, p, capAh, massG, maxContA, irCellMill
     warnings.push(`${f0(maxContA)} A on ${f1(ah)} Ah implies ${f0(impliedC)}C continuous — that is a `
       + 'burst figure. Enter the true continuous current, or leave it blank and let pack sag set the limit.');
   }
+  if (packIrMilliOhm != null && packIrMilliOhm > MAX_PACK_IR) {
+    warnings.push(`${f1(irCellMilliOhm)} mΩ × ${cells}S ÷ ${groups}P works out to ${f1(packIrMilliOhm)} mΩ `
+      + '— that reads like a whole-pack figure typed as one cell. Switch to Whole pack, or check the '
+      + 'charger’s per-cell screen. Until then the save falls back to a typical figure.');
+  }
   return { packWh, whPerG, impliedC, vNom, cells, groups, packIrMilliOhm, warnings };
 }
 
@@ -116,7 +125,11 @@ export const IR_FIELDS = [
 export function resolvePackIr(v) {
   if (v.irMode === 'cell') {
     const computed = packIrFromCells(v.irCell, v.s, v.p);
-    if (computed != null) return computed;
+    // An implausible sum is refused rather than stored: 500 is the schema's own
+    // cap, and a figure past it would fail the very validate() gate our exports
+    // are read back through. The readout has already warned about it.
+    if (computed != null && computed >= 1 && computed <= MAX_PACK_IR) return computed;
+    if (computed != null) return null;
   }
   return Number.isFinite(v.ir) ? v.ir : null;
 }
@@ -135,8 +148,10 @@ function syncIrMode() {
   const cell = modeSelect()?.value === 'cell';
   const packLabel = formEl?.elements.namedItem('ir')?.closest('label');
   if (packLabel) packLabel.hidden = cell;
-  const cellBox = formEl?.querySelector('#battery-ir-cell')?.closest('.form-grid');
-  if (cellBox) cellBox.hidden = !cell;
+  // Only the per-cell figure is mode-bound. The temperature it was read at
+  // applies to a whole-pack reading just the same, so it stays on screen.
+  const cellLabel = formEl?.querySelector('#battery-ir-cell')?.closest('label');
+  if (cellLabel) cellLabel.hidden = !cell;
 }
 
 /** The live cross-check line, and the soft warnings under it. */
@@ -166,10 +181,11 @@ export function renderBatteryChecks() {
   // the pilot can check our arithmetic against their charger before saving.
   if (cellMode && c.packIrMilliOhm != null) {
     const el = formEl.elements.namedItem('ir');
-    if (el) {
-      el.setAttribute('value', String(c.packIrMilliOhm));
-      el.value = String(c.packIrMilliOhm);
-    }
+    // Property only — a post-save form.reset() must not hand the next pack this
+    // one's resistance as its default — and only a value the field itself
+    // accepts: an out-of-range figure parked in the hidden input would make the
+    // browser refuse the submit with nothing on screen saying why.
+    if (el) el.value = c.packIrMilliOhm >= 1 && c.packIrMilliOhm <= MAX_PACK_IR ? String(c.packIrMilliOhm) : '';
   }
   checks.textContent = [
     `${c.cells}S${c.groups}P · ${f1(c.packWh)} Wh at ${c.vNom} V/cell`,

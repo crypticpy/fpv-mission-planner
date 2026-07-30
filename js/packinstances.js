@@ -53,7 +53,9 @@ export function normalizeInstance(raw) {
     id,
     batteryId,
     label,
-    cycleCount: inRange(Math.round(raw.cycleCount), 0, 5000),
+    // A blank cycle field reads back as null — Math.round(null) is 0, which
+    // would assert a brand-new pack the pilot never described.
+    cycleCount: inRange(Number.isFinite(raw.cycleCount) ? Math.round(raw.cycleCount) : null, 0, 5000),
     irPackMilliOhm: inRange(raw.irPackMilliOhm, 0.5, 500),
     // The temperature the resistance was read at, when the pilot said. Same
     // status as the battery record's own `irTempC`: provenance, not an input —

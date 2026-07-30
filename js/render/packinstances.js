@@ -158,9 +158,12 @@ function renderList(batt) {
     del.addEventListener('click', () => {
       deletePackInstance(inst.id);
       if (editingId === inst.id) clearForm();
-      setNote(`Removed ${inst.label}. ${selectedInstanceId(batt.id) ? '' : 'Back on the catalog spec.'}`);
+      const backOnSpec = !selectedInstanceId(batt.id);
+      // Re-render first: renderPackInstances' empty-roster branch writes its own
+      // hint into the note line, and the confirmation has to land on top of it.
       deps.populateControls();
       deps.update();
+      setNote(`Removed ${inst.label}. ${backOnSpec ? 'Back on the catalog spec.' : ''}`);
     });
     row.append(name, edit, del);
     host.appendChild(row);

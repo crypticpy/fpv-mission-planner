@@ -102,3 +102,14 @@ test('the stored figure is always pack-level, whichever mode the form is in', ()
   assert.equal(resolvePackIr({ irMode: 'cell', ir: 22, irCell: null, s: 6, p: 1 }), 22);
   assert.equal(resolvePackIr({ irMode: 'pack', ir: null }), null);
 });
+
+test('a whole-pack reading typed as one cell is refused, warned about, and never stored', () => {
+  // 138 mΩ is a plausible pack total for a tired 6S — as a per-cell figure it
+  // multiplies to 828 mΩ, past the schema's own 500 cap. Storing it would make
+  // the record fail the same validate() gate exports are read back through.
+  assert.equal(resolvePackIr({ irMode: 'cell', ir: null, irCell: 138, s: 6, p: 1 }), null);
+  const c = packCrossChecks({ chem: 'lipo', s: 6, p: 1, capAh: 1.3, massG: 230, irCellMilliOhm: 138 });
+  assert.ok(c.warnings.some(w => /whole-pack figure/.test(w)), c.warnings.join(' '));
+  // A high-but-legal sum still stores.
+  assert.equal(resolvePackIr({ irMode: 'cell', ir: null, irCell: 80, s: 6, p: 1 }), 480);
+});

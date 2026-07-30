@@ -55,7 +55,7 @@ test('out-of-range measurements come back as "not stated", not as a refusal', ()
   for (const bad of [0, -4, 900, 'lots', NaN, null]) {
     assert.equal(normalizeInstance(inst({ irPackMilliOhm: bad })).irPackMilliOhm, null, String(bad));
   }
-  for (const bad of [-99, 6000, 'many', NaN]) {
+  for (const bad of [-99, 6000, 'many', NaN, null, undefined]) {
     assert.equal(normalizeInstance(inst({ cycleCount: bad })).cycleCount, null, String(bad));
   }
   assert.equal(normalizeInstance(inst({ cycleCount: 84.6 })).cycleCount, 85);
