@@ -31,6 +31,7 @@
 import { ALTITUDE_REFERENCES, LAUNCH_NODE } from './mission-schema.js';
 
 /** @typedef {import('./mission-schema.js').Altitude} Altitude */
+/** @typedef {import('./mission-schema.js').AltitudeReference} AltitudeReference */
 /** @typedef {import('./mission-schema.js').MissionDocumentV1} MissionDocumentV1 */
 /** @typedef {import('./mission-schema.js').Segment} Segment */
 /** @typedef {import('./mission-schema.js').Waypoint} Waypoint */
@@ -89,6 +90,68 @@ export function resolveAltitude(altitude, context = {}) {
   // agl
   if (!isNum(context.terrainElevMslM)) return unresolved('missing-terrain-sample');
   return { resolvedMslM: context.terrainElevMslM + alt.authored, resolved: true };
+}
+
+/* ---------- moving between the three frames ---------- */
+
+/**
+ * One height stated in another frame.
+ *
+ * `value` is null exactly when `resolved` is false, and `reason` names what was
+ * missing. Same rule as everything above it: a conversion that lacks its ground
+ * or its launch elevation produces nothing, not a plausible-looking number.
+ *
+ * @typedef {object} AltitudeConversion
+ * @property {number|null} value
+ * @property {boolean} resolved
+ * @property {UnresolvedReason} [reason]
+ */
+
+/**
+ * Convert one height from any authoring frame to any other.
+ *
+ * M3 is what makes this necessary. Until now the document authored in one frame
+ * and the model read MSL, so `resolveAltitude` — which only ever goes *to* MSL —
+ * was the whole conversion story. A route-wide terrain field turns that into a
+ * two-way problem: the clearance over a corridor sample is the cruise altitude
+ * expressed as AGL *at that sample*, the figure a pilot reads back is
+ * launch-relative, and the exchange formats want MSL. Three frames, six
+ * directions, one arithmetic site.
+ *
+ * Clearance above the ground at a sample is this function with `to: 'agl'` and
+ * that sample's `terrainElevMslM`. There is deliberately no separate clearance
+ * helper: a second place that subtracts one elevation from another is a second
+ * place that can get the sign wrong.
+ *
+ * @param {object} spec
+ * @param {number} spec.value                the height as authored or computed
+ * @param {AltitudeReference} spec.from
+ * @param {AltitudeReference} spec.to
+ * @param {number|null} [spec.launchElevMslM]  the launch site's elevation
+ * @param {number|null} [spec.terrainElevMslM] the ground under the point in question
+ * @returns {AltitudeConversion}
+ */
+export function convertAltitude(spec) {
+  /** @param {UnresolvedReason} reason @returns {AltitudeConversion} */
+  const unresolved = (reason) => ({ value: null, resolved: false, reason });
+
+  const { value, from, to } = spec ?? /** @type {typeof spec} */ ({});
+  if (!ALTITUDE_REFERENCES.includes(to)) return unresolved('unknown-reference');
+
+  // To MSL first, through the one function that already knows how. A frame is
+  // never converted straight to another frame: every path goes through sea
+  // level, so there is one rule per frame rather than one per pair.
+  const toMsl = resolveAltitude({ authored: value, reference: from }, spec);
+  if (!toMsl.resolved || toMsl.resolvedMslM === null) {
+    return unresolved(toMsl.reason ?? 'no-altitude');
+  }
+  if (to === 'msl') return { value: toMsl.resolvedMslM, resolved: true };
+  if (to === 'launchRelative') {
+    if (!isNum(spec.launchElevMslM)) return unresolved('missing-launch-elevation');
+    return { value: toMsl.resolvedMslM - spec.launchElevMslM, resolved: true };
+  }
+  if (!isNum(spec.terrainElevMslM)) return unresolved('missing-terrain-sample');
+  return { value: toMsl.resolvedMslM - spec.terrainElevMslM, resolved: true };
 }
 
 /**
