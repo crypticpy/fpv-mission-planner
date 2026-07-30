@@ -9,8 +9,19 @@ function svgEl(tag, attrs = {}) {
   return n;
 }
 
-function niceTicks(min, max, count = 5) {
-  if (!isFinite(min) || !isFinite(max) || min === max) { max = min + 1; }
+// A range has to be invented when the data does not supply one: equal ends,
+// non-finite ends, or — the case that actually bit — a span so much smaller than
+// the numbers it spans that no reader could tell the ticks apart. The residual
+// chart hits that honestly: with the fit applied and one cruise leg behind it,
+// the model reproduces that leg exactly, so every residual is zero to within
+// floating-point rounding. Treating a 1e-16 span as real used to hand the loop
+// below a 1e-17 step against a 1e-9 tolerance and ask it for fifty million
+// gridlines. The floor is absolute as well as relative because every axis here
+// is a physical quantity — W, Wh/km, volts, minutes, percent — and none of them
+// mean anything at 1e-9 resolution.
+export function niceTicks(min, max, count = 5) {
+  const scale = Math.max(Math.abs(min), Math.abs(max), 1);
+  if (!isFinite(min) || !isFinite(max) || !(max - min > scale * 1e-9)) { max = min + 1; }
   const span = max - min;
   const step0 = span / count;
   const mag = Math.pow(10, Math.floor(Math.log10(step0)));
@@ -18,7 +29,9 @@ function niceTicks(min, max, count = 5) {
   const step = (norm >= 5 ? 10 : norm >= 2.2 ? 5 : norm >= 1.2 ? 2 : 1) * mag;
   const lo = Math.ceil(min / step) * step;
   const ticks = [];
-  for (let t = lo; t <= max + 1e-9; t += step) ticks.push(+t.toFixed(10));
+  // Tolerance scaled to the step, not a fixed 1e-9: the loop must terminate in
+  // `count`-ish iterations for every step size, not just the ones near 1.
+  for (let t = lo; t <= max + step * 1e-6; t += step) ticks.push(+t.toFixed(10));
   return ticks;
 }
 

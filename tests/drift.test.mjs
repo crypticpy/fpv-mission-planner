@@ -8,6 +8,7 @@ import {
 } from '../js/physics.js';
 import { saveFlightLog, fitForDrone, setCalibrationApplied, calibratedDrone } from '../js/flightlog.js';
 import { driftPoints, driftSummary, rangeBandKm } from '../js/drift.js';
+import { niceTicks } from '../js/charts.js';
 
 // §6.2's drift chart and hero band, against the same free ground truth the
 // solvers get: the model generates flights for an airframe that is *not* the
@@ -165,6 +166,42 @@ test('an empty logbook draws no chart, and neither does a hover-only one', () =>
   saveFlightLog(hoverLog(0.6));
   assert.deepEqual(driftPoints({ drone: moz7, solves: fitForDrone(moz7).solves, batteries: packs }), []);
   assert.equal(driftSummary([]), null);
+});
+
+test('a residual axis of all-but-exact zeros still ticks in finite time', () => {
+  // The path this closes, found in the browser: cruise legs all flown on the
+  // same rig, fit applied. The fit lands on that rig to the last bit, so the
+  // model reproduces every leg and the residuals are zero to within rounding —
+  // but not identically zero, so an axis that reads a 1e-15 span as real asks
+  // for tens of millions of gridlines. Four million DOM nodes and a dead tab,
+  // for a chart whose honest content is "the model is on your flights".
+  globalThis.localStorage = makeStorage();
+  for (const [speed, frac] of [[10, 0.5], [16, 0.6], [22, 0.6]]) {
+    assert.ok(saveFlightLog(cruiseLog(speed, frac)));
+  }
+  setCalibrationApplied(moz7.id, true);
+  const fit = fitForDrone(moz7);
+  const applied = calibratedDrone(moz7);
+  const pts = driftPoints({ drone: applied, solves: fit.solves, batteries: packs });
+  assert.equal(pts.length, 3);
+  const resids = pts.map(p => p.residualWhPerKm);
+  assert.ok(resids.every(r => Math.abs(r) < 1e-9), `residuals should be negligible: ${resids}`);
+  assert.ok(resids.some(r => r !== 0),
+    'the fixture needs one residual that is tiny but not identically zero');
+
+  // Exactly what renderDriftChart passes: yMin off the lowest point, yMax off
+  // the highest, with the zero line's own two ends in the same pool.
+  const lows = [...resids, 0];
+  const ticks = niceTicks(Math.min(...lows) * 1.15, Math.max(...lows));
+  assert.ok(ticks.length <= 8, `${ticks.length} ticks on a degenerate axis`);
+  assert.ok(ticks.every(Number.isFinite));
+  // Every other axis in the app is unaffected: a real span — including a
+  // genuinely small one — still ticks exactly the way it always did.
+  assert.deepEqual(niceTicks(0, 25), [0, 10, 20]);
+  assert.deepEqual(niceTicks(0, 1), [0, 0.2, 0.4, 0.6, 0.8, 1]);
+  assert.deepEqual(niceTicks(18, 24), [18, 20, 22, 24]);
+  assert.deepEqual(niceTicks(-5, 5), [-4, -2, 0, 2, 4]);
+  assert.deepEqual(niceTicks(0, 0.001), [0, 0.0002, 0.0004, 0.0006, 0.0008, 0.001]);
 });
 
 /* ---------- the hero band ---------- */
