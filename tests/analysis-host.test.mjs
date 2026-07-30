@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { setupMissionBridge, openMissionBridge, dispatch } from '../src/mission-bridge.js';
 import { setupTerrain } from '../src/render/terrain.js';
 import { activeProfile } from '../src/terrain.js';
+import { state } from '../src/state.js';
 import { analyzeNow, analysisRevision, acceptAsync } from '../src/analysis-host.js';
 
 /* M2b §5: an answer that arrives after the question changed must not be applied.
@@ -104,4 +105,35 @@ test('a result for the revision that asked for it is accepted', () => {
     false,
     'a revision that was never the newest one begun is stale',
   );
+});
+
+/* M2 review: the injected warning ports format their sentences through the
+ * display-unit system, so flipping units changes the snapshot's text without
+ * moving a single physics input. The memo must treat that as a new question —
+ * before the fix it returned the identical object and the rail kept the old
+ * units' wording until an unrelated input moved. */
+test('flipping display units is a new analysis, not a memo hit', () => {
+  const first = analyzeNow();
+  assert.equal(analyzeNow(), first, 'unchanged inputs return the identical memoized snapshot');
+  const before = analysisRevision().missionUpdatedAt;
+  state.units = state.units === 'imperial' ? 'metric' : 'imperial';
+  try {
+    assert.notEqual(analysisRevision().missionUpdatedAt, before,
+      'the units flip moves the revision the async guard keys on');
+    assert.notEqual(analyzeNow(), first,
+      'the units flip reaches the memo key — provider text re-formats');
+  } finally {
+    state.units = state.units === 'imperial' ? 'metric' : 'imperial';
+  }
+});
+
+/* M2 review (non-blocker): the snapshot used to carry a bare doc.updatedAt
+ * while the guard keyed on the composite token, so handing snapshot.revision
+ * to acceptAsync reported stale for the very pass that produced it. */
+test("the snapshot's own revision is a valid answer to acceptAsync", () => {
+  const snap = analyzeNow();
+  assert.equal(snap.revision.missionUpdatedAt, analysisRevision().missionUpdatedAt,
+    'the snapshot is stamped with the same token the guard begins');
+  assert.equal(acceptAsync(snap.revision, 'self-check'), true,
+    'a snapshot is never stale against the pass that produced it');
 });

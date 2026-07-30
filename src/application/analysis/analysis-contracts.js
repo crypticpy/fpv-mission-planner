@@ -222,7 +222,14 @@ export function provenanceOf(overrides = {}) {
 
 /* ---------- the snapshot ---------- */
 
-/** @typedef {{ missionId: string, missionUpdatedAt: string }} AnalysisRevision */
+/**
+ * What "the same question" means to the cache and to the async-staleness guard.
+ * `missionUpdatedAt` is an opaque freshness token, not a timestamp: the host
+ * composes the document's updatedAt with a hash of the rail inputs that change
+ * the answer without touching the document. Compare it for equality; never
+ * parse it.
+ * @typedef {{ missionId: string, missionUpdatedAt: string }} AnalysisRevision
+ */
 
 /**
  * The air the plan ran in, as `missionInputs()` builds it. Only `env` is read

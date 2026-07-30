@@ -152,14 +152,15 @@ function flyToSpot(spot) {
   if (spot.elevFt != null && live) notes.push('Live weather will set the elevation for this point.');
   setSpotsNote(notes.join(' '));
 
-  // The pin move renders through requestRender and deliberately skips map.js's
-  // onLaunchMove, so live weather is refetched exactly once, here. The document
-  // is written from here too, for the same reason: setLaunchPoint no-ops until
-  // the map has initialized, and a spot chosen from the dash tab still moves the
-  // mission (ADR 0002).
-  setLaunchPoint(pt);
+  // Document first, pin second — the same order map.js's moveLaunch keeps
+  // (raise, then render). setLaunchPoint renders synchronously on its way
+  // through, so the commands it must reflect have to already be on the
+  // document; raised afterwards they would leave this pass planned at the spot
+  // the pilot just left. The pin move deliberately skips map.js's onLaunchMove,
+  // so live weather is refetched exactly once, here (ADR 0002).
   pushLaunch(pt);
   pushLoadout();
+  setLaunchPoint(pt);
   populateControls();
   if (live) goLive(pt);
 }

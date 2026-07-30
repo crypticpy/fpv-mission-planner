@@ -78,6 +78,11 @@ function terrainSignature() {
  */
 function railSignature() {
   return hashKey(stableStringify({
+    // Display units are a rail input to the *text*: the injected warning ports
+    // format their sentences through units(), so a units flip changes the answer
+    // even though no physics input moved. Leaving it out froze the old wording
+    // in the memo while the rest of the app re-formatted (M2 review).
+    units: state.units,
     drone: state.droneId,
     battery: state.batteryId,
     parallel: state.parallelPacks,
@@ -159,13 +164,19 @@ export function analyzeNow() {
   }).radiusKm);
 
   analysed = true;
-  guard.begin(analysisRevision());
+  // One revision for both freshness checks: the guard the async landings ask,
+  // and the memo key inside the pipeline. Stamping the bare doc.updatedAt into
+  // the request instead would give the snapshot a revision acceptAsync always
+  // calls stale, and — worse — leave every rail-only input (the units flip
+  // included) invisible to the memo (M2 review).
+  const revision = analysisRevision();
+  guard.begin(revision);
 
   const profile = activeProfile();
   const snapshot = analyzeMission({
     doc,
     inputs: missionInputs(),
-    revision: { missionId: doc.id, missionUpdatedAt: doc.updatedAt },
+    revision,
   }, {
     ...PORTS,
     terrainSignature: terrainSignature(),

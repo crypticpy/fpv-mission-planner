@@ -420,7 +420,7 @@ export function finalizeConstraints(drafts) {
   /** @type {Map<string, number>} */
   const seen = new Map();
   return drafts.map((d) => {
-    const key = `${d.code} ${d.anchor.scope} ${d.anchor.refId ?? ''}`;
+    const key = `${d.code}\u0000${d.anchor.scope}\u0000${d.anchor.refId ?? ''}`;
     const occurrence = (seen.get(key) ?? 0) + 1;
     seen.set(key, occurrence);
     return Object.freeze({ ...d, id: constraintId(d.code, d.anchor, occurrence) });
