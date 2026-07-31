@@ -116,11 +116,21 @@ export async function goLive(pt) {
   // overtaken this fetch (src/analysis-host.js).
   const asked = deps.revision();
   const where = pt ?? launchPoint();
+  /* The revision guard below has a deliberate boot exemption — a fetch asked
+   * before the repository opened has no mission to be stale against — so it
+   * cannot catch the one move that matters here: a mission imported or opened
+   * while the fetch was in flight. That mission's launch is the launch now, and
+   * this answer describes somewhere else; letting it apply would pushLaunch the
+   * old point onto the new document. Moved means superseded, exactly as stale. */
+  const moved = () => {
+    const at = launchPoint();
+    return Math.abs(at.lat - where.lat) > 1e-6 || Math.abs(at.lng - where.lng) > 1e-6;
+  };
   let stale = false;
   try {
     const { patch, gust10Mph, levels, forecast } = await fetchLiveEnv(where);
     if (seq !== liveSeq || state.weatherId !== 'live') return; // superseded meanwhile
-    stale = !deps.accept(asked, 'live weather fetch');
+    stale = moved() || !deps.accept(asked, 'live weather fetch');
     if (stale) return;
     // The whole wind profile, latched before the patch is applied so the level the
     // pilot picked is the one that lands on the rail (Phase 4 item 9).
@@ -142,7 +152,7 @@ export async function goLive(pt) {
     };
   } catch (err) {
     if (seq !== liveSeq || state.weatherId !== 'live') return;
-    stale = !deps.accept(asked, 'live weather fetch');
+    stale = moved() || !deps.accept(asked, 'live weather fetch');
     if (stale) return;
     liveErr = err.message;
     // A failed refetch must not leave the previous point's wind profile behind as
@@ -154,8 +164,11 @@ export async function goLive(pt) {
       if (stale) {
         // Dropped, so nothing was applied and nothing rendered. Ask again for the
         // mission as it now stands — the status line is waiting on an answer, and
-        // this one already came and went describing somewhere else.
-        void goLive(pt);
+        // this one already came and went describing somewhere else. Without `pt`,
+        // deliberately: every live caller sets the document's launch before
+        // calling here, so recapturing launchPoint() asks for the same spot —
+        // and re-asking a moved launch at the old `pt` would never converge.
+        void goLive();
       } else if (state.weatherId === 'live') {
         // Re-render only while still live: after a dropout the preset/custom
         // handler already rendered, and rewriting inputs would steal the caret.
