@@ -34,7 +34,8 @@ subjectFraming(distanceM, subjectRadiusM, { hDeg })
 Every function is total over valid inputs and returns named nulls (never
 NaN) when an input is unresolvable — the compiler/analysis callers decide
 whether a null is a warning or a loss. Exit-gate fixtures are **analytic**:
-hand-derived cases (e.g. 24 mm focal on a 36 mm sensor is exactly 53.13°;
+hand-derived cases (e.g. 24 mm focal on a 36×24 mm sensor is exactly
+2·atan(0.5) = 53.13° vertically and 2·atan(0.75) ≈ 73.74° horizontally;
 an equilateral geometry gives a known elevation angle) asserted to 1e-6,
 not golden files.
 
