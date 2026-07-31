@@ -672,8 +672,11 @@ function forecastAgeDrafts(doc, computedAt) {
   const env = doc.environmentReference;
   const prov = env?.provenance;
   if (!prov) return [];
+  // The fetch instant must win over capturedAt: capturedAt is re-stamped by
+  // every push (a wind-level edit re-pushes the same fetch hours later), so
+  // anchoring on it would reset the age clock without any new fetch.
   const fetchedAt = typeof prov.retrievedAt === 'string' ? prov.retrievedAt : null;
-  const retrieved = Date.parse(env.capturedAt ?? fetchedAt ?? '');
+  const retrieved = Date.parse(fetchedAt ?? env.capturedAt ?? '');
   const now = Date.parse(computedAt);
   if (!Number.isFinite(retrieved) || !Number.isFinite(now)) return [];
   const ageMs = now - retrieved;
@@ -1213,7 +1216,11 @@ function forecastSignatureOf(doc) {
  * @returns {string}
  */
 function calibrationLabel(nFlights) {
-  const n = Number.isFinite(nFlights) ? Number(nFlights) : 0;
+  // A snapshot saved before nFlights existed knows the rig is calibrated but
+  // not from how many flights — say so plainly rather than inventing "(0
+  // flights)" for a genuinely calibrated rig.
+  if (!Number.isFinite(nFlights) || Number(nFlights) < 1) return 'flight-log calibration';
+  const n = Number(nFlights);
   return `flight-log calibration (${n} flight${n === 1 ? '' : 's'})`;
 }
 
@@ -1257,7 +1264,10 @@ function buildProvenance(doc, deps, corridor, field, profile, cacheKey, computed
     calibrationSource: aircraft
       ? (aircraft.calibrated ? calibrationLabel(aircraft.nFlights) : str(aircraft.confidence))
       : null,
-    retrievedAt: env?.capturedAt ?? str(prov.retrievedAt),
+    // Fetch instant first, for the same reason forecastAgeDrafts anchors on
+    // it: capturedAt is a push time, re-stamped by every rail edit. Only an
+    // unfetched (manual/preset) environment falls back to when it was pushed.
+    retrievedAt: str(prov.retrievedAt) ?? env?.capturedAt ?? null,
     ...deps.provenance,
     modelVersion: ANALYSIS_MODEL_VERSION,
     computedAt,

@@ -181,6 +181,10 @@ let pendingRestore = null;
 const EVIDENCE_SAVE_DEBOUNCE_MS = 300;
 /** @type {ReturnType<typeof setTimeout>|number} */
 let evidenceSaveTimer = 0;
+/** The record the armed timer will write, so a re-schedule can tell whether
+ * it is coalescing the same mission's burst or stepping on a different
+ * mission's last write. @type {EvidenceRecord|null} */
+let pendingEvidenceSave = null;
 
 /**
  * Persist whatever evidence is in hand right now, debounced. Called after
@@ -201,7 +205,18 @@ function scheduleEvidenceSave() {
     profile: activeProfile(),
   };
   clearTimeout(evidenceSaveTimer);
-  evidenceSaveTimer = setTimeout(() => { void evidenceRepo?.save(record); }, EVIDENCE_SAVE_DEBOUNCE_MS);
+  // Debouncing coalesces a burst for one mission; a pending write for a
+  // *different* mission is not part of the burst and would be lost by the
+  // clearTimeout above — flush it now instead. Its payload was captured when
+  // it was scheduled, so it still describes its own mission.
+  if (pendingEvidenceSave && pendingEvidenceSave.id !== record.id) {
+    void evidenceRepo?.save(pendingEvidenceSave);
+  }
+  pendingEvidenceSave = record;
+  evidenceSaveTimer = setTimeout(() => {
+    pendingEvidenceSave = null;
+    void evidenceRepo?.save(record);
+  }, EVIDENCE_SAVE_DEBOUNCE_MS);
 }
 
 /**
@@ -235,6 +250,12 @@ export function restoreEvidenceFor(doc) {
  * @param {string} id
  */
 export function forgetEvidence(id) {
+  // A write still waiting in the debounce window would land *after* the
+  // remove below and resurrect an orphan record for a deleted mission.
+  if (pendingEvidenceSave?.id === id) {
+    clearTimeout(evidenceSaveTimer);
+    pendingEvidenceSave = null;
+  }
   void evidenceRepo?.remove(id);
 }
 
@@ -288,6 +309,7 @@ export function setupAnalysisHost(d) {
     void openEvidenceRepository().then((repo) => { evidenceRepo = repo; }).catch(() => {});
   }
   clearTimeout(evidenceSaveTimer);
+  pendingEvidenceSave = null;
   pendingRestore = null;
   field = null;
   groundLookup = () => null;

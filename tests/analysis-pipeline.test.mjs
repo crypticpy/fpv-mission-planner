@@ -600,12 +600,13 @@ test('the composition layer can state provenance the document cannot', () => {
 /* ---------- 8b. forecast age and flight-count calibration (ADR 0012 §1) ---------- */
 
 /* forecastAgeDrafts anchors on when the environment was *fetched*
- * (env.capturedAt), never on the forecast hour it describes (validAt) — an
+ * (prov.retrievedAt), never on the forecast hour it describes (validAt) — an
  * archive lookup is deliberately about an hour that already happened, and
  * that is never itself a reason to warn. What ages is how long ago the fetch
  * landed, and only when there was a fetch to age at all: a manual or preset
  * environment carries no provenance, and must never earn either code however
- * stale its capturedAt looks. */
+ * stale its capturedAt looks. capturedAt is only the fallback, because it is
+ * a push instant, re-stamped by every rail edit. */
 
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
@@ -712,6 +713,28 @@ test('a fetched environment bag reaches the snapshot provenance unchanged, end t
   assert.ok(!codes(snap).includes('W-DATA-FORECAST-STALE'));
 });
 
+test('a re-push that re-stamps capturedAt does not reset the forecast age clock', () => {
+  // A wind-level edit hours after the fetch re-pushes the same environment
+  // (app.js's editEnv): capturedAt becomes "now" while retrievedAt stays the
+  // fetch instant. The age anchors on the fetch, so the caution still fires.
+  clearAnalysisCache();
+  const doc = mission([{ at: wpAt(0, 4) }]);
+  const fetchedAt = new Date(Date.parse(AT) - HOUR_MS * 7).toISOString();
+  const withEnv = missionReduce(doc, {
+    type: 'setEnvironmentReference',
+    payload: {
+      source: 'live',
+      capturedAt: AT, // the push instant — fresh, unlike the fetch behind it
+      values: VALID_ENV_VALUES,
+      provenance: { source: 'open-meteo-forecast', retrievedAt: fetchedAt, validAt: fetchedAt },
+    },
+  }, { idgen: idgen(), now: () => AT });
+  const snap = analyze(withEnv);
+  assert.ok(codes(snap).includes('W-DATA-FORECAST-AGE'));
+  // …and the snapshot's own retrievedAt reports the fetch, not the push.
+  assert.equal(snap.provenance.retrievedAt, fetchedAt);
+});
+
 test('calibrationSource names the flight count a calibrated aircraft rode in on', () => {
   clearAnalysisCache();
   const doc = mission([{ at: wpAt(0, 4) }], {
@@ -728,6 +751,17 @@ test('calibrationSource is singular for exactly one flight', () => {
   });
   const snap = analyze(doc);
   assert.equal(snap.provenance.calibrationSource, 'flight-log calibration (1 flight)');
+});
+
+test('calibrationSource omits the count for a snapshot saved before nFlights existed', () => {
+  // A pre-M8 document's aircraftSnapshot has no nFlights key at all; the rig
+  // is genuinely calibrated, so the label must not invent "(0 flights)".
+  clearAnalysisCache();
+  const doc = mission([{ at: wpAt(0, 4) }], {
+    aircraft: { ...MOZ7_SNAPSHOT, calibrated: true },
+  });
+  const snap = analyze(doc);
+  assert.equal(snap.provenance.calibrationSource, 'flight-log calibration');
 });
 
 test('an uncalibrated aircraft names its stated confidence instead of a flight count', () => {

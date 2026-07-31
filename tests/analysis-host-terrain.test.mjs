@@ -5,7 +5,7 @@ import { setupMissionBridge, openMissionBridge, dispatch, missionDocument } from
 import { setupTerrain } from '../src/render/terrain.js';
 import {
   analyzeNow, analysisRevision, acceptAsync, setupAnalysisHost, groundAt, terrainField,
-  restoreEvidenceFor,
+  restoreEvidenceFor, forgetEvidence,
 } from '../src/analysis-host.js';
 
 /* M3b §3: the host owns the corridor sampler, and the pipeline reads it as a port.
@@ -442,6 +442,39 @@ test('restored evidence whose signature does not match the current corridor is d
   assert.ok(terrainField(), 'and the live sample landed');
   assert.notEqual(terrainField(), staleField);
   assert.equal(groundAt(OVER_THERE.latitude, OVER_THERE.longitude), 300, 'ground came from the live sample, not the stale one');
+});
+
+test('deleting a mission inside the evidence debounce window cancels its pending write', async () => {
+  /* ADR 0012 §2 rule c at the debounce seam: a field lands, its save is armed
+   * but not yet fired, and the mission is deleted. The pending write must be
+   * cancelled — landing after the remove would resurrect an orphan evidence
+   * record for a mission that no longer exists. */
+  const net = stubElevation({ held: true });
+  await boot(net, { title: 'Evidence forget' });
+  const saves = [];
+  const removes = [];
+  const evidenceRepository = {
+    async get() { return null; },
+    async save(record) { saves.push(record); },
+    async remove(id) { removes.push(id); },
+    close() {},
+  };
+  setupAnalysisHost({ update: () => {}, fetch: net.doFetch, evidenceRepository });
+  dispatch({ type: 'addWaypoint', payload: { ...OVER_THERE } }, { render: false });
+  analyzeNow();
+  await sleep(600); // past the sample debounce: the corridor ask is out, held
+  net.releaseAll();
+  // Wait for the publish that arms the evidence-save timer. Any request sent
+  // after releaseAll() stays held, so nothing else can re-arm it later.
+  for (let waited = 0; !terrainField() && waited < 2000; waited += 10) await sleep(10);
+  assert.ok(terrainField(), 'the released sample landed');
+  await sleep(50); // let a same-burst grid publish coalesce into the same timer
+  const id = missionDocument().id;
+  forgetEvidence(id); // what deleteMission's onMissionRemoved calls
+  await sleep(500); // past where the cancelled timer would have fired
+  assert.ok(removes.includes(id), 'the evidence record was removed with its mission');
+  assert.equal(saves.filter((r) => r.id === id).length, 0,
+    'the pending debounced write was cancelled, not landed after the remove');
 });
 
 test('a restored field too malformed to compare is declined without throwing into the boot path', async () => {

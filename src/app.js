@@ -580,11 +580,15 @@ setupMissionBridge({
     // silently dropped by the bridge's no-document guard and the fetched sky
     // is on screen with nothing in the document to say where it came from.
     // Re-push the rail's environment with the live module's stashed bag
-    // (ADR 0012 §1) — no second fetch, just the honesty the drop lost. If the
-    // fetch has not resolved yet this writes the old values with a null bag,
-    // and the fetch's own push corrects both the moment it lands (the
-    // document exists now).
-    else if (state.weatherId === 'live') pushEnvironment(liveProvenance());
+    // (ADR 0012 §1) — no second fetch, just the honesty the drop lost. Only
+    // when there *is* a bag: a fetch still in flight makes its own push once
+    // it lands (the document exists now), and a fetch that failed — an
+    // offline boot — left liveProvenance() null, where pushing would replace
+    // the document's saved provenance with null and persist the loss.
+    else if (state.weatherId === 'live') {
+      const prov = liveProvenance();
+      if (prov) pushEnvironment(prov);
+    }
   },
   // A document just became the open one: analysis-host.js's evidence restore
   // (ADR 0012 §2) asks the store whether it remembers this mission's ground.
