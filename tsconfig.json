@@ -35,6 +35,7 @@
     "src/domain/mission/mission-migrations.js",
     "src/domain/mission/mission-reducer.js",
     "src/domain/mission/altitude.js",
+    "src/application/terrain/sample-grid.js",
     "src/application/analysis/analysis-contracts.js",
     "src/application/analysis/constraints.js",
     "src/application/analysis/vertical-flight.js",

@@ -93,6 +93,31 @@ export function activeWindAt(altM) { return windAtLevel(levels, altM); }
 /** The active profile's env patch for one level, or null — see levelWindPatch. */
 export function activeLevelPatch(altM) { return levelWindPatch(levels, altM, gust10Mph); }
 
+/* ---------- the latched sounding from the last fetch (M5 wave 2) ---------- */
+
+// Pressure-level wind/temperature/geopotential height, latched the same way
+// the height-level profile above is: fetched data, not a control setting, so
+// it has no business in `state`. weather.js's fetchLiveEnv/shapeForecast build
+// the shape; wave 3's Froude/stability baseline is the first reader. Additive
+// only — setWindLevels()'s existing call sites (src/render/live.js) are
+// untouched and keep working exactly as before; this is a second, independent
+// setter, not a new parameter on that one.
+let sounding = [];
+
+/**
+ * Hand over a fresh fetch's sounding — lowest-first
+ * `{ hPa, windMph, windFromDeg, tempC, heightM }[]`, see weather.js's
+ * soundingFrom(). Anything that is not an array clears it to `[]`, the same
+ * "a failed refetch is an empty answer, not a stale one" rule setWindLevels()
+ * follows for `null`.
+ */
+export function setSounding(next) {
+  sounding = Array.isArray(next) ? next : [];
+}
+
+/** The latched sounding, or `[]` when none has been fetched yet. */
+export function windSounding() { return sounding; }
+
 /**
  * What the pilot stands in for the launch and the landing, in mph, and whether
  * anyone measured it.

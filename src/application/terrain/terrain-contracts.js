@@ -204,6 +204,81 @@ export function stationOf(sampleId) {
  * @property {TerrainFieldProvenance} provenance
  */
 
+/* ---------- the advisory grid (M5 wave 2) ---------- */
+//
+// A corridor is one line through the air; the terrain-forcing baseline needs
+// an area — w* = V·∇h wants ground on both sides of the route, not just under
+// it. These three typedefs are that area's vocabulary, restated at the same
+// level of care as the field above rather than folded into it, because a grid
+// cell is not a corridor sample: it has no station id, no along-track distance,
+// no slope of its own — sample-grid.js's contribution to M5 is elevation and
+// provenance, and gridwards-only.
+
+/**
+ * One cell of the advisory grid, before it has been sampled: just where it is.
+ * @typedef {object} AdvisoryGridCellRequest
+ * @property {number} lat
+ * @property {number} lng
+ */
+
+/**
+ * The pure geometry gridRequestFor() produces: row-major, row 0 northernmost,
+ * col 0 westernmost — the same convention AdvisoryGrid below carries through
+ * once it is sampled, so a consumer never has to ask which one it is holding.
+ * @typedef {object} AdvisoryGridRequest
+ * @property {number} rows
+ * @property {number} cols
+ * @property {number} cellSizeM
+ * @property {readonly AdvisoryGridCellRequest[]} cells
+ */
+
+/**
+ * One sampled cell. `elevM` is null exactly where nobody could answer for that
+ * point — the same absence-is-a-value rule `TerrainSample.groundMslM` follows,
+ * not sea level and not an interpolated neighbour.
+ * @typedef {object} AdvisoryGridCell
+ * @property {number} lat
+ * @property {number} lng
+ * @property {number|null} elevM
+ */
+
+/**
+ * Row-major; index = row*cols + col, row 0 northernmost, col 0 westernmost —
+ * frozen once sampled, the way TerrainField is.
+ * @typedef {object} AdvisoryGrid
+ * @property {number} rows
+ * @property {number} cols
+ * @property {number} cellSizeM
+ * @property {readonly AdvisoryGridCell[]} cells
+ */
+
+/**
+ * The grid's provenance, structurally parallel to TerrainFieldProvenance: same
+ * fields, same meaning, because it is answering the same question — how much
+ * of this ground is real, and who said so — over a different set of points.
+ * No `spacingM`/`corridorWidthM`: those describe a line, and this is an area.
+ * @typedef {object} AdvisoryGridProvenance
+ * @property {string|null} source
+ * @property {string|null} dataset
+ * @property {number|null} resolutionM
+ * @property {string|null} attribution
+ * @property {string|null} retrievedAt
+ * @property {number} requested
+ * @property {number} cacheHits
+ * @property {number} fetched
+ * @property {number} missing
+ * @property {TerrainCoverage} coverage
+ * @property {readonly string[]} notes
+ */
+
+/**
+ * What createGridSampler()'s returned function resolves to: the sampled grid,
+ * and the provenance that says how much of it is real.
+ * @typedef {object} AdvisoryGridField
+ * @property {AdvisoryGrid} grid
+ * @property {AdvisoryGridProvenance} provenance
+ */
+
 /* ---------- cache keys ---------- */
 
 /**

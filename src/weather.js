@@ -5,6 +5,7 @@
 import { loadMapState } from './store.js';
 import { missionLaunch } from './mission-bridge.js';
 import { CRUISE_ALTS_M, levelWindPatch } from './windprofile.js';
+import { U } from './domain/physics.js';
 
 export const DEFAULT_LAUNCH = { lat: 30.2672, lng: -97.7431 }; // Austin
 export const DEFAULT_LAUNCH_NAME = 'Austin, TX';
@@ -40,6 +41,25 @@ const LEVEL_VARS = CRUISE_ALTS_M
   .flatMap(m => [`wind_speed_${m}m`, `wind_direction_${m}m`])
   .join(',');
 
+// M5 wave 2: temperature at the same three upper CRUISE_ALTS_M heights the
+// wind profile already publishes. Not 10 m — Open-Meteo has no
+// `temperature_10m` on this endpoint (`temperature_2m` already covers the
+// near-surface reading), confirmed by docs/research/R-WX.md.
+const HEIGHT_TEMP_ALTS_M = CRUISE_ALTS_M.filter(m => m !== 10);
+const HEIGHT_TEMP_VARS = HEIGHT_TEMP_ALTS_M.map(m => `temperature_${m}m`).join(',');
+
+// Pressure levels for M5's Froude/stability baseline: 850 hPa (low-level
+// steering wind), 700 hPa (mid-troposphere), 500 hPa (the classic upper-level
+// analysis surface). R-WX confirmed wind speed/direction, temperature and
+// geopotential height are all real and non-null at each of these on the same
+// /v1/forecast call this file already makes — no new host, no new auth. No
+// u/v wind components are published at any level; that vector math belongs to
+// M5's domain layer, not this file.
+const PRESSURE_LEVELS_HPA = [850, 700, 500];
+const PRESSURE_VARS = PRESSURE_LEVELS_HPA
+  .flatMap(p => [`wind_speed_${p}hPa`, `wind_direction_${p}hPa`, `temperature_${p}hPa`, `geopotential_height_${p}hPa`])
+  .join(',');
+
 /**
  * Fetch current conditions for a point. Returns
  * { patch, gust10Mph, levels, forecast } where patch is ready to merge into
@@ -54,8 +74,9 @@ export async function fetchLiveEnv({ lat, lng }) {
   // along for the cruise-altitude control to select between; gusts only exist at
   // 10 m at any of them.
   const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(4)}&longitude=${lng.toFixed(4)}`
-    + `&current=temperature_2m,relative_humidity_2m,wind_gusts_10m,${LEVEL_VARS}`
-    + `&hourly=wind_gusts_10m,temperature_2m,relative_humidity_2m,precipitation_probability,${LEVEL_VARS}`
+    + `&current=temperature_2m,relative_humidity_2m,wind_gusts_10m,${LEVEL_VARS},${HEIGHT_TEMP_VARS},${PRESSURE_VARS}`
+    + '&hourly=wind_gusts_10m,temperature_2m,relative_humidity_2m,precipitation_probability,'
+    + `${LEVEL_VARS},${HEIGHT_TEMP_VARS},${PRESSURE_VARS}`
     + '&daily=sunrise,sunset,wind_speed_10m_max,wind_gusts_10m_max,precipitation_probability_max'
     + '&forecast_days=3&timezone=auto'
     + '&temperature_unit=fahrenheit&wind_speed_unit=mph';
@@ -81,6 +102,7 @@ export async function fetchLiveEnv({ lat, lng }) {
     patch,
     gust10Mph: Math.round(c.wind_gusts_10m || 0),
     levels: levelsFrom(c),
+    sounding: soundingFrom(c),
     forecast: shapeForecast(data),
   };
 }
@@ -90,6 +112,12 @@ export async function fetchLiveEnv({ lat, lng }) {
  * object, or an `hourly` block read at index `i`. Per-level nulls are dropped
  * rather than coerced (a missing level means the control offers it and the plan
  * stays where it was, not a fabricated dead calm at that height).
+ *
+ * M5 wave 2: `tempC` rides along when the block published a temperature at
+ * that height (80/120/180 m only — see HEIGHT_TEMP_ALTS_M). Additive and
+ * optional: every existing reader looks at `windMph`/`windFromDeg` only, and a
+ * level with no temperature reading is a level with no `tempC` key, not a
+ * fabricated one.
  */
 function levelsFrom(block, i = null) {
   const out = {};
@@ -97,7 +125,42 @@ function levelsFrom(block, i = null) {
     const v = i == null ? block[`wind_speed_${m}m`] : at(block[`wind_speed_${m}m`], i);
     const d = i == null ? block[`wind_direction_${m}m`] : at(block[`wind_direction_${m}m`], i);
     if (!Number.isFinite(v) || !Number.isFinite(d)) continue;
-    out[m] = { windMph: Math.round(v), windFromDeg: ((Math.round(d) % 360) + 360) % 360 };
+    const level = { windMph: Math.round(v), windFromDeg: ((Math.round(d) % 360) + 360) % 360 };
+    const t = i == null ? block[`temperature_${m}m`] : at(block[`temperature_${m}m`], i);
+    if (Number.isFinite(t)) level.tempC = U.fToC(t);
+    out[m] = level;
+  }
+  return out;
+}
+
+/**
+ * The sounding out of one Open-Meteo block — same `current`-or-`hourly[i]`
+ * shape levelsFrom() reads — as a lowest-first array over PRESSURE_LEVELS_HPA
+ * (850 → 500). A level is only included when every one of its four fields
+ * (wind speed, wind direction, temperature, geopotential height) came back
+ * finite: a partial reading is not reported with a hole in it, because a
+ * consumer building a stability estimate from it has no honest way to use
+ * "850 hPa: 12 mph, no temperature". Missing/partial data means the entry is
+ * omitted, never fabricated; no usable level at all is `[]`, not a crash.
+ */
+function soundingFrom(block, i = null) {
+  /** @type {{ hPa: number, windMph: number, windFromDeg: number, tempC: number, heightM: number }[]} */
+  const out = [];
+  for (const hPa of PRESSURE_LEVELS_HPA) {
+    const v = i == null ? block[`wind_speed_${hPa}hPa`] : at(block[`wind_speed_${hPa}hPa`], i);
+    const d = i == null ? block[`wind_direction_${hPa}hPa`] : at(block[`wind_direction_${hPa}hPa`], i);
+    const t = i == null ? block[`temperature_${hPa}hPa`] : at(block[`temperature_${hPa}hPa`], i);
+    const gh = i == null
+      ? block[`geopotential_height_${hPa}hPa`]
+      : at(block[`geopotential_height_${hPa}hPa`], i);
+    if (!Number.isFinite(v) || !Number.isFinite(d) || !Number.isFinite(t) || !Number.isFinite(gh)) continue;
+    out.push({
+      hPa,
+      windMph: Math.round(v),
+      windFromDeg: ((Math.round(d) % 360) + 360) % 360,
+      tempC: U.fToC(t),
+      heightM: Math.round(gh),
+    });
   }
   return out;
 }
@@ -187,6 +250,9 @@ export function shapeForecast(apiJson) {
     // level is the hour this app has always shown.
     levels: levelsFrom(h, i),
     gust10Mph: numOrNull(h.wind_gusts_10m, i, Math.round),
+    // The pressure-level sounding for this hour (M5 wave 2) — see
+    // soundingFrom(); lowest-first, [] where nothing at any level was usable.
+    sounding: soundingFrom(h, i),
   })) : [];
   const days = (d && Array.isArray(d.time)) ? d.time.map((date, i) => ({
     date,
