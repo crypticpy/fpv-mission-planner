@@ -26,6 +26,7 @@
  * @typedef {object} MemoryStoreOptions
  * @property {Map<string, unknown>} [backing]    missions, keyed by id
  * @property {Map<string, unknown>} [quarantine] quarantined records, keyed by id
+ * @property {Map<string, unknown>} [evidence]   evidence records, keyed by mission id
  */
 
 /**
@@ -34,6 +35,7 @@
 export function openMemoryStore(options = {}) {
   const missions = options.backing ?? new Map();
   const quarantine = options.quarantine ?? new Map();
+  const evidence = options.evidence ?? new Map();
   let open = true;
 
   const assertOpen = () => {
@@ -95,6 +97,31 @@ export function openMemoryStore(options = {}) {
     async readQuarantine() {
       assertOpen();
       return [...quarantine.values()].map((v) => structuredClone(v));
+    },
+
+    /**
+     * The evidence trio (ADR 0012 §2), parity with the indexeddb adapter: a
+     * separate Map rather than reusing `missions`, because evidence is keyed
+     * by mission id but is not itself a mission record.
+     * @param {string} id @returns {Promise<unknown>}
+     */
+    async readEvidence(id) {
+      assertOpen();
+      const value = evidence.get(id);
+      return value === undefined ? undefined : structuredClone(value);
+    },
+
+    /** @param {{ id: string }} record @returns {Promise<void>} */
+    async writeEvidence(record) {
+      assertOpen();
+      const stored = structuredClone(record); // throws before the Map is touched
+      evidence.set(record.id, stored);
+    },
+
+    /** @param {string} id @returns {Promise<void>} */
+    async removeEvidence(id) {
+      assertOpen();
+      evidence.delete(id);
     },
 
     close() { open = false; },

@@ -93,3 +93,97 @@ test('the mission list serves the open mission a row when the store has none', a
   assert.equal(summaries[0].id, missionId());
   assert.equal(summaries[0].title, missionTitle());
 });
+
+/* ADR 0012 §5: navigator.storage.estimate() feeds the same banner, refreshed
+ * at bridge open and after every save receipt rather than polled. Each test
+ * below opens its own fresh bridge over an in-memory repo that actually
+ * accepts writes — unlike the full-disk repo above, this is about the
+ * estimate, not the failure taxonomy — and every one of them runs its boot
+ * mission's autosave debounce out (400 ms, past the 300 ms window) before
+ * finishing, so no dangling timer from one test's seeded mission fires against
+ * the next test's repository. */
+
+/** A repository that actually keeps what it is given, so a save is a save. */
+function workingRepo() {
+  const missions = new Map();
+  return {
+    adapter: 'memory',
+    durable: false,
+    async save(saved) {
+      missions.set(saved.id, saved);
+      return { storage: { adapter: 'memory', durable: false, durability: 'strict', persisted: null } };
+    },
+    async list() {
+      return [...missions.values()]
+        .sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1))
+        .map((m) => ({ id: m.id, title: m.title, updatedAt: m.updatedAt }));
+    },
+    async get(id) { return missions.get(id) ?? null; },
+    async remove(id) { return missions.delete(id); },
+    async duplicate() { return null; },
+    async exportJson() { return null; },
+    async importJson() { return { ok: false, errors: [] }; },
+    async close() {},
+  };
+}
+
+// These two run before any test below establishes a real true/false reading:
+// nearFull only ever changes on an estimate that actually answers, so once one
+// has, "unavailable" no longer means "never asked" — it means "no new
+// information", and the previous reading is left standing rather than erased.
+// That is the honest behavior, but it means a check for the pristine
+// "nothing has ever answered yet" null needs to run first, against the
+// module's true initial state.
+
+test('with no storage estimate available, the banner makes no claim', async () => {
+  // No `storage` dep at all — Node's own `navigator.storage` has no `estimate`
+  // either, the same shape a locked-down browser context takes.
+  setupMissionBridge({ seed, requestRender: () => {}, repository: workingRepo() });
+  await openMissionBridge();
+  await sleep(400);
+  assert.equal(missionStorage().nearFull, null, 'absent is not the same claim as "plenty of room"');
+  assert.ok(missionId(), 'the bridge still opened a mission with no estimate to lean on');
+});
+
+test('a throwing storage estimate never breaks bridge open, and makes no claim', async () => {
+  const storage = { async estimate() { throw new Error('locked down'); } };
+  setupMissionBridge({ seed, requestRender: () => {}, repository: workingRepo(), storage });
+  await assert.doesNotReject(() => openMissionBridge());
+  await sleep(400);
+  assert.equal(missionStorage().nearFull, null);
+  assert.ok(missionId(), 'a throwing estimate is not a boot failure');
+});
+
+test('storage estimate at or above 80% of quota sets nearFull, and the banner hears about it', async () => {
+  const heard = [];
+  const storage = { async estimate() { return { usage: 81, quota: 100 }; } };
+  setupMissionBridge({
+    seed, requestRender: () => {}, onStorage: (s) => heard.push(s), repository: workingRepo(), storage,
+  });
+  await openMissionBridge();
+  await sleep(400);
+  assert.equal(missionStorage().nearFull, true);
+  assert.ok(heard.some((s) => s.nearFull === true), 'the banner was told, not just the internal state');
+});
+
+test('storage estimate below 80% of quota reports not near full', async () => {
+  const storage = { async estimate() { return { usage: 10, quota: 100 }; } };
+  setupMissionBridge({ seed, requestRender: () => {}, repository: workingRepo(), storage });
+  await openMissionBridge();
+  await sleep(400);
+  assert.equal(missionStorage().nearFull, false);
+});
+
+test('the estimate is refreshed again after a save receipt, not only at boot', async () => {
+  let answer = { usage: 10, quota: 100 };
+  const storage = { async estimate() { return answer; } };
+  setupMissionBridge({ seed, requestRender: () => {}, repository: workingRepo(), storage });
+  await openMissionBridge();
+  await sleep(400);
+  assert.equal(missionStorage().nearFull, false, 'the boot estimate says there is room');
+
+  answer = { usage: 95, quota: 100 };
+  renameMission('Nearly full now');
+  await sleep(400); // past the edit's own save debounce, then the receipt-triggered refresh
+  assert.equal(missionStorage().nearFull, true, 'a save receipt asked again, not just the boot');
+});

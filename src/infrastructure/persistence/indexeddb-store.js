@@ -230,6 +230,45 @@ export async function openIndexedDbStore(options = {}) {
       });
     },
 
+    /**
+     * The evidence trio (ADR 0012 §2), structurally identical to the mission
+     * trio above but simpler: no quarantine dance and no read-back
+     * verification, because evidence-repository.js's own posture is
+     * best-effort — a write that fails is swallowed there, not confirmed here.
+     * @param {string} id @returns {Promise<unknown>}
+     */
+    readEvidence(id) {
+      return withDb(async (database) => {
+        const tx = database.transaction(EVIDENCE_STORE, 'readonly');
+        const value = await requestDone(tx.objectStore(EVIDENCE_STORE).get(id));
+        await transactionDone(tx);
+        return value;
+      });
+    },
+
+    /** @param {{ id: string }} record @returns {Promise<void>} */
+    writeEvidence(record) {
+      return withDb(async (database) => {
+        const tx = database.transaction(EVIDENCE_STORE, 'readwrite');
+        try {
+          tx.objectStore(EVIDENCE_STORE).put(record); // DataCloneError throws synchronously (F12)
+        } catch (e) {
+          try { tx.abort(); } catch { /* already dead */ }
+          throw e;
+        }
+        await transactionDone(tx);
+      });
+    },
+
+    /** @param {string} id @returns {Promise<void>} */
+    removeEvidence(id) {
+      return withDb(async (database) => {
+        const tx = database.transaction(EVIDENCE_STORE, 'readwrite');
+        tx.objectStore(EVIDENCE_STORE).delete(id);
+        await transactionDone(tx);
+      });
+    },
+
     close() {
       closed = true;
       db?.close();

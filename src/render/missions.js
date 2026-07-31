@@ -6,7 +6,7 @@
 // file is the wording, the rows and the two-step delete — no storage logic and
 // no document editing of its own.
 import {
-  deleteMission, exportMission, listMissions, missionId, missionStorage,
+  deleteMission, exportMission, listMissions, listQuarantined, missionId, missionStorage,
   missionTitle, openMission, renameMission, saveMissionCopy,
 } from '../mission-bridge.js';
 import {
@@ -48,6 +48,9 @@ export function renderMissionStorage(info = missionStorage()) {
   } else if (!info.durable) {
     msg = 'This browser will not give the planner durable storage, so missions are kept in memory for '
       + 'this tab only — export anything you want to keep.';
+    bad = true;
+  } else if (info.nearFull) {
+    msg = 'Storage is nearly full — saves may start failing soon. Export anything you want to keep.';
     bad = true;
   } else if (info.persisted === false) {
     msg = 'Saved on disk, but the browser may evict it if the device runs short of space. Export a mission '
@@ -166,12 +169,59 @@ function missionRow(summary, open) {
   return row;
 }
 
+/**
+ * A record the repository could not read as a mission (ADR 0005: quarantined,
+ * never deleted). One affordance only, by design (ADR 0012 §5) — the recovery
+ * path is export, fix by hand, re-import, and destroying the only copy on
+ * disk is not a button this row gets.
+ * @param {import('../infrastructure/persistence/mission-repository.js').QuarantineEnvelope} envelope
+ */
+function quarantineRow(envelope) {
+  const row = document.createElement('div');
+  row.className = 'spot-row';
+
+  const text = document.createElement('div');
+  text.className = 'spot-text';
+  const name = document.createElement('span');
+  name.className = 'spot-name';
+  name.textContent = `Unreadable record (${envelope.id})`;
+  const meta = document.createElement('span');
+  meta.className = 'spot-meta';
+  meta.textContent = `could not be read as a mission — ${envelope.reason.message}`;
+  text.append(name, meta);
+
+  const actions = document.createElement('div');
+  actions.className = 'spot-actions';
+  const downloadBtn = document.createElement('button');
+  downloadBtn.type = 'button';
+  downloadBtn.className = 'link-btn';
+  downloadBtn.textContent = 'download raw';
+  downloadBtn.addEventListener('click', () => {
+    // Same Blob-URL-on-a-synthetic-link download onExport() uses above, over
+    // the envelope's own record rather than a re-serialised mission — this is
+    // the untouched bytes the repository could not read, verbatim.
+    const json = JSON.stringify(envelope.record, null, 2);
+    const url = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${slug(envelope.id)}-quarantined.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setNote(`Downloaded the raw contents of ${envelope.id}.`);
+  });
+  actions.appendChild(downloadBtn);
+
+  row.append(text, actions);
+  return row;
+}
+
 async function renderList() {
   const host = $('mission-list');
   const summaries = await listMissions();
+  const quarantined = await listQuarantined();
   const openId = missionId();
   host.replaceChildren();
-  if (!summaries.length) {
+  if (!summaries.length && !quarantined.length) {
     const empty = document.createElement('p');
     empty.className = 'spots-empty';
     empty.textContent = 'No missions saved yet.';
@@ -179,6 +229,7 @@ async function renderList() {
     return;
   }
   for (const s of summaries) host.appendChild(missionRow(s, s.id === openId));
+  for (const q of quarantined) host.appendChild(quarantineRow(q));
 }
 
 /**

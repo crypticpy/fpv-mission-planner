@@ -47,6 +47,7 @@ import {
 import { setupInterop } from './interop.js';
 import {
   analyzeNow, analysisRevision, acceptAsync, setupAnalysisHost, groundAt,
+  restoreEvidenceFor, forgetEvidence,
 } from './analysis-host.js';
 import {
   missionSeed, restoreLaunch, pushLaunch, pushLoadout, pushEnvironment, pushPolicy,
@@ -85,6 +86,12 @@ function briefUi() {
     m.setupBrief({ latest: () => latest });
     m.bindBrief();
     return m;
+  }).catch((e) => {
+    // A chunk fetch that failed offline should succeed the moment
+    // connectivity returns (ADR 0012 §4) — caching the rejection forever
+    // would mean only a full reload could ever retry it.
+    briefPromise = null;
+    throw e;
   });
   return briefPromise;
 }
@@ -471,7 +478,12 @@ function bind() {
   // inside the first click. openBrief itself is async either way (it already
   // awaits the interop engine for the loss report), so nothing observable moved.
   $('btn-brief').addEventListener('click', () => {
-    void briefUi().then((m) => m.openBrief());
+    void briefUi().then((m) => m.openBrief()).catch((e) => {
+      // Dropped, not surfaced: briefUi() already reset its own cache above, so
+      // the next click retries the chunk fetch (ADR 0012 §4) rather than
+      // replaying this failure or needing a dedicated error UI for it.
+      console.warn('brief: the brief UI could not be loaded.', e);
+    });
   });
   // An import adds rigs, packs and flights all at once, so the Share fold needs
   // the same pair the authoring forms do: rebuild the rail, then re-plan.
@@ -563,8 +575,12 @@ setupMissionBridge({
       || Math.abs(prev.lng - launch.longitude) > 1e-6;
     if (moved && state.weatherId === 'live') goLive();
   },
+  // A document just became the open one: analysis-host.js's evidence restore
+  // (ADR 0012 §2) asks the store whether it remembers this mission's ground.
+  onMissionOpened: restoreEvidenceFor,
   requestRender: update,
   onMissionChanged: renderMissions,
+  onMissionRemoved: forgetEvidence,
   onStorage: renderMissionStorage,
   // How an `agl` waypoint altitude becomes a metres-MSL figure (ADR 0003): the
   // corridor field the analysis host holds, read nearest-station. Stable across

@@ -5,6 +5,7 @@ import { setupMissionBridge, openMissionBridge, dispatch, missionDocument } from
 import { setupTerrain } from '../src/render/terrain.js';
 import {
   analyzeNow, analysisRevision, acceptAsync, setupAnalysisHost, groundAt, terrainField,
+  restoreEvidenceFor,
 } from '../src/analysis-host.js';
 
 /* M3b §3: the host owns the corridor sampler, and the pipeline reads it as a port.
@@ -335,4 +336,140 @@ test('a grid request that genuinely changes while a sample is in flight aborts t
 
   releaseAll();
   await sleep(50);
+});
+
+/* ADR 0012 §2: restored evidence is admitted on the same test a live sample
+ * must pass — usableField(), read against whatever corridor the current pass
+ * is actually asking about — never on trust that the mission id alone is
+ * enough. These three pin that rule at the seam it is wired: refreshField()
+ * inside analyzeNow(). */
+
+test('restored evidence whose signature matches the current corridor is admitted without a fetch', async () => {
+  const net = stubElevation();
+  await boot(net, { title: 'Evidence admitted' });
+  dispatch({ type: 'addWaypoint', payload: { ...OVER_THERE } }, { render: false });
+  const snap = analyzeNow();
+  const corridor = snap.corridor;
+  assert.ok(corridor.samples.length > 0, 'a route with a waypoint has a corridor to sample');
+
+  // Shaped exactly like the corridor this pass is asking about — same mission,
+  // same sample ids, same coordinates — so usableField() admits it on sight,
+  // the identical test a live sample must pass.
+  const restoredField = {
+    missionId: corridor.missionId,
+    revision: 'restored',
+    samples: corridor.samples.map((s) => ({
+      id: s.id, stationId: s.id, track: 'centre', lat: s.latitude, lng: s.longitude,
+      distanceKm: s.distanceKm, bearingDeg: s.bearingDeg, segmentId: null,
+      groundMslM: 250, slopeDeg: null, aspectDeg: null, gradientBasis: null, source: 'cache',
+    })),
+    byId: Object.fromEntries(corridor.samples.map((s) => [s.id, { lat: s.latitude, lng: s.longitude }])),
+    features: [],
+    launchGroundMslM: 250,
+    provenance: {
+      source: 'restored', dataset: null, resolutionM: null, attribution: null,
+      retrievedAt: '2026-07-20T00:00:00.000Z', spacingM: corridor.spacingM,
+      corridorWidthM: corridor.corridorWidthM, requested: corridor.samples.length,
+      cacheHits: 0, fetched: corridor.samples.length, missing: 0, coverage: 'complete', notes: [],
+    },
+  };
+  const evidenceRepository = {
+    async get() {
+      return {
+        id: missionDocument().id, savedAt: '2026-07-20T00:00:05.000Z',
+        terrainField: restoredField, advisoryGrid: null, profile: null,
+      };
+    },
+    async save() {}, async remove() {}, close() {},
+  };
+  // A fresh host composition, the same as a reopened tab would build, with the
+  // evidence store this test controls injected in place of a real one.
+  setupAnalysisHost({ update: () => {}, fetch: net.doFetch, evidenceRepository });
+  restoreEvidenceFor(missionDocument());
+  await sleep(0); // let restoreEvidenceFor's own async read land
+
+  const callsBefore = net.calls.length;
+  analyzeNow();
+  assert.equal(terrainField(), restoredField, 'the restored field was admitted, by reference, not re-derived');
+  assert.equal(groundAt(OVER_THERE.latitude, OVER_THERE.longitude), 250, 'and it is what answers ground');
+  assert.equal(net.calls.length, callsBefore, 'a signature match never touches the network');
+});
+
+test('restored evidence whose signature does not match the current corridor is declined, and a fresh sample is asked for', async () => {
+  const net = stubElevation({ groundM: 300 });
+  await boot(net, { title: 'Evidence declined' });
+  dispatch({ type: 'addWaypoint', payload: { ...OVER_THERE } }, { render: false });
+  analyzeNow();
+
+  // Same mission id — so this is genuinely a stale-geometry case, not a
+  // different-mission case — but a sample id the current corridor never asked
+  // for, so usableField() cannot find it in byId and declines the record.
+  const staleField = {
+    missionId: missionDocument().id,
+    revision: 'restored-stale',
+    samples: [{
+      id: 'smp_nonexistent', stationId: 'x', track: 'centre', lat: 0, lng: 0,
+      distanceKm: 0, bearingDeg: 0, segmentId: null, groundMslM: 999, slopeDeg: null,
+      aspectDeg: null, gradientBasis: null, source: 'cache',
+    }],
+    byId: { smp_nonexistent: { lat: 0, lng: 0 } },
+    features: [],
+    launchGroundMslM: 999,
+    provenance: {
+      source: 'restored', dataset: null, resolutionM: null, attribution: null,
+      retrievedAt: '2026-07-20T00:00:00.000Z', spacingM: 50, corridorWidthM: 100,
+      requested: 1, cacheHits: 0, fetched: 1, missing: 0, coverage: 'complete', notes: [],
+    },
+  };
+  const evidenceRepository = {
+    async get() {
+      return {
+        id: missionDocument().id, savedAt: '2026-07-20T00:00:05.000Z',
+        terrainField: staleField, advisoryGrid: null, profile: null,
+      };
+    },
+    async save() {}, async remove() {}, close() {},
+  };
+  setupAnalysisHost({ update: () => {}, fetch: net.doFetch, evidenceRepository });
+  restoreEvidenceFor(missionDocument());
+  await sleep(0);
+
+  analyzeNow();
+  assert.notEqual(terrainField(), staleField, 'a record that does not describe this corridor is never admitted');
+
+  await settle();
+  assert.ok(net.calls.length > 0, 'the mismatch fell through to a live sample, on the wire');
+  assert.ok(terrainField(), 'and the live sample landed');
+  assert.notEqual(terrainField(), staleField);
+  assert.equal(groundAt(OVER_THERE.latitude, OVER_THERE.longitude), 300, 'ground came from the live sample, not the stale one');
+});
+
+test('a restored field too malformed to compare is declined without throwing into the boot path', async () => {
+  const net = stubElevation({ groundM: 301 });
+  await boot(net, { title: 'Evidence malformed' });
+  dispatch({ type: 'addWaypoint', payload: { ...OVER_THERE } }, { render: false });
+  analyzeNow();
+
+  // Same mission id and a samples array non-empty enough to pass usableField()'s
+  // first guard, but byId is not an object — the shape a real corrupt record
+  // read straight off disk could take. The rule under test is ADR 0012 §2 rule
+  // b: this must be declined, not thrown into the boot path.
+  const malformedField = { missionId: missionDocument().id, samples: [{ id: 'whatever' }], byId: null };
+  const evidenceRepository = {
+    async get() {
+      return {
+        id: missionDocument().id, savedAt: '2026-07-20T00:00:05.000Z',
+        terrainField: malformedField, advisoryGrid: null, profile: null,
+      };
+    },
+    async save() {}, async remove() {}, close() {},
+  };
+  setupAnalysisHost({ update: () => {}, fetch: net.doFetch, evidenceRepository });
+  restoreEvidenceFor(missionDocument());
+  await sleep(0);
+
+  assert.doesNotThrow(() => analyzeNow());
+  await settle();
+  assert.ok(terrainField(), 'the pipeline recovered and a live sample landed');
+  assert.equal(groundAt(OVER_THERE.latitude, OVER_THERE.longitude), 301);
 });

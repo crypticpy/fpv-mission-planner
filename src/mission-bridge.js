@@ -44,6 +44,13 @@ import { openMissionRepository } from './infrastructure/persistence/mission-repo
  * @property {(launch: LaunchPoint) => void} [onLaunchRestored] a document just
  *   became the open one; put the map pin and the rail's elevation field where it
  *   says the launch is
+ * @property {(doc: MissionDocumentV1) => void} [onMissionOpened] fires
+ *   alongside `onLaunchRestored`, at the same four moments — a document just
+ *   became the open one, which is also the moment analysis-host.js's evidence
+ *   restore (ADR 0012 §2) has something to ask the store about
+ * @property {(id: string) => void} [onMissionRemoved] a mission was removed
+ *   from the repository — its evidence (ADR 0012 §2) has no mission left to
+ *   describe
  * @property {() => void} requestRender          app.js's update()
  * @property {() => void} [onMissionChanged]     the open mission's identity or title moved
  * @property {(state: MissionStorageState) => void} [onStorage]
@@ -51,6 +58,8 @@ import { openMissionRepository } from './infrastructure/persistence/mission-repo
  *   then launch-relative altitudes resolve and AGL ones honestly do not
  * @property {MissionRepository} [repository]  tests inject a failing store here;
  *   the app always lets `openMissionBridge` open the real one
+ * @property {StorageManager} [storage]  defaults to navigator.storage; tests
+ *   inject a stub `estimate()` (ADR 0012 §5)
  */
 
 /**
@@ -61,10 +70,17 @@ import { openMissionRepository } from './infrastructure/persistence/mission-repo
  * @property {boolean|null} persisted  navigator.storage.persist()'s answer, or null
  * @property {'idle'|'pending'|'saved'|'failed'} save
  * @property {string} message       pilot-facing; '' when there is nothing to say
+ * @property {boolean|null} nearFull  navigator.storage.estimate() said usage is
+ *   at or above STORAGE_NEAR_FULL_RATIO of quota; null when the estimate is
+ *   unavailable or the call itself threw (ADR 0012 §5) — a browser that
+ *   cannot answer gets no claim, not a false "plenty of room"
  */
 
 /** Long enough to coalesce a drag, short enough that a fast reload keeps the edit. */
 const SAVE_DEBOUNCE_MS = 300;
+
+/** At or above this fraction of quota, the banner warns before writes start failing (ADR 0012 §5). */
+const STORAGE_NEAR_FULL_RATIO = 0.8;
 
 /** @type {BridgeDeps|null} */ let deps = null;
 /** @type {MissionRepository|null} */ let repo = null;
@@ -74,7 +90,34 @@ let dirty = false;
 let saveTimer = 0;
 
 /** @type {MissionStorageState} */
-let storage = { adapter: null, durable: false, persisted: null, save: 'idle', message: '' };
+let storage = { adapter: null, durable: false, persisted: null, save: 'idle', message: '', nearFull: null };
+
+/**
+ * Ask the browser how full its storage is, and fold the answer into the
+ * banner. Cheap enough to call at bridge open and after every save receipt
+ * rather than on a timer — polling for a number that only writes can move
+ * would be busywork between them.
+ *
+ * `estimate()` missing, throwing, or answering something that is not two
+ * finite numbers is treated the same as a browser with no opinion: no claim,
+ * not a guess that there is plenty of room (ADR 0012 §5).
+ */
+async function refreshStorageEstimate() {
+  const sm = deps?.storage ?? globalThis.navigator?.storage;
+  if (!sm || typeof sm.estimate !== 'function') return;
+  try {
+    // Defaulted rather than left possibly-undefined: StorageEstimate's own
+    // fields are optional, and a default of NaN keeps the finite-check below
+    // the one place that decides "unusable", instead of `tsc` doing it twice.
+    const { usage = NaN, quota = NaN } = await sm.estimate();
+    if (!Number.isFinite(usage) || !Number.isFinite(quota) || quota <= 0) return;
+    storage = { ...storage, nearFull: usage / quota >= STORAGE_NEAR_FULL_RATIO };
+    deps?.onStorage?.(storage);
+  } catch {
+    // A locked-down or private-browsing context can throw here; silence is
+    // the honest answer (ADR 0012 §5), not a save failure and not a claim.
+  }
+}
 
 /** @param {BridgeDeps} d */
 export function setupMissionBridge(d) { deps = d; }
@@ -117,9 +160,11 @@ async function writeNow(snapshot) {
     // debounce rate forever, flashing the very banner it is trying to show.
     dirty = true;
     report('failed', reason(e));
+    void refreshStorageEstimate(); // especially worth knowing right after a failure
     return;
   }
   if (dirty) scheduleSave(); // a new edit landed while the write was in flight
+  void refreshStorageEstimate(); // after every save receipt (ADR 0012 §5)
 }
 
 function scheduleSave() {
@@ -264,10 +309,18 @@ export function clearRoute() {
 
 /* ---------- boot, and the mission list ---------- */
 
-/** Put the map pin and the rail where the open mission says the launch is. */
+/**
+ * Put the map pin and the rail where the open mission says the launch is —
+ * and tell analysis-host.js a document just became the open one, which is
+ * also the moment its evidence restore (ADR 0012 §2) has something to ask
+ * about. Called at exactly the four places a document changes identity:
+ * boot's loaded branch, openMission, importMission's applied branch, and
+ * deleteMission's reseed branch.
+ */
 function launchRestored() {
   if (!doc || !deps) return;
   deps.onLaunchRestored?.({ ...doc.launch });
+  deps.onMissionOpened?.(doc);
 }
 
 /** @returns {MissionDocumentV1|null} */
@@ -318,6 +371,7 @@ export async function openMissionBridge() {
   }
   deps.onMissionChanged?.();
   deps.requestRender();
+  void refreshStorageEstimate(); // at bridge open (ADR 0012 §5)
 }
 
 /** @returns {Promise<MissionSummary[]>} newest first */
@@ -389,6 +443,7 @@ export async function deleteMission(id) {
   if (!repo) return false;
   const gone = await repo.remove(id);
   if (!gone) return false;
+  deps?.onMissionRemoved?.(id);
   if (id === missionId()) {
     doc = seededMission();
     if (doc) scheduleSave();
@@ -397,6 +452,18 @@ export async function deleteMission(id) {
     deps?.requestRender();
   }
   return true;
+}
+
+/**
+ * Records the repository could not read as missions, still on disk (ADR
+ * 0005's quarantine; ADR 0012 §5 gives them a UI). Read-only: the only
+ * affordance the missions fold offers for one of these is downloading the raw
+ * contents back out — no repair, no delete, because the recovery path is
+ * export, fix, re-import, and destroying the only copy is not a button.
+ * @returns {Promise<import('./infrastructure/persistence/mission-repository.js').QuarantineEnvelope[]>}
+ */
+export async function listQuarantined() {
+  return repo ? repo.quarantined() : [];
 }
 
 /**

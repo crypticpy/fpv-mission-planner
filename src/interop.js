@@ -72,7 +72,13 @@ function engine() {
     deriveLosses: contractsMod.deriveLosses,
     EXPORTABLE: routerMod.EXPORTABLE,
     importAny: routerMod.importAny,
-  }));
+  })).catch((e) => {
+    // Same rule as app.js's briefUi() (ADR 0012 §4): a chunk fetch that
+    // failed offline should succeed once connectivity returns, not stay
+    // rejected until a full page reload clears the cache.
+    enginePromise = null;
+    throw e;
+  });
   return enginePromise;
 }
 

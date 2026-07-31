@@ -43,6 +43,7 @@ import { createGridSampler, gridRequestFor } from './application/terrain/sample-
 import {
   OPEN_METEO_ATTRIBUTION, createOpenMeteoElevationProvider,
 } from './infrastructure/elevation/open-meteo-elevation.js';
+import { openEvidenceRepository } from './infrastructure/persistence/evidence-repository.js';
 import { missionDocument, reresolveAltitudes } from './mission-bridge.js';
 import { state, battery, missionInputs } from './state.js';
 import { activeProfile, setTurnaroundKm } from './terrain.js';
@@ -57,6 +58,7 @@ import { linkStats, linkWarnings, refreshTerrain, terrainWarnings } from './rend
 /** @typedef {import('./application/terrain/terrain-contracts.js').TerrainField} TerrainField */
 /** @typedef {import('./application/terrain/terrain-contracts.js').AdvisoryGridField} AdvisoryGridField */
 /** @typedef {import('./application/terrain/terrain-contracts.js').AdvisoryGridRequest} AdvisoryGridRequest */
+/** @typedef {import('./infrastructure/persistence/evidence-repository.js').EvidenceRecord} EvidenceRecord */
 
 /** Who supplies the ground when a profile is on hand. */
 const TERRAIN_SOURCE = 'Open-Meteo elevation API';
@@ -153,6 +155,89 @@ let gridController = null;
 /** @type {string|null} */
 let inFlightGridSig = null;
 
+/* ---------- evidence (ADR 0012 §2) ---------- */
+
+/**
+ * @type {{
+ *   save: (record: EvidenceRecord) => Promise<void>,
+ *   get: (id: string) => Promise<EvidenceRecord|null>,
+ *   remove: (id: string) => Promise<void>,
+ *   close: () => void,
+ * }|null}
+ */
+let evidenceRepo = null;
+/** ISO instant, injectable for deterministic tests — mirrors every other `d.now` here. */
+let nowFn = () => new Date().toISOString();
+/**
+ * A record read back for the mission that just opened, waiting for the next
+ * analyzeNow() pass to judge it against the corridor/grid that pass is
+ * actually asking about. Set once per restore, consumed once — admitted or
+ * declined, refreshField/refreshGrid each get exactly one look before
+ * analyzeNow() clears it.
+ * @type {EvidenceRecord|null}
+ */
+let pendingRestore = null;
+/** Mirrors mission-bridge.js's own SAVE_DEBOUNCE_MS: coalesce a burst of samples into one write. */
+const EVIDENCE_SAVE_DEBOUNCE_MS = 300;
+/** @type {ReturnType<typeof setTimeout>|number} */
+let evidenceSaveTimer = 0;
+
+/**
+ * Persist whatever evidence is in hand right now, debounced. Called after
+ * every successful corridor/grid sample publish — the payload is captured at
+ * call time, not read again when the timer fires, so a mission switch in the
+ * gap between scheduling and firing cannot mislabel one mission's terrain as
+ * another's.
+ */
+function scheduleEvidenceSave() {
+  const doc = missionDocument();
+  if (!doc) return;
+  /** @type {EvidenceRecord} */
+  const record = {
+    id: doc.id,
+    savedAt: nowFn(),
+    terrainField: field,
+    advisoryGrid: advisoryField,
+    profile: activeProfile(),
+  };
+  clearTimeout(evidenceSaveTimer);
+  evidenceSaveTimer = setTimeout(() => { void evidenceRepo?.save(record); }, EVIDENCE_SAVE_DEBOUNCE_MS);
+}
+
+/**
+ * A document just became the open one (mission-bridge.js, every path that
+ * calls its own launchRestored()). Ask the evidence store whether it
+ * remembers this mission's ground — a read, not a decision: admission
+ * happens in refreshField/refreshGrid, against whatever corridor/grid the
+ * next analyzeNow() pass is actually asking about.
+ * @param {import('./domain/mission/mission-schema.js').MissionDocumentV1|null} doc
+ */
+export function restoreEvidenceFor(doc) {
+  if (!doc) return;
+  const id = doc.id;
+  void (async () => {
+    if (!evidenceRepo) return;
+    const record = await evidenceRepo.get(id);
+    if (!record) return;
+    // The mission moved on again while this read was in flight; a record for
+    // a mission nobody has open any more describes nothing on screen.
+    if (missionDocument()?.id !== id) return;
+    pendingRestore = record;
+    hostDeps?.update();
+  })();
+}
+
+/**
+ * A mission was removed from the repository (mission-bridge.js's
+ * deleteMission). Its evidence has no mission left to describe — remove it
+ * too, best-effort: evidence-repository.js's own remove() already never
+ * throws, so nothing here needs to either.
+ * @param {string} id
+ */
+export function forgetEvidence(id) {
+  void evidenceRepo?.remove(id);
+}
+
 /**
  * Wire the corridor sampler up and hand the host a way to ask for a re-render.
  *
@@ -164,7 +249,11 @@ let inFlightGridSig = null;
  * with no field port at all, which the pipeline states as W-DATA-TERRAIN-ABSENT
  * rather than passing off as clear ground.
  *
- * @param {{ update: () => void, fetch?: typeof fetch, now?: () => string }} d
+ * @param {{ update: () => void, fetch?: typeof fetch, now?: () => string,
+ *   evidenceRepository?: NonNullable<typeof evidenceRepo> }} d  `evidenceRepository`
+ *   is a ready-made repo, injected for tests; production leaves it unset and
+ *   this opens its own (ADR 0012 §2), the same "inject or open for real" shape
+ *   mission-bridge.js's own `deps.repository` follows
  */
 export function setupAnalysisHost(d) {
   hostDeps = d;
@@ -188,6 +277,18 @@ export function setupAnalysisHost(d) {
     ...(d.now ? { now: d.now } : null),
   });
   gridSampler = createGridSampler({ provider, cache, ...(d.now ? { now: d.now } : null) });
+  nowFn = d.now ?? (() => new Date().toISOString());
+  // A re-wired host is a new composition (same reasoning as the controllers
+  // below): drop whatever repo the old one held and either take the injected
+  // one or open a fresh real one. Fire-and-forget — a host that has not
+  // finished opening its evidence store yet simply has nothing to restore,
+  // which restoreEvidenceFor() already treats as the honest "no evidence".
+  evidenceRepo = d.evidenceRepository ?? null;
+  if (!d.evidenceRepository) {
+    void openEvidenceRepository().then((repo) => { evidenceRepo = repo; }).catch(() => {});
+  }
+  clearTimeout(evidenceSaveTimer);
+  pendingRestore = null;
   field = null;
   groundLookup = () => null;
   failedCorridorSig = null;
@@ -265,6 +366,25 @@ function refreshField(corridor) {
   clearTimeout(sampleTimer);
   if (!sampler || !corridor || corridor.samples.length === 0) return;
   lastCorridor = corridor;
+
+  // Evidence restored for this mission (ADR 0012 §2), admitted here rather
+  // than left to age out: usableField() is the identical check a live sample
+  // must pass, so restored and live evidence are held to one standard, and it
+  // is only reached for when the field already in hand does not answer this
+  // corridor — a live sample that landed first is never overwritten by an
+  // older restored one. Wrapped because a corrupt disk record must be
+  // silently declined, never thrown into the boot path (ADR 0012 §2 rule b).
+  if (pendingRestore?.terrainField) {
+    try {
+      if (!usableField(field, corridor) && usableField(pendingRestore.terrainField, corridor)) {
+        field = pendingRestore.terrainField;
+        groundLookup = nearestGroundSampler(field);
+        failedCorridorSig = null;
+        reresolveAltitudes();
+      }
+    } catch { /* malformed restored field: treated as absent, not a crash */ }
+  }
+
   if (usableField(field, corridor)) return;
   const sig = corridorSignature(corridor);
   // A dead connection is asked once per question, not once per render. The
@@ -313,6 +433,7 @@ async function runSample(corridor, sig) {
     // resolved now. Silent when nothing was waiting on terrain, which is the
     // common case — the default frame is launch-relative.
     reresolveAltitudes();
+    scheduleEvidenceSave();
   } catch (err) {
     // Silence, not failure (ADR 0012 §3): a request this host cancelled itself
     // is not a terrain outage. The sampler already keeps an AbortError from
@@ -406,6 +527,24 @@ function refreshGrid(doc) {
   const sig = gridSignature(request);
   currentGridSig = sig;
   lastGridRequest = request;
+
+  // Evidence restored for this mission (ADR 0012 §2): gridSignature() reads
+  // only rows/cols/cellSizeM and the two corner cells' lat/lng, a shape a
+  // sampled AdvisoryGrid carries identically to a request, so calling it on
+  // the restored grid compares it to `sig` on equal footing. Reached only
+  // when nothing already held answers this exact request — the same "do not
+  // overwrite a fresher in-memory sample" rule refreshField's twin follows.
+  // Wrapped for the same reason: a corrupt disk record must be silently
+  // declined, never thrown into the boot path (ADR 0012 §2 rule b).
+  if (pendingRestore?.advisoryGrid && sig !== heldGridSig) {
+    try {
+      if (gridSignature(pendingRestore.advisoryGrid.grid) === sig) {
+        advisoryField = pendingRestore.advisoryGrid;
+        heldGridSig = sig;
+      }
+    } catch { /* malformed restored grid: treated as absent, not a crash */ }
+  }
+
   // Already answered, or already asked and refused — a dead connection is asked
   // once per question, not once per render.
   if (sig === heldGridSig || sig === failedGridSig) return;
@@ -451,6 +590,7 @@ async function runGridSample(request, sig) {
     advisoryField = next;
     heldGridSig = sig;
     if (next.provenance.coverage === 'empty') failedGridSig = sig;
+    scheduleEvidenceSave();
   } catch (err) {
     // Silence, not failure (ADR 0012 §3): a request this host cancelled itself
     // is not an advisory outage. The sampler already keeps an AbortError from
@@ -716,5 +856,11 @@ export function analyzeNow() {
   // publishes it — sampling before this point would be sampling a route the
   // analysis had not yet agreed to.
   refreshField(snapshot.corridor);
+  // Consumed either way: refreshGrid and refreshField above each had their one
+  // look at whatever was restored for this mission. Admitted or declined, a
+  // stale reference sitting in module state forever is only confusing —
+  // clearing it is what makes this a one-shot restore rather than a standing
+  // override that could reassert itself on a later pass.
+  pendingRestore = null;
   return snapshot;
 }
