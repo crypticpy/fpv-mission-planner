@@ -1597,3 +1597,161 @@ body.brief-open { overflow: hidden; }
   }
   @page { margin: 12mm; }
 }
+
+/* ---------- M9 design-system components ---------- */
+/* src/components/*: the round-2 component library. Each block here is the CSS
+   half of one module — the DOM shapes live with their render functions. */
+
+/* The inline fpv-symbols sprite: rendered nowhere, referenced everywhere. */
+.symbol-sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
+
+/* VerdictCard: the fourth level and the level glyph. `unknown` is gray and
+   questioning — the card saying it cannot answer, as distinct from NO-GO. */
+.verdict-unknown { --verdict: var(--muted); }
+.verdict-icon { flex: none; align-self: center; color: var(--verdict); }
+.verdict-glyph { display: block; width: 18px; height: 18px; }
+
+/* WindRibbon: persistent chrome under the masthead. Same escalation the rest
+   of the app speaks — good / warning / serious / critical — on the strip's
+   edge and its state word, never color alone (the word says it too). */
+.windrib {
+  --ribbon: var(--status-good);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-1) var(--sp-3);
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--ribbon);
+  border-radius: 10px;
+  padding: 6px var(--sp-2);
+  width: calc(100% - 2 * var(--sp-5));
+  max-width: calc(1360px - 2 * var(--sp-5));
+  margin: var(--sp-3) auto 0;
+}
+.windrib-stale { --ribbon: var(--status-warning); }
+.windrib-gust { --ribbon: var(--status-serious); }
+.windrib-critical { --ribbon: var(--status-critical); }
+.windrib-main { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; flex-wrap: wrap; }
+.windrib-state {
+  flex: none;
+  color: var(--ribbon);
+  font-family: var(--font-display);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.windrib-glyph { display: block; flex: none; width: 15px; height: 15px; color: var(--ink-2); }
+.windrib-wind { font-size: 13px; color: var(--ink); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.windrib-note { font-size: 12px; color: var(--ink-2); }
+.windrib-critical .windrib-note { color: var(--status-critical); font-weight: 600; }
+@media (max-width: 900px) {
+  /* Compact posture: the sky line stacks over the provenance line. */
+  .windrib {
+    flex-direction: column;
+    align-items: stretch;
+    width: calc(100% - 2 * var(--sp-3));
+    margin-top: var(--sp-2);
+  }
+}
+
+/* DataFreshness: the provenance chip. State is the chip's word and color;
+   the deciding happens upstream (the coded forecast-age constraints). */
+.freshness {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.freshness-glyph { display: block; flex: none; width: 12px; height: 12px; }
+.freshness-cached { color: var(--ink-2); }
+.freshness-stale { color: var(--status-warning); }
+.freshness-unavailable { color: var(--status-serious); }
+
+/* MissionSummary: the four field numbers, tile vocabulary at card weight. */
+.msummary-title {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.msummary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--sp-2) var(--sp-3);
+  margin-top: var(--sp-1);
+}
+@media (max-width: 700px) { .msummary-grid { grid-template-columns: repeat(2, 1fr); } }
+.msummary-label { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.msummary-value {
+  font-family: var(--font-display);
+  font-size: 21px;
+  font-weight: 700;
+  margin-top: 2px;
+  font-variant-numeric: tabular-nums;
+}
+.msummary-reserve {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: var(--sp-2);
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+.msummary-glyph { display: block; flex: none; width: 14px; height: 14px; color: var(--status-good); }
+
+/* System states: one card shape for every "no data here" moment — a dashed
+   icon tile, an uppercase title, one line of why, at most one action. */
+.sysstate {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: var(--sp-3);
+  text-align: center;
+}
+.sysstate-tile {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  border: 1.5px dashed var(--border);
+  border-radius: 12px;
+  color: var(--muted);
+  margin-bottom: 2px;
+}
+.sysstate-glyph { display: block; width: 24px; height: 24px; }
+.sysstate-title {
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+.sysstate-body { font-size: 12.5px; color: var(--muted); max-width: 44ch; }
+.sysstate-action { margin-top: var(--sp-1); }
+/* partial and recoverable-error carry the alert tint; the calmer states stay
+   muted — an empty chart is not a warning. */
+.sysstate-partial .sysstate-tile,
+.sysstate-recoverable-error .sysstate-tile { color: var(--status-warning); border-color: var(--status-warning); }
+.sysstate-dots { display: flex; gap: 5px; }
+.sysstate-dots span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--muted);
+  animation: sysstate-pulse 1.2s ease-in-out infinite;
+}
+.sysstate-dots span:nth-child(2) { animation-delay: 0.2s; }
+.sysstate-dots span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes sysstate-pulse {
+  0%, 80%, 100% { opacity: 0.25; transform: scale(0.8); }
+  40% { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sysstate-dots span { animation: none; }
+}

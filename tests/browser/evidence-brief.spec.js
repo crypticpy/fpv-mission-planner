@@ -90,12 +90,19 @@ test.describe('mission brief evidence', () => {
 
     // #btn-brief lives inside the Map tab's card (see interop.spec.js).
     await page.locator('#tab-map').click();
+    // The brief prints the footprint's own launch (renderCurrent() reads
+    // fp.launch), and the first verdict can render before the mission
+    // repository's IndexedDB open seeds a document for the sweep to center on
+    // (the boot race in this file's header comment). The footprint ring is the
+    // deterministic signal: it is drawn from the same snapshot field the brief
+    // is about to print, so once it is on the map the coordinates exist.
+    await expect(page.locator('#map-canvas .leaflet-overlay-pane path').first()).toBeAttached();
     await page.locator('#btn-brief').click();
     const launch = briefSection(page, 'Launch point');
     const energy = briefSection(page, 'Energy budget');
 
+    await expect(launch.locator('.brief-mono')).toHaveCount(2);
     const before = await launch.locator('.brief-mono').allTextContents();
-    expect(before, 'the launch point never rendered a real coordinate to begin with').toHaveLength(2);
     for (const coord of before) expect(coord).toMatch(/\d/);
     const energyBefore = await energy.innerText();
 

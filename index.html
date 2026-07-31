@@ -21,6 +21,85 @@
 </head>
 <body data-dest="plan">
 
+<!-- The fpv-symbols sprite (design evolution M9). The first ten symbols are the
+     round-2 developer asset verbatim (design-concepts/round-2/final/developer-assets/
+     fpv-symbols.svg) with ids prefixed sym-; the last seven are the M9 UI
+     additions in the same language — 24×24, stroke 2, currentColor. Inlined so
+     <use> works offline and under file:// with no fetch. -->
+<svg class="symbol-sprite" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <defs>
+    <symbol id="sym-launch" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/>
+      <circle cx="12" cy="12" r="3" fill="currentColor"/>
+      <path d="M12 1v4M12 19v4M1 12h4M19 12h4" stroke="currentColor" stroke-width="2"/>
+    </symbol>
+    <symbol id="sym-waypoint" viewBox="0 0 24 24">
+      <path d="M12 22s7-7 7-13a7 7 0 1 0-14 0c0 6 7 13 7 13Z" fill="none" stroke="currentColor" stroke-width="2"/>
+      <circle cx="12" cy="9" r="2.5" fill="currentColor"/>
+    </symbol>
+    <symbol id="sym-subject" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="7" fill="none" stroke="currentColor" stroke-width="2"/>
+      <circle cx="12" cy="12" r="2" fill="currentColor"/>
+      <path d="M12 1v5M12 18v5M1 12h5M18 12h5" stroke="currentColor" stroke-width="2"/>
+    </symbol>
+    <symbol id="sym-recovery" viewBox="0 0 24 24">
+      <path d="M4 12a8 8 0 1 0 3-6" fill="none" stroke="currentColor" stroke-width="2"/>
+      <path d="M3 4v6h6" fill="none" stroke="currentColor" stroke-width="2"/>
+      <path d="m9 12 2 2 5-5" fill="none" stroke="currentColor" stroke-width="2"/>
+    </symbol>
+    <symbol id="sym-bailout" viewBox="0 0 24 24">
+      <path d="M12 3 2 21h20L12 3Z" fill="none" stroke="currentColor" stroke-width="2"/>
+      <path d="M12 9v5M12 18v.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="sym-wind" viewBox="0 0 24 24">
+      <path d="M3 8h11a3 3 0 1 0-3-3M3 12h16a3 3 0 1 1-3 3M3 16h8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="sym-camera-volume" viewBox="0 0 24 24">
+      <path d="m3 9 7-4v14l-7-4V9Zm7-2 11-3v16l-11-3" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="sym-radio-link" viewBox="0 0 24 24">
+      <circle cx="5" cy="18" r="2" fill="currentColor"/>
+      <circle cx="19" cy="6" r="2" fill="currentColor"/>
+      <path d="M6.5 16.5 17.5 7.5M8 18a5 5 0 0 0-3-3M11 18a8 8 0 0 0-6-6" fill="none" stroke="currentColor" stroke-width="2"/>
+    </symbol>
+    <symbol id="sym-terrain" viewBox="0 0 24 24">
+      <path d="m2 20 7-12 4 6 3-5 6 11H2Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+      <path d="m7 20 4-7 3 4" fill="none" stroke="currentColor" stroke-width="1.5"/>
+    </symbol>
+    <symbol id="sym-altitude" viewBox="0 0 24 24">
+      <path d="M12 21V4M7 9l5-5 5 5M5 21h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="sym-shield-check" viewBox="0 0 24 24">
+      <path d="M12 2 4 5.5V11c0 5 3.4 8.8 8 11 4.6-2.2 8-6 8-11V5.5L12 2Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+      <path d="m8.5 11.5 2.5 2.5 4.5-4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="sym-octagon-x" viewBox="0 0 24 24">
+      <path d="M7.9 2h8.2L22 7.9v8.2L16.1 22H7.9L2 16.1V7.9L7.9 2Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+      <path d="m9 9 6 6M15 9l-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="sym-circle-question" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/>
+      <path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17v.01" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="sym-clock" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/>
+      <path d="M12 7v5l3.5 2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="sym-cloud-off" viewBox="0 0 24 24">
+      <path d="M6.1 9A6 6 0 0 1 17.7 10.5 4 4 0 0 1 17.5 18H6.5a4.5 4.5 0 0 1-.4-9Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+      <path d="m4 4 16 16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="sym-location-off" viewBox="0 0 24 24">
+      <path d="M12 22s7-7 7-13a7 7 0 1 0-14 0c0 6 7 13 7 13Z" fill="none" stroke="currentColor" stroke-width="2"/>
+      <path d="m4 4 16 16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="sym-box-plus" viewBox="0 0 24 24">
+      <rect x="3" y="3" width="18" height="18" rx="2" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="4 3"/>
+      <path d="M12 8v8M8 12h8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+    </symbol>
+  </defs>
+</svg>
+
 <header class="masthead">
   <div>
     <h1>FPV Mission Planner</h1>
@@ -48,6 +127,12 @@
     </label>
   </div>
 </header>
+
+<!-- The WindRibbon (design evolution M9): the sky, its freshness, and its
+     impact, persistent under the masthead on every destination. Rendered by
+     src/components/wind-ribbon.js on every update pass; hidden until the first
+     snapshot exists. -->
+<div id="wind-ribbon" class="windrib" hidden></div>
 
 <!-- The four destinations (design evolution M9, docs/design-evolution-2026-08.md).
      One element, two postures: a left rail above 900px, the bottom dock below it.
@@ -188,15 +273,10 @@
   <section id="dest-plan" class="dest">
     <!-- The verdict and the warnings live inside Plan, above both workspace
          modes, so the go/no-go answer and its callouts stay on screen whether
-         the pilot is on Overview or the Map. -->
-    <section id="verdict" class="verdict" role="status" aria-live="polite">
-      <p class="verdict-head">
-        <span id="verdict-badge" class="verdict-badge">—</span>
-        <span id="verdict-why" class="verdict-why"></span>
-      </p>
-      <p id="verdict-fix" class="verdict-fix"></p>
-      <p id="verdict-margins" class="verdict-margins"></p>
-    </section>
+         the pilot is on Overview or the Map. The card's children are built by
+         src/components/verdict-card.js; the child ids (#verdict-badge etc.)
+         are its contract with the browser specs and the brief. -->
+    <section id="verdict" class="verdict" role="status" aria-live="polite"></section>
     <div id="warnings" class="warnings" hidden></div>
 
     <nav class="view-tabs" role="tablist" aria-label="Plan workspace">
@@ -232,7 +312,7 @@
     <section class="card full-only">
       <h3>Mission profile</h3>
       <p class="card-sub">Battery and pack voltage across the out-and-back at planned cruise</p>
-      <p id="chart-profile-empty" class="empty-note" hidden>No viable mission in these conditions.</p>
+      <div id="chart-profile-empty" hidden></div>
       <div id="chart-profile" class="chart"></div>
     </section>
 
@@ -430,6 +510,10 @@
       <h2>Field</h2>
       <p class="dest-sub">Day-of flying — how long the packs in your bag keep you in the air at this spot.</p>
     </header>
+    <!-- The MissionSummary (design evolution M9): the plan's four field numbers,
+         so the day-of screen opens with the mission the pilot just planned.
+         Rendered by src/components/mission-summary.js. -->
+    <div id="mission-summary"></div>
     <section class="card sesh-card">
       <h3>Session planner</h3>
       <p class="card-sub">How long can you stay out with the packs in your bag?</p>

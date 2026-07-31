@@ -57,6 +57,8 @@ import { renderMissions, renderMissionStorage, bindMissions } from './render/mis
 import { renderSpots, bindSpots } from './render/spots.js';
 import { setupShare, bindShare } from './render/share.js';
 import { renderSessionPlanner } from './render/session.js';
+import { renderWindRibbon, windModelFrom } from './components/wind-ribbon.js';
+import { renderMissionSummary, summaryModelFrom } from './components/mission-summary.js';
 
 /**
  * The analysis snapshot this render pass drew, for the mission brief (Phase 4
@@ -71,6 +73,16 @@ import { renderSessionPlanner } from './render/session.js';
  * @type {import('./application/analysis/analysis-contracts.js').AnalysisSnapshot|null}
  */
 let latest = null;
+
+/**
+ * The wind ribbon's last-drawn model, kept so the minute tick can refresh its
+ * age text ("3 min ago" → "4 min ago") without an analysis pass. Only the
+ * wall-clock wording moves between updates — the stale *color* is decided by
+ * the snapshot's own forecast-age constraints, which re-analyze on their own
+ * threshold crossings.
+ * @type {import('./components/wind-ribbon.js').WindRibbonModel|null}
+ */
+let ribbonModel = null;
 
 /** @type {Promise<typeof import('./render/brief.js')>|null} */
 let briefPromise = null;
@@ -133,6 +145,10 @@ function update() {
   // The warning stack is the one render that survives a mission with no plan:
   // "no pack selected" is itself a coded constraint on the snapshot.
   renderWarnings(snapshot.constraints);
+  // So is the wind ribbon (M9): persistent chrome on every destination, ahead
+  // of the no-plan bail because the sky is real whether or not a pack fits.
+  ribbonModel = windModelFrom(snapshot);
+  renderWindRibbon($('wind-ribbon'), ribbonModel);
   // Handled, not thrown: with no pack there is no plan, and every render below
   // this line reads one. Say it in the verdict card and stop here.
   if (!snapshot.plan) {
@@ -155,6 +171,7 @@ function update() {
   // workspace mode: charts measure container width and freeze at a fallback
   // size when drawn inside a display:none container.
   if (state.dest === 'field') {
+    renderMissionSummary($('mission-summary'), summaryModelFrom(r));
     renderSessionPlanner();
     return;
   }
@@ -231,6 +248,11 @@ function setDest(dest) {
     $(`dest-${d}`).hidden = d !== dest;
   }
   syncDest(dest);
+  // The mission list only re-reads IndexedDB on fold-open and on document
+  // change, and the fold ships open now — re-list on entry so a mission saved
+  // in another tab is there when the pilot arrives. Here, not in update()'s
+  // library branch: update() runs on every input event while the rail is live.
+  if (dest === 'library') renderMissions();
   // The map only lives inside Plan: stop its animation work while it's off
   // screen, and bring it back (init-if-needed + invalidateSize) on return.
   if (wasPlan && state.view === 'map') pauseMapView();
@@ -549,6 +571,12 @@ function bind() {
     }, 150);
   });
   document.addEventListener('scroll', hideTooltip, { passive: true });
+  // The ribbon's freshness age is wall-clock text ("4 min ago"); tick it over
+  // once a minute so a phone left open in the field doesn't read "just now"
+  // an hour later. Re-draws the last model — no analysis, no fetch.
+  setInterval(() => {
+    if (ribbonModel) renderWindRibbon($('wind-ribbon'), ribbonModel);
+  }, 60000);
 }
 
 /* ---------- boot ---------- */

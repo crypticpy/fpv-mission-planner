@@ -11,6 +11,16 @@ import {
   SERIES, WARN_ICON, f0, f1, mmss, article, flightLabel, liftSource, confidenceWord, ratio, bandPhrase,
 } from './format.js';
 import { $, setTile } from './dom.js';
+import { renderVerdictCard } from '../components/verdict-card.js';
+import { renderSystemState } from '../components/system-state.js';
+
+/**
+ * The share of the usable top speed above which gusts earn a caution. One
+ * number, two surfaces: verdict() plans its gust care on it here, and the wind
+ * ribbon (src/components/wind-ribbon.js) turns amber on the same threshold —
+ * exported so the two cannot drift apart.
+ */
+export const GUST_SHARE_CAUTION = 0.45;
 
 /* ---------- rendering ---------- */
 
@@ -231,7 +241,7 @@ export function verdict(r, stranded) {
   }
 
   const care = [];
-  if (gustShare > 0.45) {
+  if (gustShare > GUST_SHARE_CAUTION) {
     care.push([
       `Gusts to ${spd(gustMs)} are a big slice of this rig’s ${spd(r.speedLimitMs)} usable top speed`
         + `, and the plan only flies ${f0(r.wind.gustFactor * 100)}% of the spread between average and gust.`,
@@ -322,15 +332,7 @@ export function verdict(r, stranded) {
  * @param {import('../application/analysis/analysis-contracts.js').AnalysisSnapshot} snapshot
  */
 export function renderVerdict(snapshot) {
-  const v = verdict(snapshot.plan, strandedFrom(snapshot));
-  const host = $('verdict');
-  host.className = `verdict verdict-${v.level}`;
-  $('verdict-badge').textContent = v.label;
-  $('verdict-why').textContent = v.why;
-  const fix = $('verdict-fix');
-  fix.textContent = v.fix || '';
-  fix.hidden = !v.fix;
-  $('verdict-margins').textContent = v.margins;
+  renderVerdictCard($('verdict'), verdict(snapshot.plan, strandedFrom(snapshot)));
 }
 
 /**
@@ -341,15 +343,15 @@ export function renderVerdict(snapshot) {
  */
 export function renderNoBattery() {
   const d = drone();
-  const host = $('verdict');
-  host.className = 'verdict verdict-nogo';
-  $('verdict-badge').textContent = 'NO PACK';
-  $('verdict-why').textContent =
-    `No battery in your list fits the ${d?.short || d?.name || 'selected drone'}, so there is nothing to plan.`;
-  const fix = $('verdict-fix');
-  fix.textContent = 'Add a pack with a matching connector and cell count, or widen what this rig accepts.';
-  fix.hidden = false;
-  $('verdict-margins').textContent = '';
+  // `unknown`, not `nogo` (M9): no pack fitting is the card saying it cannot
+  // answer the go/no-go question, not an answer to it — the sky may be perfect.
+  renderVerdictCard($('verdict'), {
+    level: 'unknown',
+    label: 'NO PACK',
+    why: `No battery in your list fits the ${d?.short || d?.name || 'selected drone'}, so there is nothing to plan.`,
+    fix: 'Add a pack with a matching connector and cell count, or widen what this rig accepts.',
+    margins: '',
+  });
   // The warning stack is not cleared here: the no-pack snapshot states the
   // absence as a coded constraint of its own, and the render pass has already
   // put it on the rail.
@@ -539,11 +541,16 @@ export function renderSpeedTradeoff(r) {
 
 export function renderProfile(r) {
   const u = units();
-  const empty = $('chart-profile-empty');
-  empty.hidden = r.timeline.length > 0;
-  empty.textContent = r.flight.code === 'no_lift'
-    ? `WILL NOT FLY — all-up weight exceeds the ${liftSource(r.flight)} continuous lift ceiling.`
-    : 'No viable mission in these conditions.';
+  // The empty chart is a designed system state now (M9), not a bare sentence:
+  // both texts are "the model has no mission to draw", which is `empty` — the
+  // no-lift case names its cause in the body.
+  renderSystemState($('chart-profile-empty'), r.timeline.length ? null : {
+    kind: 'empty',
+    title: r.flight.code === 'no_lift' ? 'Will not fly' : 'No mission to draw',
+    body: r.flight.code === 'no_lift'
+      ? `All-up weight exceeds the ${liftSource(r.flight)} continuous lift ceiling.`
+      : 'No viable mission in these conditions.',
+  });
   missionProfile($('chart-profile'), {
     timeline: r.timeline,
     cutoffV: CHEMISTRY[battery().chem].cutoffLoad * battery().s,
