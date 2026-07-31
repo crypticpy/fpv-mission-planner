@@ -12,3 +12,10 @@ test-results/
 playwright-report/
 blob-report/
 playwright/.cache/
+
+# Design assets: PNG masters and handoff ZIPs are archived outside git
+design-concepts/**/final/*.png
+design-concepts/*.zip
+
+# Local research scratch
+research/
