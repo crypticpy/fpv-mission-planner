@@ -26,7 +26,7 @@
 // Paths are relative to this file's scope (the app can live at "/" locally
 // or at a GitHub Pages subpath) — never use a leading "/".
 
-const CACHE_NAME = 'fpv-shell-v11';
+const CACHE_NAME = 'fpv-shell-v12';
 
 /* GENERATED LIST — do not edit between the brackets by hand.
    scripts/generate-dev-sw.mjs derives it from the static shell (index.html,
