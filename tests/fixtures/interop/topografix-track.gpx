@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="fpv-planner" xmlns="http://www.topografix.com/GPX/1/1">
+  <metadata>
+    <name>Pedernales ridge run</name>
+  </metadata>
+  <trk>
+    <name>Pedernales ridge run</name>
+    <trkseg>
+      <trkpt lat="30.267200" lon="-97.743100">
+        <ele>168</ele>
+      </trkpt>
+      <trkpt lat="30.300000" lon="-97.800000">
+        <ele>248</ele>
+      </trkpt>
+      <trkpt lat="30.400000" lon="-97.900000">
+        <ele>248</ele>
+      </trkpt>
+    </trkseg>
+  </trk>
+</gpx>

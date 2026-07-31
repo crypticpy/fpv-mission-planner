@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="fpv-planner" xmlns="http://www.topografix.com/GPX/1/1">
+  <wpt lat="30.267200" lon="-97.743100">
+    <ele>168</ele>
+    <name>Launch</name>
+  </wpt>
+  <wpt lat="30.300000" lon="-97.800000">
+    <name>Ridge (no elevation logged)</name>
+  </wpt>
+</gpx>
