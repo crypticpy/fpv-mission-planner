@@ -126,7 +126,8 @@ export const MAP_EVENTS = Object.freeze(
  * @typedef {object} MapAdapter
  * @property {() => HTMLElement} container the element the map is drawn into
  * @property {() => MapViewState} view
- * @property {(at: LatLng) => void} center  pan to a point, keeping the zoom
+ * @property {(at: LatLng, zoom?: number) => void} center  pan to a point; the
+ *   zoom is kept unless one is named, which only the 2D↔3D handover does
  * @property {(bounds: LatLngBounds, opts?: { paddingPx?: number }) => void} fit
  * @property {() => void} resized  the container's box changed; re-measure
  * @property {(points: LatLng[], style: ShapeStyle) => ShapeOverlay} polygon

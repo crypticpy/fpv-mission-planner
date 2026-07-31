@@ -54,6 +54,17 @@
     "src/presentation/map/layers/footprint-layer.js",
     "src/presentation/map/layers/route-layer.js",
     "src/presentation/map/layers/spots-layer.js",
+    // Wave B's two zero-cost additions. tile-sources.js imports nothing at all;
+    // scene-geometry.js reaches only domain/geo.js and route-layer.js, both
+    // already here. Their two neighbours under scene3d/ — scene.js and
+    // scene-layers.js — stay out for the same reason leaflet-adapter.js does:
+    // an include entry pulls the whole import graph in, and theirs is maplibre-gl
+    // and deck.gl. Those ship real .d.ts files, but they are devDependencies of a
+    // lazily bundled chunk, and pulling ~200 files of engine typings into a
+    // browser-ESM typecheck buys nothing this ratchet is for. The pure half is
+    // where the arithmetic that can be wrong lives, and it is checked.
+    "src/presentation/map/tile-sources.js",
+    "src/presentation/map/scene3d/scene-geometry.js",
     "src/domain/terrain/terrain-features.js",
     "src/application/terrain/terrain-contracts.js",
     "src/application/terrain/elevation-cache.js",

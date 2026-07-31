@@ -107,10 +107,14 @@ export function loadMapState() {
     lng: Math.max(-180, Math.min(180, +raw.lng)),
     zoom: isFinite(raw.zoom) ? Math.max(3, Math.min(21, Math.round(+raw.zoom))) : 12,
     baseLayer: raw.baseLayer === 'streets' ? 'streets' : 'satellite',
+    /* Which engine was on screen (ADR 0004). Anything that is not the explicit
+     * opt-in is 2D — including every record written before 3D existed, and any
+     * value a hand-edited store might hold. */
+    view: raw.view === '3d' ? '3d' : '2d',
   };
 }
 
-/** @param {{ lat: number, lng: number, zoom: number, baseLayer: string }} s */
+/** @param {{ lat: number, lng: number, zoom: number, baseLayer: string, view?: string }} s */
 export function saveMapState(s) {
   // Fires on every pan/zoom via Leaflet events — never let quota/private-mode
   // storage errors escape into the map's event dispatch.

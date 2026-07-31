@@ -420,6 +420,13 @@
           <button id="btn-route" class="map-btn full-only" type="button" aria-pressed="false"
                   aria-controls="route-card">Route</button>
           <button id="btn-route-clear" class="map-btn full-only" type="button" hidden>Clear route</button>
+          <!-- The 3D scene (ADR 0004). Terrain, imagery and the route at its own
+               altitude — the one view that answers "does that ridge cut the link".
+               The engine behind it is a lazily imported chunk three times the
+               size of the rest of the app, so nothing is fetched until this is
+               pressed, and the button hides itself where WebGL2 is missing. -->
+          <button id="btn-3d" class="map-btn" type="button" aria-pressed="false"
+                  aria-controls="map-3d">3D</button>
           <!-- The mission brief (Phase 4 item 8). Deliberately NOT full-only: a
                one-page brief is the most beginner-friendly output this app has,
                and the expert figures inside it (link band, route, cruise level)
@@ -431,6 +438,12 @@
         Filled: planned cruise · dashed: theoretical best range. A dogleg route can beat this ring; fly with margin.</p>
       <p id="map-note" class="empty-note" hidden></p>
       <div id="map-canvas" class="map-canvas"></div>
+      <!-- The 3D engine draws here, into a container of its own: MapLibre owns
+           its element outright, and sharing one with Leaflet would mean two
+           engines fighting over the same children. Empty and hidden until the
+           chunk arrives; 2D is what a pilot who never presses the button pays
+           for. -->
+      <div id="map-3d" class="map-canvas" hidden></div>
       <p id="wx-note" class="wx-note" hidden></p>
     </section>
     <!-- The route the pilot drew (Phase 4 item 7). The ring answers "how far out

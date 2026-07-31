@@ -52,11 +52,26 @@ if (markerAt === -1) {
   );
 }
 
+/**
+ * The 3D scene stays out of the shell (ADR 0004).
+ *
+ * The chunk and its stylesheet are MapLibre and deck.gl — about 442 kB gzip,
+ * three times the whole rest of the app. Precaching them would mean every pilot
+ * who installs this tool downloads a 3D engine they may never open, on the
+ * connection they installed it to survive without. So the shell stays the shell:
+ * pressing 3D with no connection fails, the map stays in 2D, and map-view.js
+ * says so. Offline 3D is an M8 decision, not an accident of a dist/ walk.
+ *
+ * vite.config.js gives the chunk its `scene3d-` prefix, and Vite names the CSS
+ * asset after the chunk, so one prefix covers both.
+ */
+const SCENE_CHUNK = /(^|\/)scene3d-[^/]*\.(js|css)$/;
+
 const all = await walk(DIST);
 // The worker never precaches itself: it is fetched and versioned by the
 // browser's own update check, and caching it would pin the cache-busting
 // mechanism to whatever shipped first.
-const assets = all.filter((rel) => rel !== 'sw.js');
+const assets = all.filter((rel) => rel !== 'sw.js' && !SCENE_CHUNK.test(rel));
 
 if (!assets.includes('index.html')) {
   throw new Error('generate-sw: dist/index.html is missing — run `vite build` first.');

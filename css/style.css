@@ -1016,6 +1016,45 @@ body {
 }
 /* Crosshair over the canvas for the same reason: this click places a point. */
 .map-canvas.route-mode .leaflet-container { cursor: crosshair; }
+.map-canvas.route-mode .maplibregl-canvas-container { cursor: crosshair; }
+
+/* ---------- the 3D scene (ADR 0004) ---------- */
+
+/* MapLibre ships its own control styling; these are the two controls this app
+   adds, matched to the map buttons above them rather than to MapLibre's. The
+   rules live here rather than in the lazy chunk because CSS in the chunk would
+   arrive one paint after the controls it styles. */
+
+#map-3d { position: relative; background: var(--surface-2); }
+
+.scene3d-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 6px 8px;
+  font-size: 11.5px;
+  color: var(--ink-2);
+  background: var(--surface-1);
+}
+.scene3d-slider { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.scene3d-slider input[type="range"] { width: 96px; accent-color: var(--accent); }
+.scene3d-slider output { font-variant-numeric: tabular-nums; min-width: 2.4em; }
+.scene3d-btn {
+  background: var(--button);
+  color: var(--ink-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 9px;
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.scene3d-btn:hover { color: var(--ink); border-color: var(--accent); background: var(--button-hover); }
+@media (max-width: 700px) {
+  .scene3d-slider span { display: none; }
+  .scene3d-slider input[type="range"] { width: 64px; }
+}
 
 /* Numbered waypoint pins, in the route's own color so the line and its turns
    read as one object — and never the blue launch dot or the amber saved spot. */

@@ -22,6 +22,14 @@
 // is raised onto the mission document as a `setLaunch` command (ADR 0002). The
 // document's copy is what the analysis and the brief read; this one is what the
 // pilot is dragging.
+//
+// Since ADR 0004's second wave the host drives two engines, not one. 2D is the
+// default and the fallback and is created eagerly; 3D is a lazily imported
+// chunk (~442 kB gzip of MapLibre and deck.gl — three times the rest of the app)
+// that is fetched the first time a pilot asks for it and never enters the
+// offline shell. Both consume the same `frame`, so everything below the toggle
+// is engine-agnostic: one pass builds one frame, and whichever engines are on
+// screen draw it.
 
 import { wrapLng } from '../../domain/geo.js';
 import { loadMapState, saveMapState } from '../../store.js';
@@ -66,6 +74,14 @@ let adapter = null;
 let launch = null;
 let needsFit = false;
 let tileErrorShown = false;
+/** @type {import('./scene3d/scene.js').SceneHandle|null} */
+let scene = null;
+/** Which engine is on screen. 2D until a pilot says otherwise, every session. */
+/** @type {'2d'|'3d'} */
+let mode = '2d';
+/** Why 3D is not available, when it is not. Composed in front of the pass's own note. */
+/** @type {string|null} */
+let sceneNote = null;
 /** @type {{ spots: SavedSpot[], onSelect: ((spot: SavedSpot) => void)|undefined }|null} */
 let spotSpec = null;
 
@@ -89,7 +105,7 @@ export function setupMapView(d) { deps = d; }
 export function showMapView() {
   const map = ensureMap();
   map.resized();
-  windLayer.start(map);
+  if (mode === '3d') { scene?.resized(); windLayer.stop(); } else windLayer.start(map);
 }
 
 /** Called on switch back to the Planner tab — stop burning frames off-screen. */
@@ -100,6 +116,7 @@ export function pauseMapView() {
 /** Cheap reflow for height-only resizes (mobile URL bar, keyboard) — no re-render. */
 export function resizeMapView() {
   adapter?.resized();
+  if (mode === '3d') scene?.resized();
 }
 
 /* ---------- the engine ---------- */
@@ -121,18 +138,29 @@ function ensureMap() {
     baseLayer: saved?.baseLayer === 'streets' ? 'streets' : 'satellite',
   });
 
-  adapter.on('click', (at) => {
-    if (!at || gestures.swallowsMapClick()) return;
-    // In route mode a click is a waypoint, not a new launch point: the pilot is
-    // drawing a line out of a spot they have already chosen.
-    if (routeActive()) addWaypoint(at);
-    else moveLaunch(at);
-  });
+  adapter.on('click', onMapClick);
   adapter.on('viewchange', persist);
   adapter.on('tileerror', onTileError);
 
   bindControls();
+  /* The engine choice is a view preference like the base layer, so it is
+   * restored the same way — but only if this machine can honour it. A saved '3d'
+   * on a device that has since lost WebGL2 opens in 2D, silently and correctly. */
+  if (saved?.view === '3d' && supports3d()) void activate3d();
+
   return adapter;
+}
+
+/**
+ * A click on the map surface, from whichever engine is drawing it. In route mode
+ * it is a waypoint, not a new launch point: the pilot is drawing a line out of a
+ * spot they have already chosen.
+ * @param {LatLng|null} at
+ */
+function onMapClick(at) {
+  if (!at || gestures.swallowsMapClick()) return;
+  if (routeActive()) addWaypoint(at);
+  else moveLaunch(at);
 }
 
 function bindControls() {
@@ -146,14 +174,121 @@ function bindControls() {
     routeOn = true;
     deps.onClearRoute();
   });
+
+  const btn3d = $('btn-3d');
+  if (supports3d()) btn3d.addEventListener('click', () => { void toggle3d(); });
+  else {
+    /* Offering a button that cannot work is worse than not offering it, and a
+     * button that vanishes without explanation is worse than both. */
+    btn3d.hidden = true;
+    sceneNote = '3D needs WebGL2, which this browser or device does not provide.';
+  }
 }
 
 function persist() {
   if (!adapter || !launch) return;
-  const view = adapter.view();
+  const view = mode === '3d' && scene ? scene.view() : adapter.view();
   // The launch point rather than the map's centre: this is where the pilot flies
   // from, and it is what src/weather.js falls back to with no mission open.
-  saveMapState({ lat: launch.lat, lng: launch.lng, zoom: view.zoom, baseLayer: view.baseLayer });
+  saveMapState({
+    lat: launch.lat, lng: launch.lng,
+    zoom: view.zoom,
+    baseLayer: adapter.view().baseLayer,
+    view: mode,
+  });
+}
+
+/* ---------- the 3D scene ---------- */
+//
+// Everything about 3D that the rest of this file must not care about: whether the
+// device can run it, whether the chunk has arrived, and which container is on
+// screen. What it deliberately does NOT contain is any drawing — the scene
+// consumes the same frame the 2D registry does.
+
+/**
+ * Whether this device can run the scene at all.
+ *
+ * Asked before the button is offered rather than after it is pressed: deck.gl's
+ * interleaved mode needs WebGL2 outright, and a 442 kB download that ends in a
+ * blank canvas is the worst possible way to find that out.
+ */
+function supports3d() {
+  try {
+    return !!document.createElement('canvas').getContext('webgl2');
+  } catch {
+    return false;
+  }
+}
+
+async function toggle3d() {
+  if (mode === '3d') deactivate3d();
+  else await activate3d();
+}
+
+async function activate3d() {
+  const btn = $('btn-3d');
+  btn.disabled = true;
+  const from = adapter.view();
+  const container = $('map-3d');
+  container.hidden = false;
+  $('map-canvas').hidden = true;
+
+  try {
+    if (!scene) {
+      /* The only path into the chunk, and the reason there is a chunk. Static
+       * anywhere and the shell carries MapLibre and deck.gl to every pilot who
+       * never opens 3D — which, offline at a trailhead, is all of them. */
+      const { createScene } = await import('./scene3d/scene.js');
+      scene = createScene({
+        container,
+        center: from.center,
+        zoom: from.zoom,
+        reducedMotion: REDUCED_MOTION,
+        onGroundClick: onMapClick,
+        onViewChange: persist,
+        onTileError,
+      });
+      await scene.ready;
+    } else {
+      scene.resized();
+      scene.setView(from.center, from.zoom);
+    }
+  } catch (err) {
+    /* The chunk is not in the offline shell by design (ADR 0004), so this is the
+     * expected outcome of pressing the button with no connection — not a crash,
+     * and not a reason to lose the map that does work. */
+    console.warn('[map] 3D scene unavailable', err);
+    container.hidden = true;
+    $('map-canvas').hidden = false;
+    adapter.resized();
+    scene = null;
+    sceneNote = '3D needs a connection the first time — the map stayed in 2D.';
+    btn.disabled = false;
+    deps.requestRender();
+    return;
+  }
+
+  mode = '3d';
+  sceneNote = null;
+  btn.disabled = false;
+  // Nothing to animate over a hidden Leaflet container.
+  windLayer.stop();
+  persist();
+  deps.requestRender();
+}
+
+function deactivate3d() {
+  const from = scene?.view();
+  mode = '2d';
+  $('map-3d').hidden = true;
+  $('map-canvas').hidden = false;
+  adapter.resized();
+  // Both engines count zoom levels, in numbering systems one level apart; the
+  // scene hands its view back already converted, so this is a plain restore.
+  if (from) adapter.center(from.center, from.zoom);
+  windLayer.start(adapter);
+  persist();
+  deps.requestRender();
 }
 
 /**
@@ -283,12 +418,19 @@ export function renderMapView(snapshot) {
   map.resized();
 
   const frame = buildFrame(snapshot);
+  /* Both engines, always — the 2D pass is what computes the footprint's extent,
+   * and it costs a handful of Leaflet overlays in a hidden container. Skipping it
+   * in 3D would leave Fit view with nothing to frame on. */
   registry.render(frame, map);
+  if (mode === '3d') scene?.render(frame);
 
   if (needsFit) {
     needsFit = false;
     const bounds = footprintLayer.bounds();
-    if (bounds) map.fit(bounds, { paddingPx: 24 });
+    if (mode === '3d' && scene) {
+      if (bounds) scene.fit(bounds, { paddingPx: 24 });
+      else scene.setView(frame.launch);
+    } else if (bounds) map.fit(bounds, { paddingPx: 24 });
     else map.center(frame.launch);
   }
 
@@ -340,7 +482,7 @@ function renderCanvasNote(snapshot) {
   const plan = snapshot.plan;
   const fp = snapshot.footprint;
   const noLift = plan.flight.code === 'no_lift';
-  $('map-canvas').classList.toggle('flight-invalid-map', noLift);
+  for (const id of ['map-canvas', 'map-3d']) $(id).classList.toggle('flight-invalid-map', noLift);
 
   const anyReal = !!fp?.byCourse.some((r) => r > 0);
   const anyBest = !!fp?.bestByCourse.some((r) => r > 0);
@@ -362,13 +504,26 @@ function renderRouteControls(frame) {
   btn.setAttribute('aria-pressed', String(frame.routeMode));
   btn.textContent = frame.routeMode ? 'Route · on' : 'Route';
   $('btn-route-clear').hidden = !frame.routeMode || frame.waypoints.length === 0;
-  $('map-canvas').classList.toggle('route-mode', frame.routeMode);
+  // Both canvases: the crosshair means the same thing over either engine.
+  for (const id of ['map-canvas', 'map-3d']) $(id).classList.toggle('route-mode', frame.routeMode);
+
+  const btn3d = $('btn-3d');
+  btn3d.setAttribute('aria-pressed', String(mode === '3d'));
+  btn3d.textContent = mode === '3d' ? '3D · on' : '3D';
 }
 
+/**
+ * The map's one note line, which two things now write to. `sceneNote` is a fact
+ * about the engine and outlives a pass; the argument is what this pass has to say
+ * about the mission. Composed rather than overwritten, because a render half a
+ * second after a failed 3D load must not quietly delete the explanation.
+ * @param {string|null} msg
+ */
 function note(msg) {
   const el = $('map-note');
-  el.textContent = msg || '';
-  el.hidden = !msg;
+  const text = [sceneNote, msg].filter(Boolean).join(' ');
+  el.textContent = text;
+  el.hidden = !text;
 }
 
 function wxNote(msg) {

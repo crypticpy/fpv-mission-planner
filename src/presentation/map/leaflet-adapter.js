@@ -12,6 +12,14 @@
 
 import * as L from '../../../vendor/leaflet/leaflet-src.esm.js';
 
+import {
+  SATELLITE_ATTRIBUTION,
+  SATELLITE_MAX_NATIVE_ZOOM,
+  SATELLITE_URL,
+  STREETS_ATTRIBUTION,
+  STREETS_URL,
+} from './tile-sources.js';
+
 /**
  * @typedef {import('./map-adapter.js').BaseLayerId} BaseLayerId
  * @typedef {import('./map-adapter.js').ControlOverlay} ControlOverlay
@@ -26,20 +34,6 @@ import * as L from '../../../vendor/leaflet/leaflet-src.esm.js';
  * @typedef {import('./map-adapter.js').ShapeOverlay} ShapeOverlay
  * @typedef {import('./map-adapter.js').ShapeStyle} ShapeStyle
  */
-
-/**
- * Esri World Imagery. `maxNativeZoom` is where the imagery actually stops;
- * `maxZoom` lets the pilot keep zooming past it on upscaled tiles, which is what
- * makes a launch point placeable on a driveway.
- */
-const SATELLITE_URL =
-  'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
-const SATELLITE_ATTRIBUTION =
-  'Source: Esri, Vantor, Earthstar Geographics, and the GIS User Community';
-
-const STREETS_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
-const STREETS_ATTRIBUTION =
-  '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
 
 /** @param {LatLng} p @returns {[number, number]} */
 const ll = (p) => [p.lat, p.lng];
@@ -56,10 +50,10 @@ const ll = (p) => [p.lat, p.lng];
  */
 export function createLeafletAdapter({ containerId, center, zoom, baseLayer }) {
   const satellite = L.tileLayer(SATELLITE_URL, {
-    attribution: SATELLITE_ATTRIBUTION, maxNativeZoom: 19, maxZoom: 21,
+    attribution: SATELLITE_ATTRIBUTION, maxNativeZoom: SATELLITE_MAX_NATIVE_ZOOM, maxZoom: 21,
   });
   const streets = L.tileLayer(STREETS_URL, {
-    attribution: STREETS_ATTRIBUTION, maxNativeZoom: 19, maxZoom: 21,
+    attribution: STREETS_ATTRIBUTION, maxNativeZoom: SATELLITE_MAX_NATIVE_ZOOM, maxZoom: 21,
   });
 
   const map = L.map(containerId, {
@@ -85,7 +79,10 @@ export function createLeafletAdapter({ containerId, center, zoom, baseLayer }) {
       baseLayer: map.hasLayer(streets) ? 'streets' : 'satellite',
     }),
 
-    center: (at) => { map.setView(ll(at)); },
+    // `zoom` undefined keeps the current one, which is what every caller before
+    // the 3D toggle wanted. The toggle is the one that has to state both, so a
+    // round trip through the other engine lands where it left.
+    center: (at, zoom) => { map.setView(ll(at), zoom); },
 
     fit: (bounds, { paddingPx = 0 } = {}) => {
       map.fitBounds(L.latLngBounds(ll(bounds.southWest), ll(bounds.northEast)),

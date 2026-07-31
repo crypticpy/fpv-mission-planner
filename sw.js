@@ -26,7 +26,7 @@
 // Paths are relative to this file's scope (the app can live at "/" locally
 // or at a GitHub Pages subpath) — never use a leading "/".
 
-const CACHE_NAME = 'fpv-shell-v6';
+const CACHE_NAME = 'fpv-shell-v7';
 
 const PRECACHE_URLS = [
   '.',
@@ -104,6 +104,14 @@ const PRECACHE_URLS = [
   'src/presentation/map/layer-registry.js',
   'src/presentation/map/map-view.js',
   'src/presentation/map/footprint-panel.js',
+  'src/presentation/map/tile-sources.js',
+  /* Nothing from src/presentation/map/scene3d/ — deliberately, and the generated
+     worker excludes its built chunk for the same reason (ADR 0004). The 3D scene
+     is MapLibre and deck.gl, ~442 kB gzip against the ~150 kB of everything else,
+     and it exists behind a button most pilots will never press. Precaching it
+     would spend the whole offline budget on the one feature that cannot work
+     offline anyway — the terrain and imagery it draws are network tiles. The
+     files below it in this list are the 2D map, which is the fallback. */
   'src/presentation/map/layers/launch-layer.js',
   'src/presentation/map/layers/route-layer.js',
   'src/presentation/map/layers/footprint-layer.js',

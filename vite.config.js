@@ -82,6 +82,42 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        /**
+         * Everything the 3D scene drags in names itself (ADR 0004).
+         *
+         * The bundler would call these `scene-<hash>.js`, `webgl-device-<hash>.js`
+         * and `scene.css`, which are fine names and a bad contract:
+         * scripts/generate-sw.mjs has to keep MapLibre and deck.gl — ~466 kB gzip,
+         * three times the rest of the app — out of the offline shell, and it can
+         * only do that by recognising the files in a directory walk. One prefix
+         * is that recognition.
+         *
+         * Two rules, because the chunk has company. `/scene3d/` catches the entry
+         * itself; `node_modules` catches everything the engines split off on
+         * their own (@luma.gl's device adapter today, whatever they split
+         * tomorrow) — safe as a blanket rule precisely because this app has no
+         * production dependencies, so the only bundled third-party code in the
+         * build is the 3D engine. Should that ever change, this rule is where it
+         * has to be reconsidered.
+         *
+         * Everything else keeps the bundler's own naming.
+         */
+        chunkFileNames: (chunk) => {
+          const from = chunk.facadeModuleId ?? '';
+          return (from.includes('/scene3d/') || from.includes('node_modules'))
+            ? 'assets/scene3d-[hash].js'
+            : 'assets/[name]-[hash].js';
+        },
+
+        /** The scene's stylesheet is maplibre-gl.css, and it travels with it. */
+        assetFileNames: (asset) => (
+          asset.originalFileNames?.some((f) => f.includes('/scene3d/'))
+            ? 'assets/scene3d-[hash][extname]'
+            : 'assets/[name]-[hash][extname]'),
+      },
+    },
   },
   plugins: [verbatimStatic()],
 });

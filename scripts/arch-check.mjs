@@ -63,6 +63,31 @@ const LAYER_FORBIDDEN = [
 ];
 
 /**
+ * The 3D scene (ADR 0004, wave B) is the one place in the app that may name a
+ * bundled dependency.
+ *
+ * Everything else here ships as plain browser ESM with no import map, so a bare
+ * specifier is a blank page. The scene is different in exactly one respect: it is
+ * reachable only through `import('./scene3d/scene.js')`, which Vite resolves into
+ * a lazily fetched chunk — so maplibre-gl and deck.gl are real files by the time
+ * a browser sees them, and they are files nobody who stays in 2D ever downloads.
+ *
+ * The allowance is a fixed list rather than a directory-wide pass. A fourth
+ * bundled dependency appearing in this chunk is a decision about what the app
+ * ships, and it should be made in this file rather than noticed in a bundle
+ * report six months later.
+ *
+ * The drawing rule is unchanged and applies here in full: the scene renders from
+ * its frame and raises edits through the callbacks on it, same as a 2D layer.
+ */
+const SCENE_DIR = `${path.sep}presentation${path.sep}map${path.sep}scene3d${path.sep}`;
+const SCENE_BARE_ALLOWED = new Set([
+  'maplibre-gl',
+  'maplibre-gl/dist/maplibre-gl.css',
+]);
+const SCENE_BARE_PREFIX = '@deck.gl/';
+
+/**
  * Comments blanked out — so an example import inside a doc block is not read as
  * a real edge — with the line count preserved, so reported line numbers match
  * the file.
@@ -147,7 +172,10 @@ for (const file of files) {
   const rel = path.relative(ROOT, file);
   const fromLayer = layerOf(path.relative(sourceRoot, file));
   if (fromLayer) layeredFiles++;
-  const isMapLayer = `${path.sep}${rel}`.includes(LAYER_DIR);
+  const isScene = `${path.sep}${rel}`.includes(SCENE_DIR);
+  // The 3D scene is a drawing surface like the 2D layers and answers to the same
+  // rule: it may not become a second place the physics or the document lives.
+  const isMapLayer = isScene || `${path.sep}${rel}`.includes(LAYER_DIR);
   const src = await readFile(file, 'utf8');
 
   for (const { spec, line } of importsOf(src)) {
@@ -163,10 +191,16 @@ for (const file of files) {
     }
 
     if (!spec.startsWith('.')) {
-      // The runtime has zero production dependencies and no import map, so a
-      // bare specifier cannot resolve in the browser.
+      // The 3D scene is bundled into a lazy chunk and may name its engines.
+      if (isScene && (SCENE_BARE_ALLOWED.has(spec) || spec.startsWith(SCENE_BARE_PREFIX))) continue;
+      // Everywhere else the runtime has zero production dependencies and no
+      // import map, so a bare specifier cannot resolve in the browser.
       violations.push(`${rel}:${line} — bare specifier '${spec}': the app ships no ` +
-        'dependencies and no import map, so this cannot resolve in a browser.');
+        'dependencies and no import map, so this cannot resolve in a browser. ' +
+        (isScene
+          ? `Only ${[...SCENE_BARE_ALLOWED].join(', ')} and ${SCENE_BARE_PREFIX}* are bundled ` +
+            'into the 3D chunk (ADR 0004).'
+          : 'Only src/presentation/map/scene3d/ may name a bundled dependency (ADR 0004).'));
       continue;
     }
 
