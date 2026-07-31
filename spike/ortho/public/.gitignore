@@ -1,0 +1,4 @@
+# Written by generate-tiles.mjs: real terrarium DEM tiles, and a copy of
+# @loaders.gl's terrain mesh worker. Both are build inputs, not source.
+tiles/
+workers/

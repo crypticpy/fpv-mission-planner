@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Orthographic 3D terrain spike — deck.gl OrbitView</title>
+  <style>
+    :root { color-scheme: dark; }
+    html, body { margin: 0; padding: 0; height: 100%; background: #0a1017; }
+    body { font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; color: #cfd8e3; }
+    #view { position: absolute; inset: 0; }
+    #view canvas { display: block; }
+
+    #panel {
+      position: absolute; left: 12px; top: 12px; z-index: 2;
+      display: grid; gap: 8px; padding: 10px 12px;
+      background: rgba(10, 16, 23, 0.82); border: 1px solid #24303d; border-radius: 8px;
+      backdrop-filter: blur(6px);
+    }
+    #panel label { display: grid; grid-template-columns: 72px 160px; align-items: center; gap: 8px; }
+    #panel input[type=range] { width: 160px; }
+    #panel select { background: #131c26; color: inherit; border: 1px solid #2a3746; border-radius: 4px; padding: 2px 4px; }
+    #legend { color: #8fa2b8; letter-spacing: 0.02em; }
+
+    /* Read by the spec, never by a human. */
+    #status { position: absolute; left: 0; top: 0; width: 1px; height: 1px;
+      overflow: hidden; opacity: 0; pointer-events: none; }
+  </style>
+</head>
+<body>
+  <div id="view"></div>
+  <div id="panel">
+    <label for="projection">projection
+      <select id="projection">
+        <option value="orthographic">Orthographic</option>
+        <option value="perspective">Perspective</option>
+      </select>
+    </label>
+    <label for="azimuth">azimuth
+      <input id="azimuth" type="range" min="0" max="360" step="1" value="215"
+             aria-label="Camera azimuth in degrees">
+    </label>
+    <label for="zoom">zoom
+      <input id="zoom" type="range" min="-4" max="-1" step="0.05" value="-2.4"
+             aria-label="Orthographic zoom">
+    </label>
+    <div id="legend"></div>
+  </div>
+  <div id="status" data-ready="0"></div>
+  <script type="module" src="./main.js"></script>
+</body>
+</html>

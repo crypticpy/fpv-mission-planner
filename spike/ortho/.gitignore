@@ -1,0 +1,4 @@
+# Scratch builds measure.mjs makes to weigh each option's dependency closure.
+# It removes the directory itself on both entry and exit; this is only here so a
+# crashed run cannot leave four minified deck.gl builds staged for commit.
+.bundle-probe/
