@@ -935,6 +935,11 @@ export function analyzeMission(request, deps) {
     model: ANALYSIS_MODEL_VERSION,
     revision,
     route: routeSignatureOf(doc),
+    // The loadout bag is read off the document, not out of `inputs`: its
+    // maxSpeedMs decides the wind-aware hold check and its calibrated/nFlights/
+    // confidence decide provenance.calibrationSource, so a re-snapshot under
+    // the same route is a new question.
+    aircraft: doc.aircraftSnapshot ?? null,
     inputs,
     forecast: deps.forecastSignature ?? forecastSignatureOf(doc),
     terrain: deps.terrainSignature ?? null,
@@ -1203,6 +1208,10 @@ function forecastSignatureOf(doc) {
     presetId: env?.presetId ?? null,
     capturedAt: env?.capturedAt ?? null,
     values: env?.values ?? null,
+    // The fetch bag rides too: retrievedAt anchors the forecast-age constraints
+    // and validAt reaches provenance.forecastValid, so a re-push that moves
+    // only the provenance is a new question rather than a hit on the old one.
+    provenance: env?.provenance ?? null,
   });
 }
 

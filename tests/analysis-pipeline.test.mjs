@@ -623,13 +623,11 @@ const VALID_ENV_VALUES = {
  * A one-waypoint mission whose environmentReference was fetched `ageMs`
  * before AT — the same clock every `analyze()` call in this file runs the
  * pipeline on, so the age is pinned exactly rather than raced against a real
- * clock. Every case clears the memo first: aircraftSnapshot and provenance
- * are not part of analyzeMission's cache key (only capturedAt/source/values
- * are, via forecastSignatureOf), so two fixtures sharing this route and a
- * blank aircraft would otherwise hit each other's cached snapshot.
+ * clock. No memo clearing: the aircraft bag and the env provenance bag are
+ * both part of analyzeMission's cache key, so fixtures differing only there
+ * are different questions rather than hits on each other's snapshot.
  */
 function withFetchedEnv(ageMs, { source = 'live' } = {}) {
-  clearAnalysisCache();
   const doc = mission([{ at: wpAt(0, 4) }]);
   const capturedAt = new Date(Date.parse(AT) - ageMs).toISOString();
   return missionReduce(doc, {
@@ -672,7 +670,6 @@ test('the forecast-age caution still fires in the no-pack branch of compute()', 
 
 test('a manual or preset environment never earns a forecast-age code, however old its capturedAt', () => {
   for (const source of ['manual', 'preset']) {
-    clearAnalysisCache();
     const doc = mission([{ at: wpAt(0, 4) }]);
     const oldCapture = new Date(Date.parse(AT) - DAY_MS * 5).toISOString();
     // No provenance at all — a manual entry or a saved preset has no fetch
@@ -688,7 +685,6 @@ test('a manual or preset environment never earns a forecast-age code, however ol
 });
 
 test('a fetched environment bag reaches the snapshot provenance unchanged, end to end', () => {
-  clearAnalysisCache();
   const doc = mission([{ at: wpAt(0, 4) }]);
   const capturedAt = '2026-07-30T09:00:00.000Z'; // 3 hours before AT, under the caution threshold
   const withEnv = missionReduce(doc, {
@@ -717,7 +713,6 @@ test('a re-push that re-stamps capturedAt does not reset the forecast age clock'
   // A wind-level edit hours after the fetch re-pushes the same environment
   // (app.js's editEnv): capturedAt becomes "now" while retrievedAt stays the
   // fetch instant. The age anchors on the fetch, so the caution still fires.
-  clearAnalysisCache();
   const doc = mission([{ at: wpAt(0, 4) }]);
   const fetchedAt = new Date(Date.parse(AT) - HOUR_MS * 7).toISOString();
   const withEnv = missionReduce(doc, {
@@ -736,7 +731,6 @@ test('a re-push that re-stamps capturedAt does not reset the forecast age clock'
 });
 
 test('calibrationSource names the flight count a calibrated aircraft rode in on', () => {
-  clearAnalysisCache();
   const doc = mission([{ at: wpAt(0, 4) }], {
     aircraft: { ...MOZ7_SNAPSHOT, calibrated: true, nFlights: 3 },
   });
@@ -745,7 +739,6 @@ test('calibrationSource names the flight count a calibrated aircraft rode in on'
 });
 
 test('calibrationSource is singular for exactly one flight', () => {
-  clearAnalysisCache();
   const doc = mission([{ at: wpAt(0, 4) }], {
     aircraft: { ...MOZ7_SNAPSHOT, calibrated: true, nFlights: 1 },
   });
@@ -756,7 +749,6 @@ test('calibrationSource is singular for exactly one flight', () => {
 test('calibrationSource omits the count for a snapshot saved before nFlights existed', () => {
   // A pre-M8 document's aircraftSnapshot has no nFlights key at all; the rig
   // is genuinely calibrated, so the label must not invent "(0 flights)".
-  clearAnalysisCache();
   const doc = mission([{ at: wpAt(0, 4) }], {
     aircraft: { ...MOZ7_SNAPSHOT, calibrated: true },
   });
@@ -765,7 +757,6 @@ test('calibrationSource omits the count for a snapshot saved before nFlights exi
 });
 
 test('an uncalibrated aircraft names its stated confidence instead of a flight count', () => {
-  clearAnalysisCache();
   const doc = mission([{ at: wpAt(0, 4) }], {
     aircraft: { ...MOZ7_SNAPSHOT, calibrated: false, confidence: 'manufacturer spec' },
   });
