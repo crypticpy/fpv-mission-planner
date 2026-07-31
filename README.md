@@ -337,6 +337,55 @@ Only the profiled bearing gets a *chart* — 37 per-ray terrain profiles would b
 and the card says so. Route legs are checked against the corridor sample instead
 of drawn, which is a warning rather than a picture.
 
+## Mountain flow — which flank the wind is working
+
+Everything above treats the wind as one smooth number. Over ground with a shape
+to it that is the wrong picture: the same 15 mph pushes air *up* one flank of a
+ridge and drags it *down* the other, and the far side is where a hover turns
+into a descent you did not ask for. The Map tab shades that difference.
+
+Around the route the planner samples an **elevation grid** — up to 24 × 24 cells
+around the mission's own bounding box, fetched from Open-Meteo 100 points at a
+time — and computes two things over it:
+
+- **Relative terrain forcing** — `w* = V·∇h`, the forecast wind dotted into the
+  slope of the ground it crosses. Cells come back as **windward** (blue: relative
+  uplift), **lee** (orange: flow driven down the ground), **crest or gap**
+  (yellow: ground that stands above its surroundings or squeezes the flow), or
+  **no elevation** (grey, dashed: nothing could be classified here).
+- **A Froude-like stability regime** — `Fr = U/(N·h)`, read off the pressure
+  levels in the same forecast, answering whether this air can climb the ground at
+  all or has to go around it. It needs a sounding, so a stored preset gets an
+  honest *unknown* rather than a guess.
+
+The findings reach the warning rail and the mission brief as coded constraints
+(`W-WIND-LEE`, `W-WIND-UPLIFT`, `W-WIND-ACCEL`, `W-WIND-REGIME`,
+`W-WIND-SENSITIVE`, and the two that report missing or stale data), so the map
+and the brief name the same thing. **Wind zones** in the map toolbar turns the
+wash and its key off and on; the card below the map stays up either way, with
+the wind it ran on, the grid and who supplied it, its age, and how much of the
+classification survives ±20° and ±30% of forecast wind.
+
+What it is not, stated as plainly as the app states it:
+
+- `w*` is a **relative proxy, not a prediction**. It is not a forecast vertical
+  velocity and not a turbulence magnitude.
+- **No rotor, separation or turbulence physics is modelled.** It can say which
+  flank the flow is descending; it cannot tell you where a rotor is.
+- It is **surface-driven** — it describes the flow the ground forces, not the air
+  at your cruise altitude — off a **bare-earth DEM** with no trees, buildings or
+  towers in it.
+- **One wind, from one coarse forecast cell, is applied across the whole area**,
+  and one bulk regime number cannot say where the flow splits.
+- **Low forcing is not a safety claim.** Unshaded ground inside the outline
+  produced no signal in a proxy that models very little; that is not the same as
+  having been found safe.
+
+The baselines are checked against published field campaigns and worked cases —
+an Askervein-like hill, a Bolund-like escarpment, and a gap — in
+[`docs/validation/wind-advisory-reference-cases.md`](docs/validation/wind-advisory-reference-cases.md),
+which records what that comparison does and does not establish.
+
 ## Planning ahead
 
 The same free Open-Meteo request also carries a **3-day hourly forecast** and
@@ -541,7 +590,9 @@ from one they typed in.
 - Wind aloft is interpolated between the levels the forecast publishes. Where the
   forecast has only one level there is no gradient and none is invented; and
   either way it is a smooth field, so mountain rotor and valley acceleration are
-  very much not in it.
+  very much not in it. The mountain-flow advisory shades which flank the ground
+  is forcing the air over, but it is a relative proxy over that same smooth
+  field — it models no rotor either.
 - The terrain data is a bare-earth elevation model. It knows nothing about trees,
   towers, wires or buildings, and the density altitude on the dashboard is the
   turnaround's — a ridge higher than the turnaround is drawn and warned about,

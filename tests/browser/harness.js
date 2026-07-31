@@ -47,30 +47,206 @@ export const SAVE_SETTLE_MS = 600;
 /* ---------- the world outside the tab ---------- */
 
 /**
+ * The sky the forecast endpoint answers with. Every figure is in the units the
+ * app asks that endpoint for — °F and mph — because that is what the request
+ * says (`temperature_unit=fahrenheit&wind_speed_unit=mph`) and a stub that
+ * answered in SI would be testing a conversion the real provider never makes.
+ *
+ * @typedef {object} Sky
+ * @property {number} windMph      the sustained wind, published at every height
+ * @property {number} windFromDeg
+ * @property {number} gustMph      10 m gusts; the only height that publishes any
+ * @property {number} tempF
+ * @property {number} rhPct
+ * @property {number} elevationM   what the provider says the ground is here
+ */
+
+/** @type {Sky} */
+const DEFAULT_SKY = Object.freeze({
+  windMph: 12, windFromDeg: 270, gustMph: 18, tempF: 68, rhPct: 45, elevationM: 150,
+});
+
+/**
+ * The pressure-level sounding the forecast answers with, lowest first.
+ *
+ * A stable troposphere on a standard-ish day: ~5 °C at 850 hPa falling to
+ * ~−5 °C at 700 hPa over 1500 m of geopotential. That gradient is what
+ * `computeRegime` reads N out of, and this one is deliberately ordinary — the
+ * browser gate is asking whether a sounding *parses and reaches the regime at
+ * all*, which is a question about wiring, not about a particular Froude number.
+ * Temperatures are °F for the reason the typedef above gives; the direction
+ * rides on the sky's own, so a reversed wind reverses the whole column.
+ */
+const SOUNDING = Object.freeze([
+  Object.freeze({ hPa: 850, windMph: 25, tempF: 41, heightM: 1500 }),
+  Object.freeze({ hPa: 700, windMph: 30, tempF: 23, heightM: 3000 }),
+  Object.freeze({ hPa: 500, windMph: 40, tempF: -4, heightM: 5600 }),
+]);
+
+/** The heights src/weather.js asks for wind at, and the subset it asks temperature at. */
+const LEVELS_M = [10, 80, 120, 180];
+const TEMP_LEVELS_M = [80, 120, 180];
+
+/** Hours in the stubbed forecast, and days in its daily block. */
+const FORECAST_HOURS = 24;
+const FORECAST_DAYS = 3;
+
+/**
  * Stub the third-party origins the app can reach (see smoke.spec.js).
  *
  * Fulfilled rather than aborted, always: an aborted request is itself a console
  * error, and every spec here ends by insisting the console was clean.
  *
+ * `/v1/elevation` is the ground — one sample per point, from `dem` when a spec
+ * brought a surface and a single flat figure otherwise.
+ *
+ * `/v1/forecast` is the sky, and it answers only when a spec asked for one.
+ * That opt-in is deliberate rather than shy: the app fetches live weather on
+ * boot (src/app.js), so a stub that always answered would change the wind,
+ * temperature and launch elevation under every spec written before this one —
+ * eighteen of them, four of which compare screenshots. Absent `sky`, the
+ * forecast keeps the empty-but-well-formed payload it has always returned,
+ * which the app reports as a failed live fetch and carries on from its defaults.
+ * With `sky`, it answers in the full shape src/weather.js parses: the wind at
+ * every published height, the temperatures beside them, and the 850/700/500 hPa
+ * sounding M5's regime baseline is read off.
+ *
+ * Everything else — the ERA5 archive — keeps the empty payload either way.
+ *
+ * The returned handle is how a spec changes the sky between two fetches: the
+ * app asks for live weather again, and the second answer is the new one. It is
+ * inert when no sky was asked for.
+ *
  * @param {import('@playwright/test').BrowserContext} context
- * @param {{ elevationM?: number }} [opts]
+ * @param {{ elevationM?: number, dem?: ((lat: number, lng: number) => number|null)|null,
+ *           sky?: Partial<Sky>|null }} [opts]
+ * @returns {Promise<{ setSky: (patch: Partial<Sky>) => void }>}
  */
-export async function stubExternals(context, { elevationM = 150 } = {}) {
+export async function stubExternals(context, { elevationM = 150, dem = null, sky = null } = {}) {
   await context.route(/(^|\/\/|\.)((server\.)?arcgisonline\.com|tile\.openstreetmap\.org)/, (route) =>
     route.fulfill({ status: 200, contentType: 'image/png', body: BLANK_TILE }));
+
+  /** @type {Sky} */
+  const live = { ...DEFAULT_SKY, elevationM, ...(sky ?? {}) };
 
   await context.route(/open-meteo\.com/, (route) => {
     const url = new URL(route.request().url());
     if (url.pathname.includes('/elevation')) {
-      const points = (url.searchParams.get('latitude') || '').split(',').length;
+      const lats = numberList(url.searchParams.get('latitude'));
+      const lngs = numberList(url.searchParams.get('longitude'));
+      // One answer per point asked for, in the order asked — the port's whole
+      // promise (src/infrastructure/elevation/open-meteo-elevation.js). A DEM
+      // that has nothing for a point answers null, which is the wire form of
+      // "no reading" and is what the grid draws as missing.
+      const elevation = lats.map((lat, i) => (dem
+        ? dem(lat, lngs[i] ?? 0)
+        : live.elevationM));
       return route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ elevation: Array.from({ length: points }, () => elevationM) }),
+        body: JSON.stringify({ elevation }),
+      });
+    }
+    if (sky && url.pathname.includes('/v1/forecast')) {
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(forecastPayload(live)),
       });
     }
     return route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
   });
+
+  return { setSky: (patch) => { Object.assign(live, patch); } };
+}
+
+/** `"1.5,2.5"` as numbers, and an absent parameter as no points at all. */
+function numberList(raw) {
+  return (raw ?? '').split(',').filter((s) => s !== '').map(Number);
+}
+
+/**
+ * One Open-Meteo `/v1/forecast` response for `sky`.
+ *
+ * Shaped from the request src/weather.js actually builds rather than from the
+ * provider's documentation at large: `current`, `hourly` and `daily` carry
+ * exactly the variables that URL names, so a field added to the client without
+ * being added here shows up as the client's own "malformed response" rather
+ * than as a silent null.
+ *
+ * The hours run from local midnight today, in the offset-less wall-clock form
+ * `timezone=auto` returns — the frame shapeForecast() documents, and the frame
+ * the scrubber compares against. Every hour is the same weather: this stub
+ * answers "what does the app do with a sky", not "what does a day look like".
+ *
+ * @param {Sky} sky
+ * @returns {Record<string, unknown>}
+ */
+export function forecastPayload(sky) {
+  const midnight = new Date();
+  midnight.setHours(0, 0, 0, 0);
+  const times = Array.from({ length: FORECAST_HOURS }, (_, i) =>
+    wallClock(new Date(midnight.getTime() + i * 3_600_000)));
+  const hours = (/** @type {number} */ v) => new Array(FORECAST_HOURS).fill(v);
+
+  /** @type {Record<string, unknown>} */
+  const current = {
+    temperature_2m: sky.tempF,
+    relative_humidity_2m: sky.rhPct,
+    wind_gusts_10m: sky.gustMph,
+  };
+  /** @type {Record<string, unknown>} */
+  const hourly = {
+    time: times,
+    temperature_2m: hours(sky.tempF),
+    relative_humidity_2m: hours(sky.rhPct),
+    precipitation_probability: hours(10),
+    wind_gusts_10m: hours(sky.gustMph),
+  };
+
+  for (const m of LEVELS_M) {
+    current[`wind_speed_${m}m`] = sky.windMph;
+    current[`wind_direction_${m}m`] = sky.windFromDeg;
+    hourly[`wind_speed_${m}m`] = hours(sky.windMph);
+    hourly[`wind_direction_${m}m`] = hours(sky.windFromDeg);
+  }
+  for (const m of TEMP_LEVELS_M) {
+    current[`temperature_${m}m`] = sky.tempF;
+    hourly[`temperature_${m}m`] = hours(sky.tempF);
+  }
+  for (const level of SOUNDING) {
+    current[`wind_speed_${level.hPa}hPa`] = level.windMph;
+    current[`wind_direction_${level.hPa}hPa`] = sky.windFromDeg;
+    current[`temperature_${level.hPa}hPa`] = level.tempF;
+    current[`geopotential_height_${level.hPa}hPa`] = level.heightM;
+    hourly[`wind_speed_${level.hPa}hPa`] = hours(level.windMph);
+    hourly[`wind_direction_${level.hPa}hPa`] = hours(sky.windFromDeg);
+    hourly[`temperature_${level.hPa}hPa`] = hours(level.tempF);
+    hourly[`geopotential_height_${level.hPa}hPa`] = hours(level.heightM);
+  }
+
+  const days = Array.from({ length: FORECAST_DAYS }, (_, i) =>
+    new Date(midnight.getTime() + i * 86_400_000));
+  return {
+    elevation: sky.elevationM,
+    current,
+    hourly,
+    daily: {
+      time: days.map((d) => wallClock(d).slice(0, 10)),
+      sunrise: days.map((d) => wallClock(new Date(d.getTime() + 6.5 * 3_600_000))),
+      sunset: days.map((d) => wallClock(new Date(d.getTime() + 20 * 3_600_000))),
+      wind_speed_10m_max: days.map(() => sky.windMph),
+      wind_gusts_10m_max: days.map(() => sky.gustMph),
+      precipitation_probability_max: days.map(() => 10),
+    },
+  };
+}
+
+/** `YYYY-MM-DDTHH:mm` in the runtime's own zone — what `timezone=auto` returns. */
+function wallClock(date) {
+  const pad = (/** @type {number} */ n) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+    + `T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
 /**
