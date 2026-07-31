@@ -11,7 +11,7 @@ import { createMission } from '../src/domain/mission/mission-schema.js';
 import { missionReduce } from '../src/domain/mission/mission-reducer.js';
 import { resolveMissionAltitudes } from '../src/domain/mission/altitude.js';
 import {
-  analyzeMission, clearAnalysisCache, newestOnly,
+  analyzeMission, clearAnalysisCache, msUntilForecastBoundary, newestOnly,
 } from '../src/application/analysis/analyze.js';
 import { ANALYSIS_MODEL_VERSION } from '../src/application/analysis/analysis-contracts.js';
 
@@ -733,6 +733,52 @@ test('a re-push that re-stamps capturedAt does not reset the forecast age clock'
   assert.ok(codes(snap).includes('W-DATA-FORECAST-AGE'));
   // …and the snapshot's own retrievedAt reports the fetch, not the push.
   assert.equal(snap.provenance.retrievedAt, fetchedAt);
+});
+
+/* The memo deliberately keys on no clock — identical questions must hit — but
+ * the two age codes are a function of time as well as of inputs. Before the
+ * key carried the coarse age bucket, a snapshot memoised under 6 h answered
+ * the same question forever: a planner left open never gained the caution and
+ * never escalated to the warning until an unrelated edit forced a new pass. */
+test('the passage of time across a threshold is a new analysis; inside a bucket the memo still hits', () => {
+  const doc = withFetchedEnv(HOUR_MS * 3);
+  const analyzeAt = (offsetMs) => analyzeMission(
+    { doc, inputs: inputs(), revision: revisionOf(doc) },
+    { plan: planMission, routePlan: planRoute, now: () => new Date(Date.parse(AT) + offsetMs).toISOString() },
+  );
+  const first = analyzeAt(0);
+  assert.ok(!codes(first).includes('W-DATA-FORECAST-AGE'));
+  assert.equal(analyzeAt(HOUR_MS), first,
+    'an hour later the forecast is 4 h old — same bucket, the identical memoised snapshot');
+  const aged = analyzeAt(HOUR_MS * 4); // the fetch is now 7 h behind this pass
+  assert.notEqual(aged, first, 'crossing 6 h busts the memo with every input untouched');
+  assert.ok(codes(aged).includes('W-DATA-FORECAST-AGE'));
+  assert.ok(!codes(aged).includes('W-DATA-FORECAST-STALE'));
+  const stale = analyzeAt(DAY_MS); // 27 h behind this pass
+  assert.notEqual(stale, aged);
+  assert.ok(codes(stale).includes('W-DATA-FORECAST-STALE'), 'and it escalates across 24 h the same way');
+  assert.ok(!codes(stale).includes('W-DATA-FORECAST-AGE'));
+});
+
+test('msUntilForecastBoundary names the next crossing, and only for fetched sources', () => {
+  assert.equal(msUntilForecastBoundary(withFetchedEnv(HOUR_MS * 2), AT), HOUR_MS * 4,
+    'four hours short of the caution');
+  assert.equal(msUntilForecastBoundary(withFetchedEnv(HOUR_MS * 7), AT), HOUR_MS * 17,
+    'seventeen hours short of the warning');
+  assert.equal(msUntilForecastBoundary(withFetchedEnv(DAY_MS + HOUR_MS), AT), null,
+    'past the last threshold there is nothing left to wake for');
+  // A manual environment has no fetch instant to age, however old its
+  // capturedAt — the same gate forecastAgeDrafts applies, so the host never
+  // arms a timer for one.
+  const manual = missionReduce(mission([{ at: wpAt(0, 4) }]), {
+    type: 'setEnvironmentReference',
+    payload: {
+      source: 'manual', presetId: null,
+      capturedAt: new Date(Date.parse(AT) - DAY_MS * 5).toISOString(),
+      values: VALID_ENV_VALUES,
+    },
+  }, { idgen: idgen(), now: () => AT });
+  assert.equal(msUntilForecastBoundary(manual, AT), null);
 });
 
 test('calibrationSource names the flight count a calibrated aircraft rode in on', () => {

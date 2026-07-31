@@ -655,6 +655,26 @@ const FORECAST_AGE_CAUTION_MS = 6 * 60 * 60 * 1000;
 const FORECAST_AGE_STALE_MS = 24 * 60 * 60 * 1000;
 
 /**
+ * The instant a forecast's age anchors on (ADR 0012 §1): when the environment
+ * was actually *fetched*, in epoch milliseconds, or null when there is nothing
+ * to age — a manual or preset environment carries no provenance, and there is
+ * no fetch instant to age for either. The fetch instant must win over
+ * capturedAt: capturedAt is re-stamped by every push (a wind-level edit
+ * re-pushes the same fetch hours later), so anchoring on it would reset the
+ * age clock without any new fetch.
+ * @param {MissionDocumentV1} doc
+ * @returns {number|null}
+ */
+function forecastFetchMs(doc) {
+  const env = doc.environmentReference;
+  const prov = env?.provenance;
+  if (!prov) return null;
+  const fetchedAt = typeof prov.retrievedAt === 'string' ? prov.retrievedAt : null;
+  const retrieved = Date.parse(fetchedAt ?? env.capturedAt ?? '');
+  return Number.isFinite(retrieved) ? retrieved : null;
+}
+
+/**
  * ADR 0012 §1: how long ago the environment was actually fetched, not how old
  * the forecast hour it describes is — an archive lookup is deliberately about
  * yesterday and that is never a reason to warn, but a *live* fetch left running
@@ -669,16 +689,9 @@ const FORECAST_AGE_STALE_MS = 24 * 60 * 60 * 1000;
  * @returns {ConstraintDraft[]}
  */
 function forecastAgeDrafts(doc, computedAt) {
-  const env = doc.environmentReference;
-  const prov = env?.provenance;
-  if (!prov) return [];
-  // The fetch instant must win over capturedAt: capturedAt is re-stamped by
-  // every push (a wind-level edit re-pushes the same fetch hours later), so
-  // anchoring on it would reset the age clock without any new fetch.
-  const fetchedAt = typeof prov.retrievedAt === 'string' ? prov.retrievedAt : null;
-  const retrieved = Date.parse(fetchedAt ?? env.capturedAt ?? '');
+  const retrieved = forecastFetchMs(doc);
   const now = Date.parse(computedAt);
-  if (!Number.isFinite(retrieved) || !Number.isFinite(now)) return [];
+  if (retrieved === null || !Number.isFinite(now)) return [];
   const ageMs = now - retrieved;
   if (ageMs >= FORECAST_AGE_STALE_MS) {
     return [draftConstraint('W-DATA-FORECAST-STALE',
@@ -691,6 +704,51 @@ function forecastAgeDrafts(doc, computedAt) {
       + 'longer match conditions at the launch site.')];
   }
   return [];
+}
+
+/**
+ * Which side of the two age thresholds this pass falls on. The memo key
+ * deliberately carries no clock — identical questions must hit — but the
+ * forecast-age constraints are a function of time as well as of inputs, and a
+ * memo blind to that served the fresh answer forever (a planner left open
+ * overnight never escalated from caution to warning until an edit forced a new
+ * pass). The coarse bucket is the only part of "now" that changes the answer,
+ * so it is the only part in the key: a pass after a boundary crossing is a new
+ * question, a re-render a minute later is still a hit.
+ * @param {MissionDocumentV1} doc
+ * @param {string} computedAt
+ * @returns {'fresh'|'aged'|'stale'|null}
+ */
+function forecastAgeBucket(doc, computedAt) {
+  const retrieved = forecastFetchMs(doc);
+  const now = Date.parse(computedAt);
+  if (retrieved === null || !Number.isFinite(now)) return null;
+  const ageMs = now - retrieved;
+  if (ageMs >= FORECAST_AGE_STALE_MS) return 'stale';
+  if (ageMs >= FORECAST_AGE_CAUTION_MS) return 'aged';
+  return 'fresh';
+}
+
+/**
+ * Milliseconds until this document's fetched forecast crosses its next age
+ * threshold (6 h, then 24 h, from the fetch instant — ADR 0012 §1), or null
+ * when no boundary lies ahead: nothing was fetched, the instant is
+ * unparseable, or the forecast is already past the last threshold. The host
+ * arms one coarse timer on this rather than polling — the age only changes
+ * the analysis at the two boundaries, so those are the only instants worth
+ * waking for.
+ * @param {MissionDocumentV1} doc
+ * @param {string} nowIso
+ * @returns {number|null}
+ */
+export function msUntilForecastBoundary(doc, nowIso) {
+  const retrieved = forecastFetchMs(doc);
+  const now = Date.parse(nowIso);
+  if (retrieved === null || !Number.isFinite(now)) return null;
+  const ageMs = now - retrieved;
+  if (ageMs < FORECAST_AGE_CAUTION_MS) return FORECAST_AGE_CAUTION_MS - ageMs;
+  if (ageMs < FORECAST_AGE_STALE_MS) return FORECAST_AGE_STALE_MS - ageMs;
+  return null;
 }
 
 /**
@@ -930,6 +988,7 @@ export function analyzeMission(request, deps) {
   const inputs = request.inputs ?? {};
   const revision = request.revision ?? { missionId: doc.id, missionUpdatedAt: doc.updatedAt };
   const now = deps.now ?? (() => new Date().toISOString());
+  const computedAt = now();
 
   const cacheKey = hashKey(stableStringify({
     model: ANALYSIS_MODEL_VERSION,
@@ -937,6 +996,11 @@ export function analyzeMission(request, deps) {
     route: routeSignatureOf(doc),
     inputs,
     forecast: deps.forecastSignature ?? forecastSignatureOf(doc),
+    // The one clock-derived entry in this key, and coarse on purpose — see
+    // forecastAgeBucket. Without it a snapshot computed under 6 h ago answered
+    // the same question forever, and the W-DATA-FORECAST-* constraints could
+    // never appear or escalate until some other input moved.
+    forecastAge: forecastAgeBucket(doc, computedAt),
     terrain: deps.terrainSignature ?? null,
     // Which ports are wired up changes the answer — an absent provider is a
     // constraint the snapshot carries — so the shape of `deps` is part of the
@@ -969,7 +1033,7 @@ export function analyzeMission(request, deps) {
   const hit = CACHE.get(cacheKey);
   if (hit) return hit;
 
-  const snapshot = compute(doc, inputs, revision, deps, cacheKey, now());
+  const snapshot = compute(doc, inputs, revision, deps, cacheKey, computedAt);
   remember(cacheKey, snapshot);
   return snapshot;
 }
