@@ -153,6 +153,18 @@ test.describe('mission persistence', () => {
     await expect(page.locator('#route-rows tr')).toHaveCount(4);
     await expect(page.locator('#btn-route')).toHaveAttribute('aria-pressed', 'true');
 
+    // The reload's fit frames the whole turnaround envelope — miles across —
+    // and at that zoom the launch pin and waypoint 1 can share pixels: one
+    // snap level is the difference between clear and overlapping, and CI's
+    // font metrics leave the pane just short enough to lose it. Overlapped,
+    // the waypoint's dot intercepts the launch marker's hover and the drag
+    // below never starts. Zoom back in around the launch-centred view first.
+    const zoomIn = page.locator('.leaflet-control-zoom-in');
+    for (let i = 0; i < 2; i += 1) {
+      await zoomIn.click();
+      await expect(page.locator('#map-canvas')).not.toHaveClass(/leaflet-zoom-anim/);
+    }
+
     // ---- and moving the launch no longer throws the route away ----
     // A map click would drop a waypoint now that route mode is on, so move the
     // pin the way a pilot does with a route drawn: drag it.
