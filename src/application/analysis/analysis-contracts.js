@@ -287,7 +287,11 @@ export function provenanceOf(overrides = {}) {
  * it rather than an import of the module that returns it.
  * @typedef {object} SolvedPlan
  * @property {number} rho     the one density the whole plan was solved at
- * @property {{ massKg: number, etaProp: number }} cfg  what the rotor model ran on
+ * @property {{ massKg: number, rho: number, areaM2: number, cdA: number,
+ *              etaProp: number, avionicsW: number }} cfg  what the rotor model
+ *   ran on — the whole record, not a summary of it, so a caller can re-enter
+ *   `powerAtSpeed` at a speed the plan never solved for. That is how a hold is
+ *   charged for the wind it has to sit in rather than for still air.
  * @property {{ pW: number }} hover
  * @property {{ planningMs: number, gustFactor: number }} wind
  * @property {{ deliveredWh: number, huntLandWh: number, landFloorPct: number,
@@ -375,7 +379,10 @@ export function provenanceOf(overrides = {}) {
  * @property {number} plannedKm   distance actually planned under that policy
  * @property {number} plannedMin
  * @property {number} plannedWh
- * @property {number} holdWh      every segment's dwell, at hover power
+ * @property {number} holdWh      every segment's dwell, at the power it takes to
+ *                                stay there: station-keeping against the planning
+ *                                wind for a hold, the orbit's worst quarter for
+ *                                an orbit (ADR 0011 §3)
  * @property {number} verticalWh  every segment's climb and descent (M3b)
  * @property {number} missionWh   plannedWh + holdWh + verticalWh
  */
@@ -499,6 +506,49 @@ export function provenanceOf(overrides = {}) {
  * @property {number} heightAboveLaunchM
  */
 
+/*
+ * The cinematic shapes (M7). Same technique as M5's advisory block below: the
+ * domain types are named through JSDoc `import(…)` references, which are
+ * comments — nothing is loaded at runtime and this module keeps its "no imports
+ * at all" property.
+ */
+/**
+ * @typedef {import('../../domain/camera.js').Fov} Fov
+ * @typedef {import('../../domain/camera.js').ScreenDirection} ScreenDirection
+ * @typedef {import('../../domain/mission/mission-schema.js').SegmentCamera} SegmentCamera
+ */
+
+/**
+ * What one segment's camera makes of the subject it frames: the whole cinematic
+ * record, computed once here so the map, the 3D scene, the inspector and the
+ * brief all read the same numbers and none of them repeats the geometry
+ * (ADR 0002 — one snapshot, many readers).
+ *
+ * The record exists whenever the segment names a subject the scene still holds;
+ * `SegmentAnalysis.shot` is null when it names none. Inside it every number is
+ * separately nullable, because the inputs arrive from three different places and
+ * any of them can be absent: the leg's resolved MSL altitudes and the subject's
+ * `elevationMslM` feed the geometry (missing → the five geometry fields are all
+ * null together, since a shot short one of its three points is not a partially
+ * known shot), while the subject's `radiusM` and the scene's camera profile feed
+ * the framing on top of it (either missing → framing is null while the geometry
+ * still stands). A null names which input never arrived; nothing substitutes a
+ * zero for one.
+ * @typedef {object} SegmentShot
+ * @property {string} subjectId       the subject this segment frames
+ * @property {string} subjectName     carried so a finding's text can name it
+ *                                    without the reader holding the scene
+ * @property {number|null} distanceStartM  slant range subject → leg start
+ * @property {number|null} distanceEndM    slant range subject → leg end
+ * @property {number|null} bearingToSubjectDeg  compass bearing, leg midpoint → subject
+ * @property {number|null} elevationAngleDeg    from the leg midpoint, positive up
+ * @property {ScreenDirection|null} screenDirection  which way the subject crosses frame
+ * @property {number|null} framingStart  fraction of frame width filled at the start, 0..1
+ * @property {number|null} framingEnd    the same at the leg's end
+ * @property {number|null} subjectRadiusM  the authored bounding radius framing was taken from
+ * @property {Fov|null} fov            the scene profile's field of view, null when unprofiled
+ */
+
 /**
  * What the pipeline could say about one authored segment. Energy is split so
  * each contribution is checkable on its own: `flightWh` is the route
@@ -518,9 +568,17 @@ export function provenanceOf(overrides = {}) {
  * @property {number|null} airSpeedMs
  * @property {number|null} timeMin
  * @property {number|null} flightWh      the leg itself
- * @property {number} holdWh             dwell at the far end, hover power × time
+ * @property {number} holdWh             dwell at the far end, holdPowerW × time
  * @property {number|null} energyWh      flightWh + holdWh, or null when unsolved
  * @property {number|null} holdS
+ * @property {number|null} holdAirspeedMs  what the aircraft must fly to stay put:
+ *   the planning wind for a hold, tangential + wind for an orbit's worst quarter.
+ *   Null on any segment whose intent does not station-keep; present on one that
+ *   does even where no dwell time was authored, because it is a fact about the
+ *   intent rather than about the dwell.
+ * @property {number|null} holdPowerW    `powerAtSpeed(cfg, holdAirspeedMs)` — the
+ *   figure `holdWh` was actually charged at, published so a reader can check the
+ *   dwell arithmetic instead of trusting it
  * @property {'cruise'|'fixed'|'maxRange'} speedMode
  * @property {number|null} speedTargetMs
  * @property {boolean} speedHonoured     false when the solver could not take it
@@ -532,6 +590,13 @@ export function provenanceOf(overrides = {}) {
  * @property {SegmentClearance|null} clearance
  * @property {SegmentAir|null} air
  * @property {SegmentWind|null} wind
+ * @property {string|null} subjectRef    the subject the segment was authored to
+ *                                       frame, carried verbatim from the document
+ * @property {SegmentCamera|null} camera the authored camera bag, carried verbatim —
+ *   this layer reads it, it does not normalise it (M1P owns the shape)
+ * @property {SegmentShot|null} shot     the computed geometry of that framing, or
+ *   null when the segment frames nothing. See SegmentShot for which of its own
+ *   fields go null and why.
  * @property {string[]} explanations     X-* codes; see EXPLANATION_CODES
  */
 

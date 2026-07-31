@@ -82,7 +82,7 @@ import { ALTITUDE_REFERENCES, SPEED_MODES, intentHoldsStation } from './mission-
  * @property {Bag|null} camera            M7 owns the shape; carried verbatim
  */
 
-/** @typedef {'geometry'|'altitude-reference'|'speed'|'hold'|'camera-intent'|'return-policy'|'reserve'} Concept */
+/** @typedef {'geometry'|'altitude-reference'|'speed'|'hold'|'camera-intent'|'camera-profile'|'return-policy'|'reserve'} Concept */
 /** @typedef {{ concept: Concept, detail: string }} InventoryEntry */
 /** @typedef {{ code: string, path: string, message: string }} CompileIssue */
 /** @typedef {{ id: string, name: string, latitude: number, longitude: number, elevationMslM: number|null, radiusM: number|null }} CompiledSubject */
@@ -111,11 +111,18 @@ import { ALTITUDE_REFERENCES, SPEED_MODES, intentHoldsStation } from './mission-
  * @type {readonly Concept[]}
  */
 export const CONCEPTS = Object.freeze([
-  'geometry', 'altitude-reference', 'speed', 'hold', 'camera-intent', 'return-policy', 'reserve',
+  'geometry', 'altitude-reference', 'speed', 'hold', 'camera-intent', 'camera-profile',
+  'return-policy', 'reserve',
 ]);
 
-/** The intents that frame something, whether or not a subject was attached. */
-const CAMERA_INTENTS = Object.freeze(['reveal', 'orbit', 'pass']);
+/**
+ * The intents that frame something, whether or not a subject was attached.
+ * Exported because the analysis asks the same question of a segment when it
+ * decides whether an unattached shot is worth a finding — one list, so the two
+ * layers cannot drift into disagreeing about what a camera segment is.
+ * @type {readonly string[]}
+ */
+export const CAMERA_INTENTS = Object.freeze(['reveal', 'orbit', 'pass', 'approach']);
 
 /** Which CompiledAltitude field carries which frame. */
 const FRAMES = /** @type {const} */ ([
@@ -291,6 +298,12 @@ function deriveInventory(doc) {
   const framed = segments.filter((s) => s.camera != null || s.subjectRef != null
     || CAMERA_INTENTS.includes(s.intent));
   if (framed.length > 0) add('camera-intent', plural(framed.length, 'camera-directed segment'));
+
+  // The lens the whole scene was framed through. No adapter declares it, so an
+  // inventoried profile is a named loss in every format we write today — which
+  // is ADR 0010 §2's mechanism working, not a gap to paper over.
+  const profile = doc.scene?.cameraProfile;
+  if (profile) add('camera-profile', `${profile.name} at ${profile.focalLengthMm} mm`);
 
   if (returnPolicy.mode !== 'none') {
     add('return-policy', /** @type {Record<string, string>} */ (RETURN_WORDS)[returnPolicy.mode]);

@@ -33,9 +33,11 @@
 //     it easy to honour. The terrain field arrives the same way everything else
 //     impure does: as a nullable accessor in `deps`.
 
+import { fovDeg, orbitAirspeedMs, shotGeometry, subjectFraming } from '../../domain/camera.js';
 import { destination, distanceKm, bearingTo } from '../../domain/geo.js';
+import { CAMERA_INTENTS } from '../../domain/mission/compile.js';
 import { HOLD_INTENTS } from '../../domain/mission/mission-schema.js';
-import { U } from '../../domain/physics.js';
+import { U, powerAtSpeed } from '../../domain/physics.js';
 import {
   ANALYSIS_MODEL_VERSION, CORRIDOR_MAX_SAMPLES, CORRIDOR_MIN_SPACING_M,
   CORRIDOR_SAMPLE_TARGET, CORRIDOR_WIDTH_M,
@@ -49,7 +51,11 @@ import { windAdvisory } from './wind-advisory.js';
 /**
  * @typedef {import('../../domain/mission/mission-schema.js').MissionDocumentV1} MissionDocumentV1
  * @typedef {import('../../domain/mission/mission-schema.js').Segment} Segment
+ * @typedef {import('../../domain/mission/mission-schema.js').Subject} Subject
  * @typedef {import('../../domain/mission/mission-schema.js').Waypoint} Waypoint
+ * @typedef {import('../../domain/camera.js').Fov} Fov
+ * @typedef {import('./analysis-contracts.js').ConstraintAnchor} ConstraintAnchor
+ * @typedef {import('./analysis-contracts.js').SegmentShot} SegmentShot
  * @typedef {import('./analysis-contracts.js').AnalysisInputs} AnalysisInputs
  * @typedef {import('./analysis-contracts.js').AnalysisProvenance} AnalysisProvenance
  * @typedef {import('./analysis-contracts.js').AnalysisRevision} AnalysisRevision
@@ -265,6 +271,140 @@ function buildCorridor(doc, legs, bearingDeg, fallbackKm) {
   });
 }
 
+/* ---------- the shot ---------- */
+
+/**
+ * A point as metres east and north of `origin` — the local frame
+ * `domain/camera.js` works in, built from the same great-circle distance and
+ * bearing every other figure in this module comes from, so a shot and the leg
+ * it belongs to cannot disagree about where anything is.
+ *
+ * The tangent plane is flat. Over a leg of a few kilometres that costs far less
+ * than the metre the authored altitudes are rounded to, and the alternative is
+ * a projection this module would then have to keep honest.
+ * @param {LatLng} origin
+ * @param {LatLng} p
+ * @returns {{ eM: number, nM: number }}
+ */
+function enuOffset(origin, p) {
+  const rangeM = distanceKm(origin, p) * 1000;
+  const brgRad = bearingTo(origin, p) * Math.PI / 180;
+  return { eM: rangeM * Math.sin(brgRad), nM: rangeM * Math.cos(brgRad) };
+}
+
+/**
+ * What one leg makes of the subject it frames (ADR 0011 §3), computed once here
+ * so the map, the 3D scene, the inspector and the brief read it rather than
+ * repeat it.
+ *
+ * The altitudes handed in are the ones the rest of the analysis already
+ * resolved for this leg — not a second resolution of the same question — and an
+ * unresolved one takes the whole geometry block to null, because
+ * `shotGeometry` refuses a shot missing one of its three points rather than
+ * inventing a height for it. Framing is separately null: it needs the subject's
+ * radius and the scene's lens, and a scene with neither still has a distance
+ * and a screen direction worth showing.
+ * @param {DocLeg} docLeg
+ * @param {Subject} subject
+ * @param {number|null} startMslM  the altitude the leg departs at
+ * @param {number|null} endMslM    the altitude it arrives at
+ * @param {Fov|null} fov           the scene's camera profile, resolved once
+ * @returns {SegmentShot}
+ */
+function shotFor(docLeg, subject, startMslM, endMslM, fov) {
+  const subjectMslM = typeof subject.elevationMslM === 'number' ? subject.elevationMslM : null;
+  const geometry = startMslM != null && endMslM != null && subjectMslM != null
+    ? shotGeometry({
+      start: { eM: 0, nM: 0, uM: startMslM },
+      end: { ...enuOffset(docLeg.from, docLeg.to), uM: endMslM },
+      subject: {
+        ...enuOffset(docLeg.from, { lat: subject.latitude, lng: subject.longitude }),
+        uM: subjectMslM,
+      },
+    })
+    : null;
+  const radiusM = typeof subject.radiusM === 'number' ? subject.radiusM : null;
+  return Object.freeze({
+    subjectId: subject.id,
+    subjectName: subject.name,
+    distanceStartM: geometry ? geometry.distanceStartM : null,
+    distanceEndM: geometry ? geometry.distanceEndM : null,
+    bearingToSubjectDeg: geometry ? geometry.bearingToSubjectDeg : null,
+    elevationAngleDeg: geometry ? geometry.elevationAngleDeg : null,
+    screenDirection: geometry ? geometry.screenDirection : null,
+    framingStart: geometry ? subjectFraming(geometry.distanceStartM, radiusM, fov) : null,
+    framingEnd: geometry ? subjectFraming(geometry.distanceEndM, radiusM, fov) : null,
+    subjectRadiusM: radiusM,
+    fov,
+  });
+}
+
+/**
+ * The three findings a shot can raise on its own (ADR 0011 §4). All of them
+ * anchor to the segment and name the subject in their text: `AnchorScope` stays
+ * closed, and prose already carries the pointer an extra scope would have.
+ *
+ * None of these is about energy or ground clearance. A cinematic segment goes
+ * through every gate a transit leg does; these sit beside those findings rather
+ * than in front of them.
+ * @param {Segment} seg
+ * @param {Subject|null} subject   the subject the scene still holds, or null
+ * @param {number|null} holdAirspeedMs  what staying here asks of the airframe
+ * @param {number|null} maxSpeedMs      what the aircraft snapshot says it has
+ * @param {ConstraintAnchor} anchor
+ * @returns {ConstraintDraft[]}
+ */
+function shotDrafts(seg, subject, holdAirspeedMs, maxSpeedMs, anchor) {
+  /** @type {ConstraintDraft[]} */
+  const drafts = [];
+  const around = subject ? ` around '${subject.name}'` : '';
+
+  if (subject == null && CAMERA_INTENTS.includes(seg.intent)) {
+    drafts.push(draftConstraint(
+      'W-SHOT-SUBJECT-MISSING',
+      `This leg is authored as a '${seg.intent}' shot but frames nothing — no subject is attached to it, `
+      + 'so its distance, framing and screen direction are absent rather than zero.',
+      anchor,
+    ));
+  }
+
+  if (seg.intent === 'orbit') {
+    const orbit = seg.camera?.orbit ?? null;
+    const radiusM = orbit && typeof orbit.radiusM === 'number' ? orbit.radiusM : null;
+    const subjectRadiusM = subject && typeof subject.radiusM === 'number' ? subject.radiusM : null;
+    if (radiusM == null) {
+      drafts.push(draftConstraint(
+        'W-SHOT-ORBIT-RADIUS',
+        `This orbit${around} has no radius authored, and none is inferable from the route — the circle `
+        + 'it flies is undetermined, so nothing here says how close to the subject it comes.',
+        anchor,
+      ));
+    } else if (subjectRadiusM != null && radiusM <= subjectRadiusM) {
+      drafts.push(draftConstraint(
+        'W-SHOT-ORBIT-RADIUS',
+        `This orbit is flown at ${radiusM} m${around || ' around its subject'}, whose own radius is `
+        + `${subjectRadiusM} m — the circle is inside the thing it is meant to be circling.`,
+        anchor,
+      ));
+    }
+  }
+
+  if (holdAirspeedMs != null && maxSpeedMs != null && holdAirspeedMs > maxSpeedMs) {
+    const asks = seg.intent === 'orbit'
+      ? `The upwind quarter of this orbit${around}`
+      : `Holding station here${subject ? ` on '${subject.name}'` : ''}`;
+    drafts.push(draftConstraint(
+      'W-SHOT-HOLD-WIND',
+      `${asks} needs ${holdAirspeedMs.toFixed(1)} m/s of airspeed against the planning wind, past the `
+      + `${maxSpeedMs} m/s this airframe is recorded at — the shot cannot be flown as authored, whatever `
+      + 'the energy budget says.',
+      anchor,
+    ));
+  }
+
+  return drafts;
+}
+
 /* ---------- per-segment reading ---------- */
 
 /**
@@ -294,6 +434,18 @@ function buildCorridor(doc, legs, bearingDeg, fallbackKm) {
  */
 function readSegments(doc, legs, route, ctx) {
   const hoverW = ctx.plan.hover.pW;
+  /* The scene, resolved once for the whole pass: the lens every framing fraction
+   * is taken through, and the subjects segments point at by id. */
+  const fov = fovDeg(doc.scene?.cameraProfile ?? null);
+  const subjects = new Map((doc.scene?.subjects ?? []).map((s) => [s.id, s]));
+  const maxSpeedMs = typeof doc.aircraftSnapshot?.maxSpeedMs === 'number'
+    ? doc.aircraftSnapshot.maxSpeedMs
+    : null;
+  /* Non-negative and finite, because it is about to be handed to the rotor model
+   * and to `orbitAirspeedMs`, both of which refuse a negative speed. */
+  const windMs = typeof ctx.plan.wind.planningMs === 'number' && ctx.plan.wind.planningMs > 0
+    ? ctx.plan.wind.planningMs
+    : 0;
   /** @type {Record<string, SegmentAnalysis>} */
   const segments = {};
   /** @type {ConstraintDraft[]} */
@@ -314,15 +466,31 @@ function readSegments(doc, legs, route, ctx) {
     /** @type {string[]} */
     const explanations = [];
 
-    const holdS = HOLD_INTENTS.includes(seg.intent) && typeof seg.holdS === 'number' && seg.holdS > 0
+    const holdsStation = HOLD_INTENTS.includes(seg.intent);
+    const holdS = holdsStation && typeof seg.holdS === 'number' && seg.holdS > 0
       ? seg.holdS
       : null;
-    // The hover power the loiter budget is already quoted at — reused, not
-    // re-derived, so a hold costs exactly what route.js says holding costs.
-    const segHoldWh = holdS ? holdS * hoverW / 3600 : 0;
+    /* What the aircraft actually has to fly to stay where the shot wants it.
+     * Station-keeping over a point is flying at the wind's own speed — the same
+     * physics route.js has always charged loiter-at-range at — and an orbit adds
+     * its tangential rate to that on the upwind quarter, which is a bound rather
+     * than an average (ADR 0011 §3). In calm air this is powerAtSpeed(cfg, 0),
+     * which *is* hover power, so a windless plan's numbers do not move at all.
+     * An unsolved leg has no tangential rate to add, so its orbit degrades to
+     * station-keeping — the route is already flagged unflyable above that. */
+    const tangentialMs = leg && typeof leg.vgMs === 'number' && leg.vgMs > 0 ? leg.vgMs : 0;
+    const holdAirspeedMs = !holdsStation
+      ? null
+      : seg.intent === 'orbit'
+        // Both inputs are clamped non-negative and finite, so the null branch is
+        // unreachable; it degrades to station-keeping rather than to a NaN.
+        ? (orbitAirspeedMs(tangentialMs, windMs) ?? windMs)
+        : windMs;
+    const holdPowerW = holdAirspeedMs == null ? null : powerAtSpeed(ctx.plan.cfg, holdAirspeedMs);
+    const segHoldWh = holdS != null && holdPowerW != null ? holdS * holdPowerW / 3600 : 0;
     if (holdS) {
       holdWh += segHoldWh;
-      explanations.push('X-HOLD-HOVER-POWER');
+      explanations.push(seg.intent === 'orbit' ? 'X-HOLD-ORBIT-AIRSPEED' : 'X-HOLD-STATION-POWER');
     }
 
     const speedMode = seg.speedPolicy.mode;
@@ -388,6 +556,15 @@ function readSegments(doc, legs, route, ctx) {
     const clearance = ctx.clearance[seg.id] ?? null;
     if (clearance && clearance.missing > 0) explanations.push('X-TERR-SAMPLE-MISSING');
 
+    /* The shot, against the altitudes resolved directly above — the same two
+     * figures the climb and the clearance were taken from, not a second answer
+     * to the same question (ADR 0002). */
+    const subjectRef = typeof seg.subjectRef === 'string' ? seg.subjectRef : null;
+    const subject = subjectRef != null ? (subjects.get(subjectRef) ?? null) : null;
+    const shot = subject ? shotFor(docLeg, subject, prevMslM, altitudeMslM, fov) : null;
+    if (shot) explanations.push('X-SHOT-FRAMED');
+    drafts.push(...shotDrafts(seg, subject, holdAirspeedMs, maxSpeedMs, anchor));
+
     segments[seg.id] = Object.freeze({
       segmentId: seg.id,
       index: i,
@@ -401,6 +578,8 @@ function readSegments(doc, legs, route, ctx) {
       holdWh: segHoldWh,
       energyWh: leg && leg.whLeg != null ? leg.whLeg + segHoldWh : null,
       holdS,
+      holdAirspeedMs,
+      holdPowerW,
       speedMode,
       speedTargetMs: seg.speedPolicy.targetMs,
       speedHonoured,
@@ -414,6 +593,11 @@ function readSegments(doc, legs, route, ctx) {
       clearance,
       air: flight.air,
       wind: flight.wind,
+      subjectRef,
+      /* Carried verbatim: M1P owns this bag's shape and the schema has already
+       * validated it, so this layer reads it without normalising it. */
+      camera: seg.camera ?? null,
+      shot,
       explanations,
     });
   });
@@ -513,7 +697,7 @@ function routeDrafts(route, holdWh) {
   const budgetWh = route.loiter ? route.loiter.wh : 0;
   if (holdWh > 0 && holdWh > budgetWh) {
     drafts.push(draftConstraint('W-RESERVE-HOLD-BUDGET',
-      `The holds on this route ask for ${holdWh.toFixed(1)} Wh of hovering and only ${budgetWh.toFixed(1)} `
+      `The holds on this route ask for ${holdWh.toFixed(1)} Wh of station-keeping and only ${budgetWh.toFixed(1)} `
       + 'Wh is left for them once the flying is paid for. Shorten the dwell, or fly a shorter route.'));
   }
   return drafts;
@@ -950,7 +1134,15 @@ function routeSignatureOf(doc) {
     segments: doc.route.segments.map((s) => ({
       id: s.id, to: s.to, intent: s.intent, holdS: s.holdS ?? null,
       altitude: s.altitude, speedPolicy: s.speedPolicy,
+      // M7: the shot is part of the answer now, so it is part of the question.
+      subjectRef: s.subjectRef ?? null, camera: s.camera ?? null,
     })),
+    // Moving a subject or changing the lens moves the shot without touching a
+    // single waypoint — a signature blind to the scene would serve the old one.
+    scene: {
+      subjects: doc.scene?.subjects ?? [],
+      cameraProfile: doc.scene?.cameraProfile ?? null,
+    },
   });
 }
 

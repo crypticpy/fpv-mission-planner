@@ -49,12 +49,21 @@ function mission({ launch = AUSTIN, commands = [] } = {}) {
 
 const concepts = (compiled) => compiled.inventory.map((entry) => entry.concept);
 
-/** A mission using every one of ADR 0010's seven concepts, for the loss exit gate. */
+/** A mission using every one of the compiler's concepts, for the loss exit gate. */
 function richCompiled() {
   const doc = mission({
     commands: [
       wp(RIDGE, { intent: 'hold', holdS: 12 }),
       wp(SADDLE, { intent: 'reveal' }),
+      {
+        type: 'setCameraProfile',
+        payload: {
+          profile: {
+            name: 'Full-frame mirrorless camera',
+            sensorWidthMm: 36, sensorHeightMm: 24, focalLengthMm: 24, stabilized: false,
+          },
+        },
+      },
     ],
   });
   return compileMission(doc);
@@ -281,14 +290,14 @@ test('markup nested inside <name> never reaches the title as executable content,
 
 /* ---------- 6. every unsupported concept in a rich mission is a named loss ---------- */
 
-test('a mission using all seven concepts loses every one this format cannot hold', () => {
+test('a mission using every concept loses every one this format cannot hold', () => {
   const compiled = richCompiled();
   assert.deepEqual(concepts(compiled), CONCEPTS.slice(), 'fixture exercises every concept, in CONCEPTS order');
 
   for (const exportMission of [gpxExport, kmlExport]) {
     const result = exportMission(compiled);
     const lost = result.semanticLosses.map((l) => l.concept);
-    for (const concept of ['speed', 'hold', 'camera-intent', 'return-policy', 'reserve']) {
+    for (const concept of ['speed', 'hold', 'camera-intent', 'camera-profile', 'return-policy', 'reserve']) {
       assert.ok(lost.includes(concept), `${concept} should be named as a loss`);
     }
     assert.ok(lost.includes('altitude-reference'), 'altitude-reference is approximated, still a named loss');

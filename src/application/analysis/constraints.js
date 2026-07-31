@@ -327,9 +327,44 @@ export const CONSTRAINT_CODES = Object.freeze(/** @type {Record<string, Constrai
   'W-RESERVE-HOLD-BUDGET': {
     code: 'W-RESERVE-HOLD-BUDGET', producer: 'analysis', severity: 'warning', legacyLevel: null,
     explanation: why(
-      ['dwell times', 'hover power', 'loiter budget at the last waypoint'],
+      ['dwell times', 'planning wind', 'station-keeping and orbit airspeeds',
+        'loiter budget at the last waypoint'],
       'total dwell fitting inside the energy left after the route is flown',
-      ['dwell is charged at hover power, which is the calm-air figure'],
+      ['a hold is charged at the power to fly at the wind\'s own speed, which is what holding a '
+        + 'position over the ground costs',
+      'an orbit is charged at its worst quarter — tangential speed plus the wind — so an orbit in '
+        + 'wind reads pessimistic on purpose rather than average'],
+    ),
+  },
+  'W-SHOT-SUBJECT-MISSING': {
+    code: 'W-SHOT-SUBJECT-MISSING', producer: 'analysis', severity: 'warning', legacyLevel: null,
+    explanation: why(
+      ['segment intent', 'the segment\'s subject reference', 'the scene\'s subjects'],
+      'every framing intent naming the subject it frames',
+      ['nothing here infers what a shot was aimed at — an unattached shot has no geometry, not a '
+        + 'guessed one',
+      'the leg still flies and still costs what it costs; it is the camera figures that are absent'],
+    ),
+  },
+  'W-SHOT-ORBIT-RADIUS': {
+    code: 'W-SHOT-ORBIT-RADIUS', producer: 'analysis', severity: 'warning', legacyLevel: null,
+    explanation: why(
+      ['authored orbit radius', 'the subject\'s own radius'],
+      'an orbit flown outside the thing it circles',
+      ['a subject radius is an authored bounding figure, not a measured footprint — a wide flat '
+        + 'subject reads smaller than it is',
+      'this compares two authored radii and nothing else: no obstacle clearance is implied by it'],
+    ),
+  },
+  'W-SHOT-HOLD-WIND': {
+    code: 'W-SHOT-HOLD-WIND', producer: 'analysis', severity: 'warning', legacyLevel: null,
+    explanation: why(
+      ['planning wind', 'the orbit\'s tangential speed', 'the aircraft snapshot\'s top speed'],
+      'a hold the airframe can actually hold — the wind\'s own speed to stay over a point, '
+      + 'tangential plus wind to carry an orbit through its upwind quarter',
+      ['the top speed is the airframe\'s recorded figure, not one measured at this all-up mass',
+        'wind is one figure for the whole flight',
+        'the orbit figure is its worst quarter — the other three ask for less'],
     ),
   },
   'W-SPEED-POLICY-UNSUPPORTED': {
@@ -538,7 +573,13 @@ export const EXPLANATION_CODES = Object.freeze({
   'X-ALT-VERTICAL-UNMODELLED': 'Altitude change recorded; no vertical energy is modelled.',
   'X-ALT-VERTICAL-CHARGED': 'Altitude change costed: climb at m·g·h/η, descent at no credit.',
   'X-ALT-UNRESOLVED': 'Altitude has no metres-MSL figure, so nothing was derived from it.',
+  // Retired in M7, and kept for the reason above: dwell is charged at the power
+  // to stay put in the planning wind now, but briefs exported before M7 carry
+  // this code on their hold segments and a reader has to be able to look it up.
   'X-HOLD-HOVER-POWER': 'Dwell charged at hover power for the authored time.',
+  'X-HOLD-STATION-POWER': 'Dwell charged at the power to hold position against the planning wind.',
+  'X-HOLD-ORBIT-AIRSPEED': 'Orbit charged at its worst quarter: tangential speed plus the wind.',
+  'X-SHOT-FRAMED': 'Camera geometry computed against this leg\'s resolved altitudes.',
   'X-TERR-SAMPLE-MISSING': 'Some ground under this leg has no elevation; clearance there is unknown.',
 });
 

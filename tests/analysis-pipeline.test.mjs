@@ -1,9 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { destination } from '../src/domain/geo.js';
-import { planMission, U } from '../src/domain/physics.js';
+import { destination, distanceKm } from '../src/domain/geo.js';
+import { planMission, powerAtSpeed, U } from '../src/domain/physics.js';
 import { planRoute } from '../src/domain/route.js';
+import { createTerrainSampler } from '../src/application/terrain/sample-corridor.js';
 import { climbEnergyWh } from '../src/domain/vertical.js';
 import { adaptiveHalfSweep, radiusAtAlpha, fullCircle, polarAreaKm2 } from '../src/sweep.js';
 import { createMission } from '../src/domain/mission/mission-schema.js';
@@ -40,6 +41,15 @@ const moz7 = {
 };
 const nav5000 = { chem: 'liion', s: 6, capAh: 5.0, massG: 499, irPackMilliOhm: 60 };
 
+/* The same airframe as an embedded snapshot, for the fixtures that need the
+ * document to know what the aircraft can do. `maxSpeedMs` is the one M7's
+ * wind-aware hold check reads, and it is read off the document — not off the
+ * planner's inputs — because that is where an imported mission carries it. */
+const MOZ7_SNAPSHOT = {
+  sourceId: 'moz7v2', name: 'GEPRC MOZ7 V2', dryMassG: 843, propDiaIn: 7.5, numRotors: 4,
+  etaProp: 0.55, cdA: 0.042, avionicsW: 12, maxSpeedMs: 30.5, cruiseMs: 18,
+};
+
 function inputs(overrides = {}, envOverrides = {}) {
   return {
     drone: moz7, battery: nav5000, payloadG: 0, extraG: 0,
@@ -69,8 +79,12 @@ const wpAt = (courseDeg, km) => {
  * A mission document from a list of `{ at, altM, intent, holdS }` points. Every
  * command goes through the real reducer — a fixture the reducer would reject is
  * a fixture that proves nothing, so rejections fail the test loudly.
+ *
+ * `scene` is a list of `doc => command` builders applied after the route, so a
+ * fixture can name the segment or subject the reducer just minted. `aircraft` is
+ * an embedded loadout snapshot for the checks that read one.
  */
-function mission(points, { returnMode = null } = {}) {
+function mission(points, { returnMode = null, aircraft = null, scene = [] } = {}) {
   const deps = {
     idgen: idgen(),
     now: () => AT,
@@ -80,6 +94,7 @@ function mission(points, { returnMode = null } = {}) {
     launch: { latitude: AUSTIN.lat, longitude: AUSTIN.lng, elevationMslM: LAUNCH_ELEV_M },
     title: 'fixture',
   }, deps);
+  if (aircraft) doc = missionReduce(doc, { type: 'snapshotLoadout', payload: { aircraft } }, deps);
   for (const p of points) {
     const intent = p.intent ?? 'transit';
     doc = missionReduce(doc, {
@@ -99,6 +114,7 @@ function mission(points, { returnMode = null } = {}) {
       type: 'setReturnPolicy', payload: { mode: returnMode, altitude: null },
     }, deps);
   }
+  for (const command of scene) doc = missionReduce(doc, command(doc), deps);
   return resolveMissionAltitudes(doc).doc;
 }
 
@@ -242,7 +258,7 @@ test('M3b: a climb costs energy and a descent never returns any', () => {
     - climbEnergyWh(plan.cfg.massKg, plan.cfg.etaProp, 60)) < 1e-12);
 });
 
-test('a 120 s orbit costs exactly hover power for 120 s', () => {
+test('a 120 s orbit costs its worst quarter: tangential speed plus the wind', () => {
   const plan = planMission(inputs());
   const points = [{ at: wpAt(0, plan.radiusKm * 0.4) }, { at: wpAt(60, plan.radiusKm * 0.4) }];
   const holdDoc = mission([points[0], { ...points[1], intent: 'orbit', holdS: 120 }]);
@@ -250,10 +266,20 @@ test('a 120 s orbit costs exactly hover power for 120 s', () => {
   const plain = analyze(mission(points));
 
   const seg = segAt(held, holdDoc, 1);
+  const windMs = plan.wind.planningMs;
+  assert.ok(windMs > 1, 'the fixture has to have wind in it for this to be a test');
+
+  // ADR 0011 §3: an orbit is charged at the airspeed of its upwind quarter —
+  // the rate it carries around the circle, plus the wind straight into it — and
+  // that figure goes through the same rotor model as every other speed.
   assert.equal(seg.holdS, 120);
-  assert.equal(seg.holdWh, 120 * held.plan.hover.pW / 3600);
+  assert.equal(seg.holdAirspeedMs, seg.groundSpeedMs + windMs);
+  assert.equal(seg.holdPowerW, powerAtSpeed(plan.cfg, seg.holdAirspeedMs));
+  assert.equal(seg.holdWh, 120 * seg.holdPowerW / 3600);
+  assert.ok(seg.holdWh > 120 * held.plan.hover.pW / 3600,
+    'carrying a circle through a headwind cannot cost less than hovering in still air');
   assert.equal(seg.energyWh, seg.flightWh + seg.holdWh);
-  assert.ok(seg.explanations.includes('X-HOLD-HOVER-POWER'));
+  assert.ok(seg.explanations.includes('X-HOLD-ORBIT-AIRSPEED'));
 
   // The flying is unchanged; the mission total grows by the hold and only the
   // hold. The climb out to 80 m is in both and cancels.
@@ -653,4 +679,325 @@ test('no pack is no ring, however the sweep is wired', () => {
     { sweepKit: SWEEP_KIT });
   assert.equal(snap.plan, null);
   assert.equal(snap.footprint, null);
+});
+
+/* ---------- 10. the shot (M7) ----------
+ *
+ * ADR 0011 §3's claim in three parts: the camera geometry reaches the snapshot
+ * so nothing downstream recomputes it (ADR 0002), a hold pays for the wind it
+ * has to sit in, and a cinematic segment goes through every gate a transit leg
+ * does rather than around them.
+ *
+ * The shot numbers below are hand-derived from a 3-4-5 triangle laid out in
+ * metres, not read back from domain/camera.js. */
+
+/* The ADR's own analytic lens: 36 x 24 mm at 24 mm is exactly 2*atan(0.75)
+ * across and 2*atan(0.5) down. */
+const FULL_FRAME = {
+  name: 'Full-frame mirrorless camera',
+  sensorWidthMm: 36, sensorHeightMm: 24, focalLengthMm: 24, stabilized: false,
+};
+const H_FOV_DEG = 2 * Math.atan(0.75) * 180 / Math.PI;      // 73.7398...
+
+/** `doc => command` builders, so a fixture can name what the reducer just minted. */
+const addSubject = (payload) => () => ({ type: 'addSubject', payload });
+const frameSegment = (i) => (d) => ({
+  type: 'setSegmentSubject',
+  payload: { segmentId: d.route.segments[i].id, subjectRef: d.scene.subjects[0].id },
+});
+const segmentCamera = (i, camera) => (d) => ({
+  type: 'setSegmentCamera', payload: { segmentId: d.route.segments[i].id, camera },
+});
+const withProfile = (profile) => () => ({ type: 'setCameraProfile', payload: { profile } });
+
+const close = (actual, expected, tol, what) => assert.ok(Math.abs(actual - expected) <= tol,
+  `${what}: ${actual} is not within ${tol} of ${expected}`);
+
+/* Leg 1 of this route runs 1000 m due north, level, 80 m above the launch point.
+ * The subject sits 400 m along that leg and 300 m to its right, at exactly the
+ * height the leg is flown at — so every figure below is a 3-4-5 triangle:
+ *
+ *              start ----400m----+----600m---- end     (travelling north)
+ *                                |
+ *                              300m            distance from start = 500 m
+ *                                |             distance from end   = 300*sqrt(5)
+ *                             subject          (mid is 500 m along, so the
+ *                                               subject sits 100 m behind it) */
+const SHOT_WP1 = wpAt(0, 1);
+const SHOT_WP2 = wpAt(0, 2);
+const SHOT_ALT_M = 80;
+const [SHOT_SUB_LAT, SHOT_SUB_LNG] = (() => {
+  const [lat, lng] = destination(SHOT_WP1.lat, SHOT_WP1.lng, 0, 0.4);
+  return destination(lat, lng, 90, 0.3);
+})();
+const SHOT_SUBJECT = {
+  name: 'Pennybacker Bridge',
+  latitude: SHOT_SUB_LAT, longitude: SHOT_SUB_LNG,
+  elevationMslM: LAUNCH_ELEV_M + SHOT_ALT_M,
+  radiusM: 50,
+};
+
+/** The two-waypoint fixture above, with whatever scene the caller asks for. */
+const shotMission = (scene, { subject = SHOT_SUBJECT, intent = 'transit', holdS = null } = {}) =>
+  mission(
+    [{ at: SHOT_WP1, altM: SHOT_ALT_M },
+      { at: SHOT_WP2, altM: SHOT_ALT_M, intent, ...(holdS != null ? { holdS } : {}) }],
+    { aircraft: MOZ7_SNAPSHOT, scene: subject ? [addSubject(subject), ...scene] : scene },
+  );
+
+test('a framed leg carries its whole shot, computed against the altitudes everything else used', () => {
+  const doc = shotMission([frameSegment(1), withProfile(FULL_FRAME)]);
+  const seg = segAt(analyze(doc), doc, 1);
+
+  assert.equal(seg.subjectRef, doc.scene.subjects[0].id);
+  const shot = seg.shot;
+  assert.ok(shot, 'a segment pointed at a subject has a shot');
+  assert.equal(shot.subjectId, doc.scene.subjects[0].id);
+  assert.equal(shot.subjectName, 'Pennybacker Bridge');
+
+  // 3-4-5 from the start, and sqrt(300^2 + 600^2) from the end. The tolerance is
+  // for the geodesic the fixture is laid out on, not for the arithmetic.
+  close(shot.distanceStartM, 500, 0.2, 'distance at the start of the leg');
+  close(shot.distanceEndM, 300 * Math.sqrt(5), 0.2, 'distance at the end of the leg');
+  // From the midpoint the subject is 300 m right and 100 m behind: atan2(300, -100).
+  close(shot.bearingToSubjectDeg, 180 - Math.atan2(300, 100) * 180 / Math.PI, 0.05, 'bearing');
+  // Level with the leg, so the shot is dead flat — exactly, not nearly.
+  assert.equal(shot.elevationAngleDeg, 0);
+  // Northbound leg, subject to the right of travel: it enters frame left while
+  // still ahead and leaves frame right once behind.
+  assert.equal(shot.screenDirection, 'left-to-right');
+
+  // A 50 m radius at 500 m subtends 2*atan(0.1); the frame is 2*atan(0.75) wide.
+  close(shot.framingStart, 2 * Math.atan(50 / 500) * 180 / Math.PI / H_FOV_DEG, 1e-4, 'framing at the start');
+  close(shot.framingEnd, 2 * Math.atan(50 / shot.distanceEndM) * 180 / Math.PI / H_FOV_DEG, 1e-9, 'framing at the end');
+  assert.ok(shot.framingStart > shot.framingEnd, 'the subject fills less frame as the leg leaves it');
+  assert.equal(shot.subjectRadiusM, 50);
+  close(shot.fov.hDeg, H_FOV_DEG, 1e-9, 'horizontal field of view');
+  close(shot.fov.vDeg, 2 * Math.atan(0.5) * 180 / Math.PI, 1e-9, 'vertical field of view');
+  assert.ok(seg.explanations.includes('X-SHOT-FRAMED'));
+});
+
+test('a segment framing nothing has no shot, and a shot missing an input has named nulls', () => {
+  // Nothing attached: no subject reference, no camera bag, no shot at all.
+  const bare = shotMission([], { subject: null });
+  const bareSeg = segAt(analyze(bare), bare, 1);
+  assert.equal(bareSeg.subjectRef, null);
+  assert.equal(bareSeg.camera, null);
+  assert.equal(bareSeg.shot, null);
+  assert.equal(bareSeg.explanations.includes('X-SHOT-FRAMED'), false);
+
+  // A subject at an unknown height: the geometry cannot be had, and every field
+  // that depended on it is null rather than a height standing in for one.
+  const noElev = shotMission([frameSegment(1), withProfile(FULL_FRAME)],
+    { subject: { ...SHOT_SUBJECT, elevationMslM: null } });
+  const floating = segAt(analyze(noElev), noElev, 1).shot;
+  assert.ok(floating, 'the record still exists — it says what is missing');
+  for (const field of ['distanceStartM', 'distanceEndM', 'bearingToSubjectDeg',
+    'elevationAngleDeg', 'screenDirection', 'framingStart', 'framingEnd']) {
+    assert.equal(floating[field], null, `${field} has no value without the subject's height`);
+  }
+  assert.equal(floating.subjectRadiusM, 50, 'what is known is still stated');
+  assert.equal(floating.subjectId, noElev.scene.subjects[0].id);
+
+  // A scene with no lens: the geometry stands, the framing does not.
+  const unprofiled = shotMission([frameSegment(1)]);
+  const shot = segAt(analyze(unprofiled), unprofiled, 1).shot;
+  assert.equal(shot.fov, null);
+  assert.equal(shot.framingStart, null);
+  assert.equal(shot.framingEnd, null);
+  close(shot.distanceStartM, 500, 0.2, 'distance survives an unprofiled camera');
+
+  // A radius nobody measured: same rule, other input.
+  const noRadius = shotMission([frameSegment(1), withProfile(FULL_FRAME)],
+    { subject: { ...SHOT_SUBJECT, radiusM: null } });
+  const unsized = segAt(analyze(noRadius), noRadius, 1).shot;
+  assert.equal(unsized.subjectRadiusM, null);
+  assert.equal(unsized.framingStart, null);
+  close(unsized.distanceStartM, 500, 0.2, 'distance survives an unmeasured subject');
+});
+
+test('the camera bag reaches the snapshot verbatim', () => {
+  const camera = { pitchDeg: -15, yawOffsetDeg: 10, orbit: null };
+  const doc = shotMission([frameSegment(1), segmentCamera(1, camera)]);
+  assert.deepEqual(segAt(analyze(doc), doc, 1).camera, camera);
+});
+
+test('a hold is charged at the airspeed it takes to stay put, calm air included', () => {
+  const doc = mission([{ at: wpAt(0, 1) }, { at: wpAt(0, 2), intent: 'hold', holdS: 90 }]);
+  const holdWhAt = (inp) => {
+    const plan = planMission(inp);
+    const seg = segAt(analyze(doc, inp), doc, 1);
+    assert.equal(seg.holdAirspeedMs, plan.wind.planningMs, 'station-keeping is flying at the wind');
+    assert.equal(seg.holdPowerW, powerAtSpeed(plan.cfg, plan.wind.planningMs));
+    assert.equal(seg.holdWh, 90 * seg.holdPowerW / 3600);
+    assert.ok(seg.explanations.includes('X-HOLD-STATION-POWER'));
+    return { seg, plan };
+  };
+
+  // Calm air: powerAtSpeed(cfg, 0) *is* plan.hover.pW, by construction in
+  // physics.js. The pre-M7 figure is therefore preserved to the bit for a
+  // windless plan — the new model costs nothing where there is nothing to fight.
+  const calm = holdWhAt(inputs({}, { windAvgMs: 0, windGustMs: 0 }));
+  assert.equal(calm.seg.holdAirspeedMs, 0);
+  assert.equal(calm.seg.holdPowerW, calm.plan.hover.pW);
+  assert.equal(calm.seg.holdWh, 90 * calm.plan.hover.pW / 3600);
+
+  // A light wind costs *less* than hovering, and that is the rotor model
+  // speaking rather than a mistake: translational lift makes slow forward
+  // flight cheaper than a hover, and route.js has charged loiter this way since
+  // M1. The claim M7 makes is "the airspeed it takes", not "more".
+  const breeze = holdWhAt(inputs());
+  assert.ok(breeze.plan.wind.planningMs > 0 && breeze.plan.wind.planningMs < 10);
+  assert.ok(breeze.seg.holdWh < calm.seg.holdWh,
+    'a hold in a light breeze is cheaper than a hover — the power curve dips before it climbs');
+
+  // Past the dip the curve climbs steeply, and a real wind costs real energy.
+  const blow = holdWhAt(inputs({}, { windAvgMs: U.mphToMs(30), windGustMs: U.mphToMs(34) }));
+  assert.ok(blow.plan.wind.planningMs > 12);
+  assert.ok(blow.seg.holdWh > calm.seg.holdWh,
+    'holding station against a real wind costs more than hovering in still air');
+  assert.ok(blow.seg.holdWh > breeze.seg.holdWh);
+});
+
+test('a segment that does not station-keep is untouched by the wind-aware hold model', () => {
+  const inp = inputs();
+  const plan = planMission(inp);
+  const points = [wpAt(20, plan.radiusKm * 0.5), wpAt(80, plan.radiusKm * 0.45)];
+  const doc = mission(points.map((at) => ({ at })));
+  const snap = analyze(doc, inp);
+
+  // The same fixture the parity test uses, against the same direct call: a leg
+  // with no dwell is the integrator's own figure and nothing else.
+  const direct = planRoute(plan, {
+    launch: AUSTIN, waypoints: points, windFromDeg: WIND_FROM, inputs: inp,
+  });
+  for (let i = 0; i < 2; i++) {
+    const seg = segAt(snap, doc, i);
+    assert.equal(seg.flightWh, direct.legs[i].whLeg);
+    assert.equal(seg.energyWh, direct.legs[i].whLeg, 'no dwell, so no addition to the leg');
+    assert.equal(seg.holdWh, 0);
+    assert.equal(seg.holdAirspeedMs, null, 'a transit leg is not asked what holding would cost');
+    assert.equal(seg.holdPowerW, null);
+  }
+  assert.equal(snap.route.holdWh, 0);
+  assert.equal(snap.route.missionWh, snap.route.plannedWh + snap.route.verticalWh);
+});
+
+test('a framing intent with nothing to frame is a named warning', () => {
+  const doc = mission([{ at: wpAt(0, 1) }, { at: wpAt(0, 2), intent: 'approach' }],
+    { aircraft: MOZ7_SNAPSHOT });
+  const snap = analyze(doc);
+  const missing = snap.constraints.find((c) => c.code === 'W-SHOT-SUBJECT-MISSING');
+  assert.ok(missing, `expected W-SHOT-SUBJECT-MISSING, got ${codes(snap).join(', ')}`);
+  assert.equal(missing.severity, 'warning');
+  assert.equal(missing.anchor.scope, 'segment', 'subject findings anchor to the segment (ADR 0011 §4)');
+  assert.equal(missing.anchor.refId, doc.route.segments[1].id);
+  assert.match(missing.text, /'approach'/);
+  assert.ok(missing.explanation.limitations.length > 0);
+
+  // Attach a subject to the same leg and the finding goes away.
+  const framed = shotMission([frameSegment(1)], { intent: 'approach' });
+  assert.equal(codes(analyze(framed)).includes('W-SHOT-SUBJECT-MISSING'), false);
+});
+
+test('an orbit inside its own subject, or with no radius at all, is a named warning', () => {
+  // 30 m around a subject 50 m in radius: the circle is inside the thing.
+  const tight = shotMission([frameSegment(1), segmentCamera(1, { orbit: { radiusM: 30, clockwise: true } })],
+    { intent: 'orbit', holdS: 60 });
+  const snapTight = analyze(tight);
+  const inside = snapTight.constraints.find((c) => c.code === 'W-SHOT-ORBIT-RADIUS');
+  assert.ok(inside, `expected W-SHOT-ORBIT-RADIUS, got ${codes(snapTight).join(', ')}`);
+  assert.equal(inside.anchor.refId, tight.route.segments[1].id);
+  assert.match(inside.text, /Pennybacker Bridge/, 'the text names the subject the anchor cannot');
+  assert.match(inside.text, /30 m/);
+  assert.match(inside.text, /50 m/);
+
+  // No radius authored anywhere: unresolvable, and said so rather than guessed.
+  const vague = shotMission([frameSegment(1)], { intent: 'orbit', holdS: 60 });
+  const unresolved = analyze(vague).constraints.find((c) => c.code === 'W-SHOT-ORBIT-RADIUS');
+  assert.ok(unresolved);
+  assert.match(unresolved.text, /no radius authored/);
+
+  // A circle outside the subject, with a radius, says nothing.
+  const clean = shotMission([frameSegment(1), segmentCamera(1, { orbit: { radiusM: 120, clockwise: true } })],
+    { intent: 'orbit', holdS: 60 });
+  const cleanCodes = codes(analyze(clean));
+  assert.equal(cleanCodes.includes('W-SHOT-ORBIT-RADIUS'), false);
+  assert.equal(cleanCodes.includes('W-SHOT-SUBJECT-MISSING'), false);
+  assert.equal(cleanCodes.includes('W-SHOT-HOLD-WIND'), false, 'this wind is well inside the airframe');
+});
+
+test('a hold the airframe cannot fly against the wind is a named warning', () => {
+  const gale = inputs({}, { windAvgMs: U.mphToMs(70), windGustMs: U.mphToMs(80) });
+  assert.ok(planMission(gale).wind.planningMs > MOZ7_SNAPSHOT.maxSpeedMs,
+    'the fixture has to ask for more airspeed than the airframe has');
+
+  const doc = shotMission([frameSegment(1)], { intent: 'hold', holdS: 60 });
+  const snap = analyze(doc, gale);
+  const unflyable = snap.constraints.find((c) => c.code === 'W-SHOT-HOLD-WIND');
+  assert.ok(unflyable, `expected W-SHOT-HOLD-WIND, got ${codes(snap).join(', ')}`);
+  assert.equal(unflyable.severity, 'warning');
+  assert.equal(unflyable.anchor.refId, doc.route.segments[1].id);
+  assert.match(unflyable.text, /Pennybacker Bridge/);
+  assert.match(unflyable.text, /30\.5 m\/s/);
+
+  // The same shot in the fixture's own wind is flyable, and says nothing.
+  assert.equal(codes(analyze(doc)).includes('W-SHOT-HOLD-WIND'), false);
+
+  // And with no aircraft snapshot there is no top speed to check against, so
+  // nothing is claimed either way.
+  const anonymous = mission([{ at: wpAt(0, 1) }, { at: wpAt(0, 2), intent: 'hold', holdS: 60 }]);
+  assert.equal(codes(analyze(anonymous, gale)).includes('W-SHOT-HOLD-WIND'), false);
+});
+
+test('an orbit over a ridge still raises its clearance warning and still debits the reserve', async () => {
+  // 140 m of flat-topped ridge from 1.3 km out, and an orbit held over it at
+  // 40 m above launch — 100 m under the ground it is circling.
+  const surface = (km) => LAUNCH_ELEV_M + (km >= 1.3 && km <= 2.7 ? 140 : 0);
+  const provider = {
+    source: 'synthetic surface', dataset: 'test fixture', resolutionM: 30,
+    attribution: 'Elevation data by the test fixture (no licence, no reality)',
+    async elevations(points) {
+      const elevationsM = points.map((p) => surface(distanceKm(AUSTIN, { lat: p.lat, lng: p.lng })));
+      return {
+        elevationsM,
+        provenance: {
+          source: 'synthetic surface', dataset: 'test fixture', resolutionM: 30,
+          attribution: 'Elevation data by the test fixture (no licence, no reality)',
+          retrievedAt: AT, requested: points.length, answered: points.length,
+          missing: 0, batches: 1, notes: Object.freeze([]),
+        },
+      };
+    },
+  };
+
+  const doc = mission([
+    { at: wpAt(45, 1.0), altM: 40 },
+    { at: wpAt(45, 3.0), altM: 40, intent: 'orbit', holdS: 1800 },
+  ], { aircraft: MOZ7_SNAPSHOT });
+  const level = mission([{ at: wpAt(45, 1.0), altM: 40 }, { at: wpAt(45, 3.0), altM: 40 }]);
+
+  clearAnalysisCache();
+  const dry = analyze(doc);
+  const field = await createTerrainSampler({ provider, crossTrackOffsetM: 300, now: () => AT })(dry.corridor);
+  clearAnalysisCache();
+  const wet = analyze(doc, inputs(), { terrainField: () => field, terrainSignature: 'ridge' });
+
+  // The gate the shot must not bypass: the ground under a cinematic segment is
+  // checked exactly as it is under a transit leg, and the finding anchors at the
+  // sample that caused it.
+  const clearance = wet.constraints.find((c) => c.code === 'W-TERR-CLEARANCE');
+  assert.ok(clearance, `expected W-TERR-CLEARANCE, got ${codes(wet).join(', ')}`);
+  assert.equal(clearance.anchor.scope, 'sample');
+  const seg = segAt(wet, doc, 1);
+  assert.ok(seg.clearance.minM < 0, 'the orbit is flown below the ridge it circles');
+
+  // …and the energy gate too: the dwell is charged, it lands in the mission
+  // total, and it is measured against the loiter budget like any other hold.
+  assert.ok(seg.holdWh > 0);
+  assert.equal(wet.route.holdWh, seg.holdWh);
+  assert.equal(wet.route.missionWh, wet.route.plannedWh + seg.holdWh + wet.route.verticalWh);
+  assert.ok(wet.route.missionWh > analyze(level).route.missionWh, 'the orbit costs the mission something');
+  assert.ok(codes(wet).includes('W-RESERVE-HOLD-BUDGET'),
+    'a 30-minute orbit is past what is left for loitering, and says so');
 });

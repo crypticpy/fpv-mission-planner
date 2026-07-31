@@ -4,6 +4,8 @@ import assert from 'node:assert/strict';
 import { createMission, validateMission, LAUNCH_NODE } from '../src/domain/mission/mission-schema.js';
 import { missionReduce } from '../src/domain/mission/mission-reducer.js';
 import { CONCEPTS, compileMission } from '../src/domain/mission/compile.js';
+import { deriveLosses } from '../src/infrastructure/export/adapter-contracts.js';
+import { EXPORTABLE } from '../src/infrastructure/export/import-router.js';
 
 /* The compiler's promise is that every adapter reads the same numbers and that
  * a number it could not work out is absent rather than invented (ADR 0010 §1,
@@ -42,6 +44,14 @@ const terrain = (latitude) => (latitude === RIDGE.latitude ? 200
 const run = (doc, commands, deps) => commands.reduce((d, c) => missionReduce(d, c, deps), doc);
 
 const wp = (at, rest = {}) => ({ type: 'addWaypoint', payload: { ...at, ...rest } });
+
+/* The lens M7 added as its own concept. 36 x 24 mm at 24 mm is the ADR's own
+ * analytic case, and the compiler only ever reads its name and focal length. */
+const FULL_FRAME = {
+  name: 'Full-frame mirrorless camera',
+  sensorWidthMm: 36, sensorHeightMm: 24, focalLengthMm: 24, stabilized: false,
+};
+const setProfile = (profile) => ({ type: 'setCameraProfile', payload: { profile } });
 
 /**
  * A mission at Austin with an aircraft attached and whatever route the caller
@@ -254,6 +264,50 @@ test('camera intent is inventoried from a framing intent, a subject, or a camera
   assert.match(detailOf(subject, 'camera-intent'), /1 camera-directed segment/);
 
   assert.equal(concepts(compileMission(routed())).includes('camera-intent'), false);
+});
+
+test('an approach is a camera-directed segment and is counted as one (M7)', () => {
+  const approach = compileMission(mission({ commands: [wp(RIDGE, { intent: 'approach' })] }));
+  assert.ok(concepts(approach).includes('camera-intent'), 'an approach frames what it approaches');
+  assert.equal(detailOf(approach, 'camera-intent'), '1 camera-directed segment');
+
+  const mixed = compileMission(mission({
+    commands: [wp(RIDGE, { intent: 'approach' }), wp(SADDLE, { intent: 'reveal' })],
+  }));
+  assert.equal(detailOf(mixed, 'camera-intent'), '2 camera-directed segments');
+});
+
+test('a camera profile is its own concept, named by the lens it is (M7)', () => {
+  const profiled = compileMission(mission({
+    commands: [wp(RIDGE), wp(SADDLE), setProfile(FULL_FRAME)],
+  }), { terrainSampler: terrain });
+
+  assert.ok(concepts(profiled).includes('camera-profile'));
+  assert.equal(detailOf(profiled, 'camera-profile'), 'Full-frame mirrorless camera at 24 mm');
+  // It is the profile that puts it there, not the shot: a framed route with no
+  // lens attached says camera-intent and nothing about a camera.
+  assert.equal(concepts(compileMission(framed(routed()))).includes('camera-profile'), false);
+  assert.equal(concepts(compileMission(routed())).includes('camera-profile'), false);
+});
+
+test('a camera profile is a named loss in every format we can write (ADR 0010 §2)', () => {
+  // No adapter's SUPPORT table mentions camera-profile, so an undeclared concept
+  // degrades every existing format honestly with no adapter author involved.
+  // That this is free is the point (ADR 0011 §6).
+  const profiled = compileMission(mission({
+    commands: [wp(RIDGE), wp(SADDLE), setProfile(FULL_FRAME)],
+  }), { terrainSampler: terrain });
+
+  assert.ok(EXPORTABLE.length >= 5, 'every writable format is in this check');
+  for (const adapter of EXPORTABLE) {
+    assert.equal(Object.hasOwn(adapter.support, 'camera-profile'), false,
+      `${adapter.format.id} declares nothing about camera-profile, and does not have to`);
+    const loss = deriveLosses(profiled.inventory, adapter.support)
+      .find((l) => l.concept === 'camera-profile');
+    assert.ok(loss, `${adapter.format.id} must name the profile as a loss`);
+    assert.equal(loss.disposition, 'dropped');
+    assert.equal(loss.detail, 'Full-frame mirrorless camera at 24 mm');
+  }
 });
 
 test("a return mode of 'none' is not a return policy the mission uses", () => {
