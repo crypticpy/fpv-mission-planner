@@ -14,6 +14,7 @@ import {
   state, beginner, drone, battery, compatibleBatteries, missionInputs, scenario, units,
   saveSession, restoreSession, packPreheatSeedF, PACK_TEMP_RANGE_F,
 } from './state.js';
+import { loadMapState } from './store.js';
 import { $, fillSelect } from './render/dom.js';
 import { f0 } from './render/format.js';
 import {
@@ -522,7 +523,19 @@ setupMapView({
 // is (src/mission-bridge.js's header has the whole story).
 setupMissionBridge({
   seed: missionSeed,
-  onLaunchRestored: restoreLaunch,
+  onLaunchRestored: (launch) => {
+    // Read before restoreLaunch overwrites the saved point it is compared to.
+    const prev = loadMapState();
+    restoreLaunch(launch);
+    // A live sky is the launch point's sky: a document swap that lands somewhere
+    // else needs its own fetch, exactly as dragging the pin there does through
+    // the map deps. Same-spot restores — every normal boot — fetch nothing, so
+    // the boot fetch three lines below this wiring is not doubled.
+    const moved = !prev
+      || Math.abs(prev.lat - launch.latitude) > 1e-6
+      || Math.abs(prev.lng - launch.longitude) > 1e-6;
+    if (moved && state.weatherId === 'live') goLive();
+  },
   requestRender: update,
   onMissionChanged: renderMissions,
   onStorage: renderMissionStorage,
