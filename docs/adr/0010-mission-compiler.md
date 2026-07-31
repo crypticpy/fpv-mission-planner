@@ -75,7 +75,7 @@ re-referenced within tolerance). Loss `disposition` is
 | KML | `.kml` | yes | no | LineString `absolute` altitude mode; visualization only |
 | QGroundControl Plan | `.plan` | yes | yes | JSON, `fileType:"Plan"`; MAV_CMD items |
 | ArduPilot / MAVLink WPL | `.waypoints` | yes | yes | `QGC WPL 110` tab-separated text |
-| INAV mission | `.mission` | yes | no* | XML per current INAV Configurator source; *import lands with M6 if the verified format round-trips, else desk-noted |
+| INAV mission | `.mission` | yes | yes | XML per current INAV Configurator source; import shipped after round-trip verification (see Consequences) |
 | Betaflight | — | no | no | experimental upstream; stays out per the plan rule |
 
 Adapter authors verify field semantics against **official documentation or
@@ -142,5 +142,19 @@ security posture a hand-rolled parser can honestly claim.
 - A new concept (M7 camera profiles) is one new inventory entry plus a
   support-table row per adapter — existing adapters degrade honestly by
   default because an undeclared concept is treated as `unsupported`.
-- The INAV import decision (ship vs desk-note) is made by the implementing
-  wave against verified source, and recorded here when made.
+- **INAV import ships (decided M6 wave C, 2026-07-31).** The condition was
+  verified round-tripping against real format evidence, and it is met. INAV
+  publishes an XSD and two complete sample mission files, and the Configurator
+  source that writes these files is the same source that reads them — so every
+  attribute this adapter touches has a checkable definition on both sides, not
+  a guess. Both published samples are carried as fixtures and import clean.
+  The format's only lossy behaviours are quantisation: altitude is integer
+  metres on disk (the Configurator truncates, so the adapter rounds and
+  reports a loss when the rounding moved the number) and speed is centimetres
+  per second. Both sit well inside the round-trip tolerances above. The format
+  cannot express AGL at all — its datum is a single bit, relative-to-home or
+  AMSL — so `altitude-reference` is `approximate` and an AGL altitude is
+  re-referenced with a named loss rather than written as authored. Writing the
+  importer paid for itself immediately: the multi-mission sample exposed a
+  header-scoping defect that placed the launch point ~950 m from the mission
+  it belonged to.
