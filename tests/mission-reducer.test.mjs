@@ -170,6 +170,24 @@ const rejections = [
   ['a reserve that is not an object', { type: 'setPlanningPolicy', payload: { reserve: 25 } }, 'reserve'],
   ['a snapshot that is a bare id', { type: 'snapshotLoadout', payload: { aircraft: 'moz7v2' } }, 'aircraft'],
   ['an environment source nobody defined', { type: 'setEnvironmentReference', payload: { source: 'vibes' } }, 'source'],
+  // ADR 0011 §2 (M7 wave B) — the cinematic bags' own commands.
+  ['adding a subject with no coordinates', { type: 'addSubject', payload: { name: 'X' } }, 'latitude/longitude'],
+  ['moving a subject that is not in this scene', { type: 'moveSubject', payload: { id: 'sub_99', latitude: 30, longitude: -97 } }, 'id'],
+  ['removing a subject that is not in this scene', { type: 'removeSubject', payload: { id: 'sub_99' } }, 'id'],
+  ['a segment camera with orbit settings on a non-orbit intent', {
+    type: 'setSegmentCamera', payload: { segmentId: 'seg_3', camera: { orbit: { radiusM: 10, clockwise: true } } },
+  }, 'camera.orbit'],
+  ['a segment subject pointing at a subject that does not exist', {
+    type: 'setSegmentSubject', payload: { segmentId: 'seg_3', subjectRef: 'sub_99' },
+  }, 'subjectRef'],
+  ['a dwell time on a segment hold command for a transit leg', { type: 'setSegmentHold', payload: { segmentId: 'seg_3', holdS: 20 } }, 'holdS'],
+  ['a camera profile with an unknown key', {
+    type: 'setCameraProfile',
+    payload: { profile: { name: 'X', sensorWidthMm: 6, sensorHeightMm: 4, focalLengthMm: 3, stabilized: true, extra: 1 } },
+  }, 'profile.extra'],
+  ['a scene template with no name', { type: 'saveSceneTemplate', payload: { name: '', intent: 'transit' } }, 'name'],
+  ['applying a template that does not exist', { type: 'applySceneTemplate', payload: { templateId: 'tpl_99', segmentId: 'seg_3' } }, 'templateId'],
+  ['removing a scene template that does not exist', { type: 'removeSceneTemplate', payload: { id: 'tpl_99' } }, 'id'],
 ];
 
 for (const [label, command, path] of rejections) {
@@ -417,7 +435,19 @@ test('setSegmentIntent drops a dwell time that no longer means anything', () => 
 
 test('every command in MISSION_COMMANDS actually changes something', () => {
   const deps = harness();
-  const doc = routed(deps);
+  // A subject, a template and a holding leg, seeded so the subject/template
+  // -referencing commands below have something real to point at — addSubject
+  // and saveSceneTemplate get their own dedicated happy-path tests; this
+  // fixture only needs their result, not their behaviour re-checked here.
+  const doc = run(routed(deps), [
+    { type: 'addSubject', payload: { latitude: 30.35, longitude: -97.85, name: 'Windmill' } },
+    { type: 'saveSceneTemplate', payload: { name: 'Flyby', intent: 'transit' } },
+    wp(30.7, -98.2, { intent: 'hold', holdS: 15 }),
+  ], deps);
+  const [subject] = doc.scene.subjects;
+  const [template] = doc.scene.templates;
+  const holdSegment = doc.route.segments.find((s) => s.intent === 'hold');
+
   const exercised = {
     setTitle: { title: 'x' },
     setLaunch: { latitude: 30.2, longitude: -97.7 },
@@ -431,6 +461,18 @@ test('every command in MISSION_COMMANDS actually changes something', () => {
     setPlanningPolicy: { windLevel: 40 },
     snapshotLoadout: { aircraft: AIRCRAFT },
     setEnvironmentReference: { source: 'live' },
+    addSubject: { latitude: 30.37, longitude: -97.87, name: 'Silo' },
+    moveSubject: { id: subject.id, latitude: 30.36, longitude: -97.86 },
+    removeSubject: { id: subject.id },
+    setSegmentCamera: { segmentId: 'seg_3', camera: { pitchDeg: -10 } },
+    setSegmentSubject: { segmentId: 'seg_3', subjectRef: subject.id },
+    setSegmentHold: { segmentId: holdSegment.id, holdS: 45 },
+    setCameraProfile: {
+      profile: { name: 'GoPro', sensorWidthMm: 6.17, sensorHeightMm: 4.63, focalLengthMm: 3, stabilized: true },
+    },
+    saveSceneTemplate: { name: 'Orbit', intent: 'orbit', holdS: 20 },
+    applySceneTemplate: { templateId: template.id, segmentId: 'seg_3' },
+    removeSceneTemplate: { id: template.id },
   };
   assert.deepEqual(Object.keys(exercised).sort(), [...MISSION_COMMANDS].sort(),
     'the exported command list and this test agree on what exists');
@@ -526,4 +568,205 @@ test('the reducer works without any deps at all', () => {
   assert.equal(next.route.waypoints.length, 1);
   assert.match(next.route.waypoints[0].id, /^wpt_/);
   assert.deepEqual(validateMission(next).errors, []);
+});
+
+/* ---------- ADR 0011 §2 (M7 wave B): the cinematic bags' own commands ---------- */
+
+test('addSubject mints a subject and defaults an omitted name', () => {
+  const deps = harness();
+  const next = missionReduce(routed(deps), { type: 'addSubject', payload: { latitude: 30.35, longitude: -97.85 } }, deps);
+  assert.equal(next.scene.subjects.length, 1);
+  assert.equal(next.scene.subjects[0].name, 'Untitled subject');
+  assert.match(next.scene.subjects[0].id, /^sub_/);
+  assert.deepEqual(validateMission(next).errors, []);
+});
+
+test('addSubject takes an elevation and a radius when offered one', () => {
+  const deps = harness();
+  const next = missionReduce(routed(deps), {
+    type: 'addSubject', payload: { latitude: 30.35, longitude: -97.85, name: 'Windmill', elevationMslM: 320, radiusM: 15 },
+  }, deps);
+  assert.deepEqual(next.scene.subjects[0], {
+    id: next.scene.subjects[0].id, name: 'Windmill', latitude: 30.35, longitude: -97.85, elevationMslM: 320, radiusM: 15,
+  });
+});
+
+test('moveSubject moves one subject and nothing else', () => {
+  const deps = harness();
+  const doc = missionReduce(routed(deps), {
+    type: 'addSubject', payload: { latitude: 30.35, longitude: -97.85, name: 'Windmill' },
+  }, deps);
+  const [subject] = doc.scene.subjects;
+  const next = missionReduce(doc, { type: 'moveSubject', payload: { id: subject.id, latitude: 30.36, longitude: -97.86 } }, deps);
+  assert.deepEqual(next.scene.subjects[0], { ...subject, latitude: 30.36, longitude: -97.86 });
+  assert.deepEqual(validateMission(next).errors, []);
+});
+
+test("removeSubject nulls every segment's dangling subjectRef in the same reduction", () => {
+  const deps = harness();
+  const withSubject = missionReduce(routed(deps), {
+    type: 'addSubject', payload: { latitude: 30.35, longitude: -97.85, name: 'Windmill' },
+  }, deps);
+  const [subject] = withSubject.scene.subjects;
+  const referenced = run(withSubject, [
+    { type: 'setSegmentSubject', payload: { segmentId: 'seg_3', subjectRef: subject.id } },
+    { type: 'setSegmentSubject', payload: { segmentId: 'seg_7', subjectRef: subject.id } },
+  ], deps);
+  assert.equal(referenced.route.segments[0].subjectRef, subject.id);
+  assert.equal(referenced.route.segments[2].subjectRef, subject.id);
+
+  const next = missionReduce(referenced, { type: 'removeSubject', payload: { id: subject.id } }, deps);
+  assert.deepEqual(next.scene.subjects, []);
+  assert.equal(next.route.segments[0].subjectRef, null, 'the leg that pointed at it is not left dangling');
+  assert.equal(next.route.segments[2].subjectRef, null, 'neither is the other one');
+  assert.equal(next.route.segments[1].subjectRef, null, 'an unrelated leg was never pointing at it');
+  assert.deepEqual(validateMission(next).errors, [], 'the document is never invalid between commands');
+});
+
+test('setSegmentCamera replaces the whole shot geometry, not a merge', () => {
+  const deps = harness();
+  const doc = missionReduce(routed(deps), {
+    type: 'setSegmentCamera', payload: { segmentId: 'seg_3', camera: { pitchDeg: -20, yawOffsetDeg: 10 } },
+  }, deps);
+  const next = missionReduce(doc, { type: 'setSegmentCamera', payload: { segmentId: 'seg_3', camera: { pitchDeg: -5 } } }, deps);
+  assert.deepEqual(next.route.segments[0].camera, { pitchDeg: -5, yawOffsetDeg: null, orbit: null },
+    'the old yawOffsetDeg is gone, not carried over');
+});
+
+test('setSegmentCamera clears the shot geometry with null', () => {
+  const deps = harness();
+  const doc = missionReduce(routed(deps), {
+    type: 'setSegmentCamera', payload: { segmentId: 'seg_3', camera: { pitchDeg: -20 } },
+  }, deps);
+  const next = missionReduce(doc, { type: 'setSegmentCamera', payload: { segmentId: 'seg_3', camera: null } }, deps);
+  assert.equal(next.route.segments[0].camera, null);
+  assert.deepEqual(validateMission(next).errors, []);
+});
+
+test('setSegmentSubject sets, then clears with null', () => {
+  const deps = harness();
+  const withSubject = missionReduce(routed(deps), {
+    type: 'addSubject', payload: { latitude: 30.35, longitude: -97.85, name: 'Windmill' },
+  }, deps);
+  const [subject] = withSubject.scene.subjects;
+  const linked = missionReduce(withSubject, { type: 'setSegmentSubject', payload: { segmentId: 'seg_3', subjectRef: subject.id } }, deps);
+  assert.equal(linked.route.segments[0].subjectRef, subject.id);
+  const cleared = missionReduce(linked, { type: 'setSegmentSubject', payload: { segmentId: 'seg_3', subjectRef: null } }, deps);
+  assert.equal(cleared.route.segments[0].subjectRef, null);
+  assert.deepEqual(validateMission(cleared).errors, []);
+});
+
+test('setSegmentHold changes only the dwell time', () => {
+  const deps = harness();
+  const doc = missionReduce(routed(deps), {
+    type: 'setSegmentIntent', payload: { segmentId: 'seg_3', intent: 'hold', holdS: 10 },
+  }, deps);
+  const next = missionReduce(doc, { type: 'setSegmentHold', payload: { segmentId: 'seg_3', holdS: 45 } }, deps);
+  assert.equal(next.route.segments[0].holdS, 45);
+  assert.equal(next.route.segments[0].intent, 'hold');
+  assert.deepEqual(validateMission(next).errors, []);
+});
+
+test("setCameraProfile swaps the mission's one active preset, or clears it with null", () => {
+  const deps = harness();
+  const profile = { name: 'GoPro HERO-class', sensorWidthMm: 6.17, sensorHeightMm: 4.63, focalLengthMm: 3, stabilized: true };
+  const doc = missionReduce(routed(deps), { type: 'setCameraProfile', payload: { profile } }, deps);
+  assert.deepEqual(doc.scene.cameraProfile, profile);
+  const next = missionReduce(doc, { type: 'setCameraProfile', payload: { profile: null } }, deps);
+  assert.equal(next.scene.cameraProfile, null);
+});
+
+test('saveSceneTemplate mints a reusable preset', () => {
+  const deps = harness();
+  const next = missionReduce(routed(deps), {
+    type: 'saveSceneTemplate',
+    payload: { name: 'Orbit reveal', intent: 'orbit', holdS: 20, camera: { orbit: { radiusM: 15, clockwise: true } } },
+  }, deps);
+  assert.equal(next.scene.templates.length, 1);
+  assert.match(next.scene.templates[0].id, /^tpl_/);
+  assert.equal(next.scene.templates[0].holdS, 20);
+  assert.deepEqual(validateMission(next).errors, []);
+});
+
+test('applySceneTemplate copies intent/holdS/camera onto a segment, never a live reference', () => {
+  const deps = harness();
+  const doc = missionReduce(routed(deps), {
+    type: 'saveSceneTemplate',
+    payload: { name: 'Orbit reveal', intent: 'orbit', holdS: 20, camera: { orbit: { radiusM: 15, clockwise: true } } },
+  }, deps);
+  const [template] = doc.scene.templates;
+  const next = missionReduce(doc, { type: 'applySceneTemplate', payload: { templateId: template.id, segmentId: 'seg_3' } }, deps);
+  assert.equal(next.route.segments[0].intent, 'orbit');
+  assert.equal(next.route.segments[0].holdS, 20);
+  assert.deepEqual(next.route.segments[0].camera, { pitchDeg: null, yawOffsetDeg: null, orbit: { radiusM: 15, clockwise: true } });
+  assert.deepEqual(validateMission(next).errors, []);
+
+  // Removing the template afterward must not reach back into the segment that
+  // already applied it — the copy is a snapshot, not a reference (ADR 0011 §2).
+  const removed = missionReduce(next, { type: 'removeSceneTemplate', payload: { id: template.id } }, deps);
+  assert.equal(removed.route.segments[0].intent, 'orbit', 'seg_3 keeps its copy after the template is gone');
+  assert.deepEqual(removed.route.segments[0].camera, { pitchDeg: null, yawOffsetDeg: null, orbit: { radiusM: 15, clockwise: true } });
+});
+
+test("applySceneTemplate deep-copies the camera — mutating the template's own object does not reach the segment", () => {
+  const deps = harness();
+  const doc = missionReduce(routed(deps), {
+    type: 'saveSceneTemplate',
+    payload: { name: 'Orbit reveal', intent: 'orbit', holdS: 20, camera: { orbit: { radiusM: 15, clockwise: true } } },
+  }, deps);
+  const [template] = doc.scene.templates;
+  const next = missionReduce(doc, { type: 'applySceneTemplate', payload: { templateId: template.id, segmentId: 'seg_3' } }, deps);
+  // A direct, low-level mutation of the stored template's own camera object —
+  // this is the "no live reference" contract at the object-identity level,
+  // not merely "the values happened to differ afterward".
+  template.camera.orbit.radiusM = 999;
+  assert.equal(next.route.segments[0].camera.orbit.radiusM, 15, "the segment holds its own copy, not the template's object");
+});
+
+test('applySceneTemplate drops holdS when the template intent does not hold station', () => {
+  const deps = harness();
+  const doc = run(routed(deps), [
+    { type: 'setSegmentIntent', payload: { segmentId: 'seg_3', intent: 'hold', holdS: 60 } },
+    { type: 'saveSceneTemplate', payload: { name: 'Flyby', intent: 'transit' } },
+  ], deps);
+  const [template] = doc.scene.templates;
+  const next = missionReduce(doc, { type: 'applySceneTemplate', payload: { templateId: template.id, segmentId: 'seg_3' } }, deps);
+  assert.equal(next.route.segments[0].intent, 'transit');
+  assert.equal(next.route.segments[0].holdS, null, 'no orphan dwell time left behind, the same as setSegmentIntent');
+});
+
+test('removeSceneTemplate drops the preset without touching any segment that already applied it', () => {
+  const deps = harness();
+  const doc = missionReduce(routed(deps), {
+    type: 'saveSceneTemplate', payload: { name: 'Orbit reveal', intent: 'orbit', holdS: 20 },
+  }, deps);
+  const [template] = doc.scene.templates;
+  const applied = missionReduce(doc, { type: 'applySceneTemplate', payload: { templateId: template.id, segmentId: 'seg_3' } }, deps);
+  const next = missionReduce(applied, { type: 'removeSceneTemplate', payload: { id: template.id } }, deps);
+  assert.deepEqual(next.scene.templates, []);
+  assert.equal(next.route.segments[0].intent, 'orbit', 'already-applied segments are untouched');
+});
+
+/* A gap this wave leaves rather than papering over: setSegmentIntent never
+ * touches segment.camera, so switching a segment off 'orbit' while it still
+ * carries camera.orbit settings leaves an orbit-shaped camera on what is now a
+ * non-orbit segment — which the validator catches (E-SEG-CAMERA-ORBIT). The
+ * document is never left invalid: missionReduce's own safety net sees that
+ * error as newly introduced by this command and rejects the command outright,
+ * so the segment keeps its old intent rather than a broken new one. It is a
+ * usability gap (the pilot has to clear the camera first), not a soundness one. */
+test('setSegmentIntent off orbit is rejected, not silently corrupting, when camera.orbit is still set', () => {
+  const deps = harness();
+  const withOrbitCamera = missionReduce(
+    missionReduce(routed(deps), { type: 'setSegmentIntent', payload: { segmentId: 'seg_3', intent: 'orbit', holdS: 20 } }, deps),
+    { type: 'setSegmentCamera', payload: { segmentId: 'seg_3', camera: { orbit: { radiusM: 15, clockwise: true } } } },
+    deps,
+  );
+  assert.equal(withOrbitCamera.route.segments[0].camera.orbit.radiusM, 15);
+  assert.deepEqual(deps.warnings, [], 'both setup commands succeed cleanly');
+
+  const next = missionReduce(withOrbitCamera, { type: 'setSegmentIntent', payload: { segmentId: 'seg_3', intent: 'transit' } }, deps);
+  assert.equal(next, withOrbitCamera, 'rejected: the document is never handed back invalid');
+  assert.equal(deps.warnings[0].code, 'W-CMD-REJECTED');
+  assert.match(deps.warnings[0].path, /camera\.orbit/);
 });

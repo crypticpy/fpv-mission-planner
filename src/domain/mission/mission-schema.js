@@ -37,8 +37,13 @@
 // return as direct-to-launch, and inventing a segment for it would give the
 // pilot a leg they cannot edit.
 
+// scene-schema.js owns the shape of the M7 cinematic bags (ADR 0011 §2) and
+// imports nothing; this file wires its checks into validateMission's report so
+// its own growth stays wiring rather than a second copy of the shape rules.
+import { NAME_MAX_LEN, isValidName, checkCameraShape, checkCameraProfile } from './scene-schema.js';
+
 /** @typedef {'launchRelative'|'agl'|'msl'} AltitudeReference */
-/** @typedef {'transit'|'reveal'|'orbit'|'hold'|'pass'|'return'} SegmentIntent */
+/** @typedef {'transit'|'reveal'|'orbit'|'hold'|'pass'|'return'|'approach'} SegmentIntent */
 /** @typedef {'cruise'|'fixed'|'maxRange'} SpeedMode */
 /** @typedef {'direct'|'retrace'|'none'} ReturnMode */
 /** @typedef {'live'|'preset'|'manual'} EnvironmentSource */
@@ -67,7 +72,7 @@
  * @property {SegmentIntent} intent
  * @property {number|null} [holdS]      seconds; hold/orbit only
  * @property {string|null} [subjectRef] a scene subject id
- * @property {Bag|null} [camera]        M7 owns the shape; carried verbatim
+ * @property {SegmentCamera|null} [camera] M7 wave B's validated shot geometry
  * @property {Bag|null} [overrides]     per-segment policy escapes
  */
 
@@ -160,7 +165,39 @@
  */
 
 /** @typedef {{ id: string, name: string, latitude: number, longitude: number, elevationMslM: number|null, radiusM: number|null }} Subject */
-/** @typedef {{ subjects: Subject[], cameraProfile: Bag|null }} Scene */
+
+/**
+ * `scene.cameraProfile`'s validated shape (ADR 0011 §2); a small catalog of
+ * presets lives in src/catalog/cameras.js, in the same shape.
+ * @typedef {object} CameraProfile
+ * @property {string} name
+ * @property {number} sensorWidthMm
+ * @property {number} sensorHeightMm
+ * @property {number} focalLengthMm
+ * @property {boolean} stabilized
+ */
+
+/**
+ * `segment.camera`'s validated shape, shared verbatim by `SceneTemplate.camera`
+ * (ADR 0011 §2). `orbit` is meaningful only on intent `'orbit'`.
+ * @typedef {object} SegmentCamera
+ * @property {number|null} pitchDeg
+ * @property {number|null} yawOffsetDeg
+ * @property {{ radiusM: number, clockwise: boolean }|null} orbit
+ */
+
+/**
+ * A reusable shot preset stored in the mission. Applying one to a segment
+ * copies `intent`/`holdS`/`camera` onto it — no live reference back here.
+ * @typedef {object} SceneTemplate
+ * @property {string} id
+ * @property {string} name
+ * @property {SegmentIntent} intent
+ * @property {number|null} holdS
+ * @property {SegmentCamera|null} camera
+ */
+
+/** @typedef {{ subjects: Subject[], cameraProfile: CameraProfile|null, templates: SceneTemplate[] }} Scene */
 
 /**
  * Where this document came from — not the provenance of the evidence inside it,
@@ -199,15 +236,15 @@ export const MISSION_SCHEMA_VERSION = 1;
 /** The one node in the route graph that is not a waypoint. */
 export const LAUNCH_NODE = 'launch';
 
-/** ADR 0002's id prefixes, by what they name. */
+/** ADR 0002's id prefixes, by what they name. ADR 0011 §2 adds `template`. */
 export const ID_PREFIXES = Object.freeze({
-  mission: 'msn', waypoint: 'wpt', segment: 'seg', constraint: 'con', subject: 'sub',
+  mission: 'msn', waypoint: 'wpt', segment: 'seg', constraint: 'con', subject: 'sub', template: 'tpl',
 });
 
 /** @type {readonly string[]} */
 export const ALTITUDE_REFERENCES = Object.freeze(['launchRelative', 'agl', 'msl']);
 /** @type {readonly string[]} */
-export const SEGMENT_INTENTS = Object.freeze(['transit', 'reveal', 'orbit', 'hold', 'pass', 'return']);
+export const SEGMENT_INTENTS = Object.freeze(['transit', 'reveal', 'orbit', 'hold', 'pass', 'return', 'approach']);
 /** The intents a dwell time means something for; `holdS` is rejected on all others. */
 export const HOLD_INTENTS = Object.freeze(['hold', 'orbit']);
 /** @type {readonly string[]} */
@@ -420,7 +457,7 @@ export function createMission(opts, deps = {}) {
     environmentReference: opts.environmentReference ?? defaultEnvironmentReference(),
     route: { waypoints: [], segments: [], returnPolicy: opts.returnPolicy ?? defaultReturnPolicy() },
     planningPolicy: { ...defaultPlanningPolicy(), ...opts.planningPolicy },
-    scene: { subjects: [], cameraProfile: null },
+    scene: { subjects: [], cameraProfile: null, templates: [] },
     provenance: { ...defaultProvenance(), ...opts.provenance },
   };
 }
@@ -472,7 +509,7 @@ export function validateMission(doc) {
   checkLaunch(doc.launch, err, warn);
   checkSnapshots(doc, err, warn);
   checkEnvironment(doc.environmentReference, err, warn);
-  const subjectIds = checkScene(doc.scene, err);
+  const subjectIds = checkScene(doc.scene, err, warn);
   checkRoute(doc.route, subjectIds, err, warn);
   checkPlanningPolicy(doc.planningPolicy, err);
   if (!isObj(doc.provenance)) err('provenance', 'E-PROV-MISSING', 'Provenance block is missing.');
@@ -543,10 +580,10 @@ function checkEnvironment(envRef, err, warn) {
 }
 
 /**
- * @param {unknown} scene @param {Report} err
+ * @param {unknown} scene @param {Report} err @param {Report} warn
  * @returns {Set<string>} the subject ids segments may point at
  */
-function checkScene(scene, err) {
+function checkScene(scene, err, warn) {
   /** @type {Set<string>} */ const ids = new Set();
   if (!isObj(scene)) { err('scene', 'E-SCENE-MISSING', 'Scene block is missing.'); return ids; }
   if (!Array.isArray(scene.subjects)) {
@@ -562,7 +599,54 @@ function checkScene(scene, err) {
     if (!isNum(s.latitude) || !isNum(s.longitude)) {
       err(path, 'E-GEO-RANGE', 'A subject needs a finite latitude and longitude.');
     }
+    if (!isValidName(s.name)) {
+      err(`${path}.name`, 'E-SUBJECT-NAME', `Subject name must be non-empty text of at most ${NAME_MAX_LEN} characters.`);
+    }
+    if (s.elevationMslM !== null && s.elevationMslM !== undefined && !isNum(s.elevationMslM)) {
+      err(`${path}.elevationMslM`, 'E-SUBJECT-ELEVATION', 'Subject elevation must be a number of metres MSL, or null.');
+    }
+    if (s.radiusM !== null && s.radiusM !== undefined && !isNum(s.radiusM)) {
+      err(`${path}.radiusM`, 'E-SUBJECT-RADIUS', 'Subject radius must be a number of metres, or null.');
+    }
   });
+
+  checkCameraProfile(scene.cameraProfile, 'scene.cameraProfile', err);
+
+  // Missing entirely (an old, pre-M7 document) reads as [] — only a present,
+  // non-list value is a structural error.
+  if (scene.templates !== undefined) {
+    if (!Array.isArray(scene.templates)) {
+      err('scene.templates', 'E-TPL-LIST', 'scene.templates must be a list.');
+    } else {
+      /** @type {Set<string>} */ const tplIds = new Set();
+      scene.templates.forEach((t, i) => {
+        const path = `scene.templates[${i}]`;
+        if (!isObj(t)) { err(path, 'E-TPL-TYPE', 'A template must be an object.'); return; }
+        if (!isStr(t.id)) err(`${path}.id`, 'E-ID-MISSING', 'A template needs a stable id.');
+        else if (tplIds.has(t.id)) err(`${path}.id`, 'E-ID-DUPLICATE', `Duplicate template id '${t.id}'.`);
+        else tplIds.add(t.id);
+
+        if (!isValidName(t.name)) {
+          err(`${path}.name`, 'E-TPL-NAME', `Template name must be non-empty text of at most ${NAME_MAX_LEN} characters.`);
+        }
+
+        if (!isSegmentIntent(t.intent)) {
+          err(`${path}.intent`, 'E-TPL-INTENT', `Intent must be one of ${SEGMENT_INTENTS.join(', ')}.`);
+        } else if (intentHoldsStation(t.intent)) {
+          if (t.holdS === null || t.holdS === undefined) {
+            warn(`${path}.holdS`, 'W-TPL-HOLD-UNKNOWN', `A '${t.intent}' template has no dwell time yet.`);
+          } else if (!isNum(t.holdS) || t.holdS < 0) {
+            err(`${path}.holdS`, 'E-TPL-HOLD', 'Dwell time must be a non-negative number of seconds.');
+          }
+        } else if (t.holdS !== null && t.holdS !== undefined) {
+          err(`${path}.holdS`, 'E-TPL-HOLD', `A '${t.intent}' template cannot carry a dwell time.`);
+        }
+
+        checkCameraShape(t.camera, t.intent, `${path}.camera`, 'E-TPL-CAMERA', err);
+      });
+    }
+  }
+
   return ids;
 }
 
@@ -660,11 +744,9 @@ function checkRoute(route, subjectIds, err, warn) {
           `Segment points at subject '${String(s.subjectRef)}', which is not in the scene.`);
       }
     }
-    for (const key of ['camera', 'overrides']) {
-      const v = s[key];
-      if (v !== null && v !== undefined && !isObj(v)) {
-        err(`${path}.${key}`, 'E-SEG-BAG', `${key} must be an object or null.`);
-      }
+    checkCameraShape(s.camera, s.intent, `${path}.camera`, 'E-SEG-CAMERA', err);
+    if (s.overrides !== null && s.overrides !== undefined && !isObj(s.overrides)) {
+      err(`${path}.overrides`, 'E-SEG-BAG', 'overrides must be an object or null.');
     }
   });
 

@@ -371,11 +371,19 @@ for (const makeEnv of ENVIRONMENTS) {
     await repo.save(doc);
 
     // A live object where plain data belongs: R-OFFLINE F12. It passes
-    // validation — nothing here inspects cameraProfile — and dies at the store.
+    // validation — a subject's own fields are checked but extra keys on the
+    // bag are not (ADR 0011 §2 only puts an unknown-key gate on the camera
+    // and camera-profile shapes) — and dies at the store.
     const poisoned = {
       ...doc,
       title: 'Never lands',
-      scene: { ...doc.scene, cameraProfile: { render: () => 'a function is not data' } },
+      scene: {
+        ...doc.scene,
+        subjects: [{
+          id: 'sub_poison', name: 'Poisoned', latitude: 0, longitude: 0,
+          render: () => 'a function is not data',
+        }],
+      },
     };
     assert.equal(validateMission(poisoned).ok, true, 'the validator has no opinion about this');
 

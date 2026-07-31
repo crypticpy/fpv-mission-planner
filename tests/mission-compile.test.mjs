@@ -205,7 +205,7 @@ test('scene subjects are carried through field by field', () => {
     elevationMslM: 210, radiusM: 40,
   }]);
   assert.equal(compiled.legs[0].subjectRef, 'sub_9');
-  assert.deepEqual(compiled.legs[0].camera, { tilt: -15 });
+  assert.deepEqual(compiled.legs[0].camera, { pitchDeg: -15 });
 });
 
 /** A subject in the scene and the first leg pointed at it, with a camera bag. */
@@ -215,7 +215,7 @@ function framed(doc) {
     elevationMslM: 210, radiusM: 40,
   };
   const segments = doc.route.segments.map((s, i) => (i === 0
-    ? { ...s, subjectRef: subject.id, camera: { tilt: -15 } }
+    ? { ...s, subjectRef: subject.id, camera: { pitchDeg: -15 } }
     : s));
   const next = { ...doc, scene: { ...doc.scene, subjects: [subject] }, route: { ...doc.route, segments } };
   assert.deepEqual(validateMission(next).errors, [], 'fixture must be a valid document');

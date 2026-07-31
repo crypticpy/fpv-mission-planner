@@ -50,7 +50,7 @@ test('createMission mints a complete, valid v1 document', () => {
   assert.deepEqual(doc.planningPolicy, {
     reserve: { landFloorPct: 20 }, gustFactor: 0.35, windLevel: 80, radioBand: '5g8',
   });
-  assert.deepEqual(doc.scene, { subjects: [], cameraProfile: null });
+  assert.deepEqual(doc.scene, { subjects: [], cameraProfile: null, templates: [] });
   assert.equal(doc.provenance.origin, 'authored');
   assert.equal(validateMission(doc).ok, true);
 });
@@ -202,7 +202,7 @@ const brokenRoute = [
   ['a fixed-speed leg with no target speed', (r) => { r.segments[0].speedPolicy = { mode: 'fixed', targetMs: null }; }, 'E-SPEED-TARGET'],
   ['a speed mode outside the enum', (r) => { r.segments[0].speedPolicy = { mode: 'fast', targetMs: null }; }, 'E-SPEED-MODE'],
   ['a segment pointing at a subject that is not in the scene', (r) => { r.segments[0].subjectRef = 'sub_9'; }, 'E-SEG-SUBJECT'],
-  ['a camera block that is not an object', (r) => { r.segments[0].camera = 'wide'; }, 'E-SEG-BAG'],
+  ['a camera block that is not an object', (r) => { r.segments[0].camera = 'wide'; }, 'E-SEG-CAMERA-TYPE'],
   ['a return mode outside the enum', (r) => { r.returnPolicy.mode = 'walk'; }, 'E-RETURN-MODE'],
 ];
 
@@ -384,6 +384,192 @@ test('migrateMission does not write back into the record it was handed', () => {
 
 test('the id prefixes are the ones ADR 0002 names', () => {
   assert.deepEqual(ID_PREFIXES, {
-    mission: 'msn', waypoint: 'wpt', segment: 'seg', constraint: 'con', subject: 'sub',
+    mission: 'msn', waypoint: 'wpt', segment: 'seg', constraint: 'con', subject: 'sub', template: 'tpl',
   });
+});
+
+/* ---------- 6. ADR 0011 §2 (M7 wave B): the cinematic bags' shapes ---------- */
+
+test('an approach intent is accepted, the same as the other travel intents', () => {
+  const doc = routedMission();
+  doc.route.segments[0].intent = 'approach';
+  const verdict = validateMission(doc);
+  assert.deepEqual(verdict.errors, []);
+  assert.equal(verdict.ok, true);
+});
+
+test('an old document with no scene.templates at all still validates clean', () => {
+  const doc = routedMission();
+  delete doc.scene.templates;
+  const verdict = validateMission(doc);
+  assert.deepEqual(verdict.errors, []);
+  assert.equal(verdict.ok, true);
+});
+
+/* -- segment.camera -- */
+
+test('a fully-populated segment.camera on an orbit intent validates clean', () => {
+  const doc = routedMission();
+  doc.route.segments[0].intent = 'orbit';
+  doc.route.segments[0].holdS = 30;
+  doc.route.segments[0].camera = { pitchDeg: -30, yawOffsetDeg: 0, orbit: { radiusM: 25, clockwise: true } };
+  const verdict = validateMission(doc);
+  assert.deepEqual(verdict.errors, []);
+});
+
+test('a partial segment.camera — one field, the rest omitted — validates clean', () => {
+  const doc = routedMission();
+  doc.route.segments[0].camera = { pitchDeg: -10 };
+  const verdict = validateMission(doc);
+  assert.deepEqual(verdict.errors, []);
+});
+
+const brokenCamera = [
+  ['an unknown top-level key', { wobble: 1 }, 'transit', 'E-SEG-CAMERA-KEY'],
+  ['a pitch outside -90..90', { pitchDeg: 200 }, 'transit', 'E-SEG-CAMERA-PITCH'],
+  ['a yaw offset outside -180..180', { yawOffsetDeg: 400 }, 'transit', 'E-SEG-CAMERA-YAW'],
+  ['orbit settings on a non-orbit intent', { orbit: { radiusM: 10, clockwise: true } }, 'transit', 'E-SEG-CAMERA-ORBIT'],
+  ['an orbit with a non-positive radius', { orbit: { radiusM: 0, clockwise: true } }, 'orbit', 'E-SEG-CAMERA-ORBIT-RADIUS'],
+  ['an orbit missing clockwise', { orbit: { radiusM: 10 } }, 'orbit', 'E-SEG-CAMERA-ORBIT-CLOCKWISE'],
+  ['an unknown orbit key', { orbit: { radiusM: 10, clockwise: true, spin: 1 } }, 'orbit', 'E-SEG-CAMERA-KEY'],
+];
+
+for (const [label, camera, intent, code] of brokenCamera) {
+  test(`validateMission rejects a segment camera with ${label}`, () => {
+    const doc = routedMission();
+    doc.route.segments[0].intent = intent;
+    doc.route.segments[0].camera = camera;
+    const verdict = validateMission(doc);
+    assert.equal(verdict.ok, false);
+    assert.ok(codes(verdict.errors).includes(code),
+      `expected ${code}, got ${JSON.stringify(codes(verdict.errors))}`);
+  });
+}
+
+/* -- scene.cameraProfile -- */
+
+const VALID_PROFILE = { name: 'GoPro HERO-class', sensorWidthMm: 6.17, sensorHeightMm: 4.63, focalLengthMm: 3, stabilized: true };
+
+test('a valid scene.cameraProfile validates clean', () => {
+  const doc = routedMission();
+  doc.scene.cameraProfile = VALID_PROFILE;
+  const verdict = validateMission(doc);
+  assert.deepEqual(verdict.errors, []);
+});
+
+test('scene.cameraProfile is nullable', () => {
+  const doc = routedMission();
+  doc.scene.cameraProfile = null;
+  assert.deepEqual(validateMission(doc).errors, []);
+});
+
+const brokenProfile = [
+  ['an unknown key', { ...VALID_PROFILE, extra: 1 }, 'E-SCENE-PROFILE-KEY'],
+  ['a non-positive focal length', { ...VALID_PROFILE, focalLengthMm: 0 }, 'E-SCENE-PROFILE-NUMBER'],
+  ['a missing name', { ...VALID_PROFILE, name: '' }, 'E-SCENE-PROFILE-NAME'],
+  ['a non-boolean stabilized', { ...VALID_PROFILE, stabilized: 'yes' }, 'E-SCENE-PROFILE-STABILIZED'],
+  ['a profile that is not an object', 'gopro', 'E-SCENE-PROFILE-TYPE'],
+];
+
+for (const [label, profile, code] of brokenProfile) {
+  test(`validateMission rejects a camera profile with ${label}`, () => {
+    const doc = routedMission();
+    doc.scene.cameraProfile = profile;
+    const verdict = validateMission(doc);
+    assert.equal(verdict.ok, false);
+    assert.ok(codes(verdict.errors).includes(code),
+      `expected ${code}, got ${JSON.stringify(codes(verdict.errors))}`);
+  });
+}
+
+/* -- scene.templates -- */
+
+test('a valid scene template validates clean', () => {
+  const doc = routedMission();
+  doc.scene.templates = [{
+    id: 'tpl_1', name: 'Orbit reveal', intent: 'orbit', holdS: 20,
+    camera: { pitchDeg: -20, yawOffsetDeg: 0, orbit: { radiusM: 15, clockwise: false } },
+  }];
+  const verdict = validateMission(doc);
+  assert.deepEqual(verdict.errors, []);
+});
+
+test('a transit template cannot carry a dwell time', () => {
+  const doc = routedMission();
+  doc.scene.templates = [{ id: 'tpl_1', name: 'Flyby', intent: 'transit', holdS: 10, camera: null }];
+  const verdict = validateMission(doc);
+  assert.equal(verdict.ok, false);
+  assert.ok(codes(verdict.errors).includes('E-TPL-HOLD'));
+});
+
+test('a hold template with no dwell time yet only warns', () => {
+  const doc = routedMission();
+  doc.scene.templates = [{ id: 'tpl_1', name: 'Hold', intent: 'hold', holdS: null, camera: null }];
+  const verdict = validateMission(doc);
+  assert.equal(verdict.ok, true);
+  assert.ok(codes(verdict.warnings).includes('W-TPL-HOLD-UNKNOWN'));
+});
+
+test('scene.templates rejects a duplicate id', () => {
+  const doc = routedMission();
+  doc.scene.templates = [
+    { id: 'tpl_1', name: 'A', intent: 'transit', holdS: null, camera: null },
+    { id: 'tpl_1', name: 'B', intent: 'transit', holdS: null, camera: null },
+  ];
+  const verdict = validateMission(doc);
+  assert.ok(codes(verdict.errors).includes('E-ID-DUPLICATE'));
+});
+
+test('scene.templates rejects a non-list value', () => {
+  const doc = routedMission();
+  doc.scene.templates = 'not-a-list';
+  const verdict = validateMission(doc);
+  assert.ok(codes(verdict.errors).includes('E-TPL-LIST'));
+});
+
+test('a template camera follows exactly the segment camera rules', () => {
+  const doc = routedMission();
+  doc.scene.templates = [{
+    id: 'tpl_1', name: 'Bad orbit', intent: 'transit', holdS: null,
+    camera: { orbit: { radiusM: 10, clockwise: true } },
+  }];
+  const verdict = validateMission(doc);
+  assert.equal(verdict.ok, false);
+  assert.ok(codes(verdict.errors).includes('E-TPL-CAMERA-ORBIT'));
+});
+
+/* -- subjects: name/elevation/radius tightening -- */
+
+test('a subject with an empty name is rejected', () => {
+  const doc = routedMission();
+  doc.scene.subjects = [{ id: 'sub_1', name: '', latitude: 30.3, longitude: -97.8, elevationMslM: null, radiusM: null }];
+  const verdict = validateMission(doc);
+  assert.ok(codes(verdict.errors).includes('E-SUBJECT-NAME'));
+});
+
+test('a subject elevation that is not a number is rejected', () => {
+  const doc = routedMission();
+  doc.scene.subjects = [{
+    id: 'sub_1', name: 'Windmill', latitude: 30.3, longitude: -97.8, elevationMslM: 'high', radiusM: null,
+  }];
+  const verdict = validateMission(doc);
+  assert.ok(codes(verdict.errors).includes('E-SUBJECT-ELEVATION'));
+});
+
+test('a subject radius that is not a number is rejected', () => {
+  const doc = routedMission();
+  doc.scene.subjects = [{
+    id: 'sub_1', name: 'Windmill', latitude: 30.3, longitude: -97.8, elevationMslM: null, radiusM: 'big',
+  }];
+  const verdict = validateMission(doc);
+  assert.ok(codes(verdict.errors).includes('E-SUBJECT-RADIUS'));
+});
+
+test('a subject with a valid elevation and radius validates clean', () => {
+  const doc = routedMission();
+  doc.scene.subjects = [{
+    id: 'sub_1', name: 'Windmill', latitude: 30.3, longitude: -97.8, elevationMslM: 300, radiusM: 12,
+  }];
+  const verdict = validateMission(doc);
+  assert.deepEqual(verdict.errors, []);
 });

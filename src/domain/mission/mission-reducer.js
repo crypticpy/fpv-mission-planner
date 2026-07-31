@@ -42,6 +42,12 @@ import {
   defaultAltitude, defaultIdgen, defaultSpeedPolicy,
   isAltitudeReference, isSegmentIntent, intentHoldsStation, validateMission,
 } from './mission-schema.js';
+// The M7 wave B cinematic-bag commands (ADR 0011 §2) are filed separately —
+// this reducer crossed its own modularity note's ~700-line mark once they
+// were added inline. `Rejection`/`reject` are imported rather than defined
+// twice: `missionReduce`'s catch below needs the one class identity every
+// handler's rejection is an instance of, native or scene alike.
+import { Rejection, reject, SCENE_HANDLERS } from './scene-commands.js';
 
 /** @typedef {import('./mission-schema.js').MissionDocumentV1} MissionDocumentV1 */
 /** @typedef {import('./mission-schema.js').Altitude} Altitude */
@@ -77,15 +83,6 @@ const isObj = (v) => typeof v === 'object' && v !== null && !Array.isArray(v);
 /** @param {unknown} lat @param {unknown} lon */
 const isLatLon = (lat, lon) => isNum(lat) && lat >= -90 && lat <= 90 && isNum(lon) && lon >= -180 && lon <= 180;
 
-/** Thrown internally by a handler to reject its command; never escapes. */
-class Rejection extends Error {
-  /** @param {string} message @param {string|null} [path] */
-  constructor(message, path = null) { super(message); this.path = path; }
-}
-
-/** @param {string} message @param {string|null} [path] @returns {never} */
-function reject(message, path = null) { throw new Rejection(message, path); }
-
 /**
  * Every command type this reducer answers to. Exported so the UI layer and the
  * tests read from the same list rather than from a comment.
@@ -97,6 +94,10 @@ export const MISSION_COMMANDS = Object.freeze([
   'setSegmentAltitude', 'setSegmentSpeed', 'setSegmentIntent',
   'setReturnPolicy', 'setPlanningPolicy',
   'snapshotLoadout', 'setEnvironmentReference',
+  // ADR 0011 §2 (M7 wave B) — the cinematic bags' own commands.
+  'addSubject', 'moveSubject', 'removeSubject',
+  'setSegmentCamera', 'setSegmentSubject', 'setSegmentHold',
+  'setCameraProfile', 'saveSceneTemplate', 'applySceneTemplate', 'removeSceneTemplate',
 ]);
 
 /* ---------- handlers ---------- */
@@ -432,6 +433,9 @@ const HANDLERS = {
       },
     };
   },
+
+  // ADR 0011 §2 (M7 wave B): subjects, shot geometry, templates — scene-commands.js.
+  ...SCENE_HANDLERS,
 };
 
 /* ---------- the reducer ---------- */
