@@ -46,6 +46,23 @@ const LAYERS = {
 };
 
 /**
+ * ADR 0004's rule for map layers, which the layer taxonomy above cannot express:
+ * a layer renders from the frame it is handed and raises edits only through the
+ * callbacks on it. It does not solve, sweep, fetch, read the store or reach for
+ * the mission document — the moment one does, the map is a second place the
+ * physics lives, which is the arrangement the ADR exists to prevent.
+ *
+ * Matched as substrings against the specifier, so a deeper path to the same
+ * module is caught too. `domain/geo.js` is deliberately absent: turning a course
+ * and a distance into a point on a map is what a layer is *for*.
+ */
+const LAYER_DIR = `${path.sep}presentation${path.sep}map${path.sep}layers${path.sep}`;
+const LAYER_FORBIDDEN = [
+  'domain/physics', 'sweep.js', 'mission-bridge', 'mission-commands',
+  'analysis-host', 'store.js', 'weather',
+];
+
+/**
  * Comments blanked out — so an example import inside a doc block is not read as
  * a real edge — with the line count preserved, so reported line numbers match
  * the file.
@@ -130,10 +147,20 @@ for (const file of files) {
   const rel = path.relative(ROOT, file);
   const fromLayer = layerOf(path.relative(sourceRoot, file));
   if (fromLayer) layeredFiles++;
+  const isMapLayer = `${path.sep}${rel}`.includes(LAYER_DIR);
   const src = await readFile(file, 'utf8');
 
   for (const { spec, line } of importsOf(src)) {
     edges++;
+
+    if (isMapLayer) {
+      const banned = LAYER_FORBIDDEN.find((f) => spec.includes(f));
+      if (banned) {
+        violations.push(`${rel}:${line} — a map layer imports '${spec}' ('${banned}'). ` +
+          'ADR 0004: layers render from their frame and raise edits through its callbacks; ' +
+          'physics, sweeps, storage, weather and the mission document are the host\'s business.');
+      }
+    }
 
     if (!spec.startsWith('.')) {
       // The runtime has zero production dependencies and no import map, so a

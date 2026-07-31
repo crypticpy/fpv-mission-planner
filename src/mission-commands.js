@@ -22,7 +22,7 @@ import { state, drone, loadoutBattery, payload } from './state.js';
 import { dispatch } from './mission-bridge.js';
 import { launchPoint } from './weather.js';
 import { loadMapState, saveMapState } from './store.js';
-import { setLaunchPoint } from './map.js';
+import { setLaunchPoint } from './presentation/map/map-view.js';
 import { populateControls } from './render/controls.js';
 import { U } from './domain/physics.js';
 

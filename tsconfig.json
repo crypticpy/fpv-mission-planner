@@ -38,6 +38,22 @@
     "src/application/analysis/vertical-flight.js",
     "src/application/analysis/route-checks.js",
     "src/application/analysis/analyze.js",
+    // ADR 0004's map seam. The contract and the registry import nothing, and the
+    // four layers below them import the contract and (for coordinate maths)
+    // domain/geo.js, which is already here — so the whole set arrived clean.
+    //
+    // Two files under presentation/map/ are deliberately *not* here, and both
+    // for the same reason rather than for want of types: an include entry pulls
+    // its whole import graph into the program, and leaflet-adapter.js reaches
+    // vendor/leaflet/leaflet-src.esm.js — 10k lines of unannotated third-party
+    // JS that `checkJs` would then check. map-view.js imports the adapter, so it
+    // inherits the exclusion. They join if the vendor bundle ever ships types.
+    "src/presentation/map/map-adapter.js",
+    "src/presentation/map/layer-registry.js",
+    "src/presentation/map/layers/launch-layer.js",
+    "src/presentation/map/layers/footprint-layer.js",
+    "src/presentation/map/layers/route-layer.js",
+    "src/presentation/map/layers/spots-layer.js",
     "src/domain/terrain/terrain-features.js",
     "src/application/terrain/terrain-contracts.js",
     "src/application/terrain/elevation-cache.js",

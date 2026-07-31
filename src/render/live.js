@@ -1,7 +1,7 @@
 // render/live.js — live weather mode: fetch the sky at the launch point, say
 // whose sky it is, and keep the status line honest while it loads.
 import { loadMapState, saveMapState } from '../store.js';
-import { setLaunchPoint } from '../map.js';
+import { setLaunchPoint } from '../presentation/map/map-view.js';
 import {
   fetchLiveEnv, launchPoint, isDefaultLaunch, DEFAULT_LAUNCH_NAME,
 } from '../weather.js';

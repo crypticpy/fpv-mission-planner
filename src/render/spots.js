@@ -5,7 +5,7 @@ import {
 } from '../data.js';
 import { allDrones, compatible } from '../registry.js';
 import { loadMapState, saveMapState } from '../store.js';
-import { setLaunchPoint, renderSpotMarkers } from '../map.js';
+import { setLaunchPoint, renderSpotMarkers } from '../presentation/map/map-view.js';
 import { distanceKm } from '../domain/geo.js';
 import { launchPoint } from '../weather.js';
 import { state, units } from '../state.js';

@@ -24,7 +24,7 @@
 //     rectangle.
 
 import { buildBrief } from '../brief.js';
-import { footprintState, routeState } from '../map.js';
+import { routeState } from '../presentation/map/map-view.js';
 import { bearingTo, distanceKm } from '../domain/geo.js';
 import {
   state, beginner, units, drone, battery, loadoutBattery, scenario, payload,
@@ -359,7 +359,11 @@ export function openBrief() {
   const latest = deps?.latest?.();
   if (!latest || !latest.plan) return;
   const u = units();
-  const fp = footprintState();
+  /* The ring the map is showing, read off the same snapshot the plate above it
+   * came from rather than out of the map's own memory (ADR 0004): the sweep
+   * moved into the analysis, so the printed footprint and the printed verdict
+   * are provably one pass rather than two that agree. */
+  const fp = latest.footprint;
   // The analysis integrates whatever route the document holds; route mode being
   // off is a presentation choice, and a brief must print what is on screen.
   const route = routeState().on ? latest.route : null;

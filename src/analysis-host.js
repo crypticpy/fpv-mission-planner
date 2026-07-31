@@ -33,6 +33,7 @@
 //     answer was invisible to both.
 import { planMission } from './domain/physics.js';
 import { planRoute } from './domain/route.js';
+import { adaptiveHalfSweep, radiusAtAlpha, fullCircle, polarAreaKm2 } from './sweep.js';
 import { analyzeMission, newestOnly } from './application/analysis/analyze.js';
 import { hashKey, stableStringify } from './application/analysis/analysis-contracts.js';
 import { usableField } from './application/analysis/route-checks.js';
@@ -89,6 +90,10 @@ const PORTS = Object.freeze({
   terrainWarnings,
   elevationProfile: activeProfile,
   strandedNote: zeroRadiusNote,
+  // The footprint geometry, injected for the same reason `plan` is: src/sweep.js
+  // is pure and validated but not yet on the typecheck ratchet, and a static
+  // import from the pipeline would drag its unannotated body into `tsc`.
+  sweepKit: { adaptiveHalfSweep, radiusAtAlpha, fullCircle, polarAreaKm2 },
 });
 
 /* ---------- the corridor's ground ---------- */

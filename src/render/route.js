@@ -8,7 +8,7 @@
 // route is an expert feature, so beginner mode never sees a route at all — not the
 // panel, not the line on the map. The analysis always integrates whatever route
 // the document holds, and this card simply declines to draw it.
-import { routeState } from '../map.js';
+import { routeState } from '../presentation/map/map-view.js';
 import { beginner, units } from '../state.js';
 import { f0, f1, mmss, compass } from './format.js';
 import { $ } from './dom.js';

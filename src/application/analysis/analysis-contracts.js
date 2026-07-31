@@ -261,9 +261,9 @@ export function provenanceOf(overrides = {}) {
  */
 
 /**
- * The air the plan ran in, as `missionInputs()` builds it. Only `env` is read
- * here; the rest of the bag is passed through to the injected planner, which
- * owns its meaning.
+ * The air the plan ran in, as `missionInputs()` builds it. Only `env` and the
+ * cruise choice are read here; the rest of the bag is passed through to the
+ * injected planner, which owns its meaning.
  * @typedef {object} EnvironmentInputs
  * @property {number} [elevM]
  * @property {number} [tempC]
@@ -274,7 +274,7 @@ export function provenanceOf(overrides = {}) {
  * @property {string} [windMode]
  */
 
-/** @typedef {{ env?: EnvironmentInputs }} AnalysisInputs */
+/** @typedef {{ env?: EnvironmentInputs, cruiseMode?: string }} AnalysisInputs */
 
 /** The legacy warning shape every producer emits today. */
 /** @typedef {{ level: string, text: string }} LegacyWarning */
@@ -338,8 +338,12 @@ export function provenanceOf(overrides = {}) {
  * The subset of `planRoute()`'s result this layer reads.
  * @typedef {object} RouteResult
  * @property {boolean} empty
+ * @property {{ lat: number, lng: number }[]} points  launch first, then the
+ *   waypoints as the integrator received them — which under a retrace is the
+ *   authored list with its own reverse appended
  * @property {RouteLeg[]} legs
  * @property {RouteHold[]} holds
+ * @property {RouteHold|null} worst  the turn the reserve is measured against
  * @property {{ deliveredWh: number, floorWh: number, huntLandWh: number,
  *              landFloorPct: number }|null} budget
  * @property {number} totalKm
@@ -364,6 +368,8 @@ export function provenanceOf(overrides = {}) {
  * totals the analysis publishes, not by deleting a leg from the integration.
  * @typedef {object} RouteTotals
  * @property {'direct'|'retrace'|'none'} returnMode
+ * @property {number} waypointCount  document waypoints, before a retrace doubles
+ *                                   them — `legs` counts the mirrored flight
  * @property {number} plannedKm   distance actually planned under that policy
  * @property {number} plannedMin
  * @property {number} plannedWh
@@ -374,8 +380,77 @@ export function provenanceOf(overrides = {}) {
 
 /** @typedef {RouteResult & RouteTotals} AnalysedRoute */
 
+/* ---------- the footprint sweep ---------- */
+
+/**
+ * One half-sweep of the wind axis, as src/sweep.js returns it: `angles` ascending
+ * 0…180° off the wind, `radii` the turnaround distance sampled on each, and
+ * `extraRays` how many of them refinement bought over the base grid.
+ * @typedef {object} HalfSweep
+ * @property {number[]} angles
+ * @property {number[]} radii
+ * @property {number} extraRays
+ */
+
+/**
+ * A half-sweep expanded to the whole circle: `byCourse[0…359]` for "how far on
+ * course 210°", and `courses`/`radii` as the drawn polygon's own vertex list —
+ * the degree grid plus every refined ray, mirrored to both sides of the axis.
+ * @typedef {object} SweptCircle
+ * @property {number[]} byCourse
+ * @property {number[]} courses
+ * @property {number[]} radii
+ */
+
+/**
+ * The pure geometry the footprint is swept with, injected rather than imported
+ * for the same reason `plan` and `routePlan` are: src/sweep.js is not on the
+ * typecheck ratchet, and a static import would drag its unannotated body into
+ * `tsc --noEmit`. Every function here is src/sweep.js's, unchanged.
+ * @typedef {object} SweepKit
+ * @property {(sample: (alphaDeg: number) => number) => HalfSweep} adaptiveHalfSweep
+ * @property {(samples: HalfSweep, alphaDeg: number) => number} radiusAtAlpha
+ * @property {(samples: HalfSweep, windFromDeg: number) => SweptCircle} fullCircle
+ * @property {(courses: number[], radii: number[]) => number} polarAreaKm2
+ */
+
+/**
+ * The wind-shaped mission footprint: the out-and-back turnaround envelope, which
+ * is how far out the aircraft can fly on each course and still make it home —
+ * not general reachability. Two rings are swept from the same physics, the
+ * planned cruise and the theoretical best-range speed, so the map and the brief
+ * can show what the chosen cruise costs.
+ *
+ * The first eight fields are the shape src/map.js published to the brief before
+ * the sweep moved into this pipeline. The rest are what the map draws and the
+ * old code kept in module-scope locals: the best-range ring's own vertex list,
+ * and the three axis reaches the stat tiles quote, each read off the half-sweep
+ * at its exact offset rather than off the 1° grid.
+ * @typedef {object} MissionFootprint
+ * @property {{ lat: number, lng: number }} launch
+ * @property {number} windFromDeg
+ * @property {number} plannedCourseDeg
+ * @property {number[]} courses        planned-cruise polygon vertices
+ * @property {number[]} radii
+ * @property {number[]} byCourse       planned cruise, per whole degree
+ * @property {number[]} bestByCourse   best range, per whole degree
+ * @property {number} areaKm2          planned-cruise envelope
+ * @property {number[]} bestCourses    best-range polygon vertices
+ * @property {number[]} bestRadii
+ * @property {number} upwindKm         reach at 0° off the wind axis
+ * @property {number} downwindKm       …at 180°
+ * @property {number} crosswindKm      …at 90°
+ */
+
 /** The link picture, when an RF provider supplied one. Shape owned by src/rf.js. */
-/** @typedef {{ blocked?: boolean, [key: string]: unknown }} LinkResult */
+/**
+ * The radio analysis of the outbound leg, as src/rf.js returns it. Only the
+ * three fields anything outside that module reads are named: whether the link is
+ * cut, how far out it stays good, and — when the obstruction is terrain rather
+ * than a grazed Fresnel zone — where the line of sight itself is broken.
+ * @typedef {{ blocked?: boolean, clearKm?: number, losBlockKm?: number|null,
+ *             [key: string]: unknown }} LinkResult
+ */
 
 /**
  * What one leg's climb or descent costs (M3b). Exactly one of the two energies
@@ -467,6 +542,7 @@ export function provenanceOf(overrides = {}) {
  * @property {SolvedPlan|null} plan
  * @property {AnalysedRoute|null} route
  * @property {LinkResult|null} link
+ * @property {MissionFootprint|null} footprint
  * @property {Record<string, SegmentAnalysis>} segments
  * @property {Constraint[]} constraints
  * @property {AnalysisProvenance} provenance

@@ -56,8 +56,11 @@ import { legVerticalFlight, verticalFlightDrafts } from './vertical-flight.js';
  * @typedef {import('./analysis-contracts.js').CorridorSample} CorridorSample
  * @typedef {import('./analysis-contracts.js').LegacyWarning} LegacyWarning
  * @typedef {import('./analysis-contracts.js').LinkResult} LinkResult
+ * @typedef {import('./analysis-contracts.js').HalfSweep} HalfSweep
+ * @typedef {import('./analysis-contracts.js').MissionFootprint} MissionFootprint
  * @typedef {import('./analysis-contracts.js').MissionPlan} MissionPlan
  * @typedef {import('./analysis-contracts.js').RouteResult} RouteResult
+ * @typedef {import('./analysis-contracts.js').SweepKit} SweepKit
  * @typedef {import('./analysis-contracts.js').SegmentAnalysis} SegmentAnalysis
  * @typedef {import('./analysis-contracts.js').SegmentClearance} SegmentClearance
  * @typedef {import('./analysis-contracts.js').SolvedPlan} SolvedPlan
@@ -103,6 +106,8 @@ import { legVerticalFlight, verticalFlightDrafts } from './vertical-flight.js';
  * @property {((plan: SolvedPlan) => LegacyWarning[])|null} [terrainWarnings]
  * @property {(() => { points?: unknown[], spanKm?: number }|null)|null} [elevationProfile]
  * @property {((plan: SolvedPlan) => string|null)|null} [strandedNote]
+ * @property {SweepKit|null} [sweepKit] the footprint geometry; absent, the
+ *   snapshot carries `footprint: null` rather than half a ring
  * @property {(() => TerrainField|null)|null} [terrainField] the corridor's ground
  * @property {(() => unknown)|null} [windLevels] the forecast's published wind levels
  * @property {number|null} [linkGhz] the band the pilot selected
@@ -495,6 +500,108 @@ function routeDrafts(route, holdWh) {
   return drafts;
 }
 
+/* ---------- the footprint sweep ---------- */
+
+/**
+ * The wind-shaped turnaround envelope, swept twice: once at the cruise the pilot
+ * chose, once at best-range speed, so the map can show what the choice costs.
+ *
+ * This arithmetic used to run inside src/map.js's render. ADR 0004 is why it
+ * moved: a layer draws from the snapshot and computes nothing, and while the
+ * footprint lived in the map it existed nowhere a brief or an export could reach
+ * without redrawing the map first. Every call below is the one map.js made, in
+ * the order it made it — this is a move, not a rewrite.
+ *
+ * Both sweeps share one `_pCache`, planMission's `powerAtSpeed` memo: they fly
+ * the same aircraft through the same air and differ only in which speed they
+ * pick, so the second sweep costs almost nothing.
+ *
+ * @param {AnalysisInputs} inputs
+ * @param {LatLng} launch
+ * @param {number} plannedCourseDeg the course the planning case flies out on
+ * @param {SweepKit} kit
+ * @param {(inputs: AnalysisInputs) => MissionPlan} plan
+ * @returns {MissionFootprint}
+ */
+function sweepFootprint(inputs, launch, plannedCourseDeg, kit, plan) {
+  const windFromDeg = Number.isFinite(inputs.env?.windFromDeg) ? Number(inputs.env?.windFromDeg) : 0;
+  /** @type {Map<number, number>} */
+  const cache = new Map();
+
+  /**
+   * Half a sweep, 0…180° off the wind axis. The other half is its mirror image:
+   * the wind decomposition depends only on cos and |sin| of the offset.
+   * @param {string|undefined} cruiseMode
+   * @returns {HalfSweep}
+   */
+  const half = (cruiseMode) => kit.adaptiveHalfSweep((alpha) => {
+    /* `courseDeg`, `lite` and `_pCache` are the planner's own vocabulary rather
+     * than this layer's — AnalysisInputs names what the analysis itself reads,
+     * and the rest of the bag has always been passed through untouched. */
+    const probe = /** @type {AnalysisInputs} */ (/** @type {unknown} */ ({
+      ...inputs, cruiseMode, courseDeg: windFromDeg + alpha, lite: true, _pCache: cache,
+    }));
+    const solved = plan(probe);
+    /* Unreachable while the pass owns a plan: a probe differs from the planning
+     * case only in course and cruise, and neither decides whether a pack exists.
+     * Stated anyway, because a sweep of `undefined` radii would draw a ring made
+     * of NaN rather than fail. */
+    return 'code' in solved ? 0 : solved.radiusKm;
+  });
+
+  const halfReal = half(inputs.cruiseMode);
+  const halfBest = half('range');
+  const real = kit.fullCircle(halfReal, windFromDeg);
+  const best = kit.fullCircle(halfBest, windFromDeg);
+
+  return {
+    launch: { ...launch },
+    windFromDeg,
+    plannedCourseDeg,
+    courses: real.courses.slice(),
+    radii: real.radii.slice(),
+    byCourse: real.byCourse.slice(),
+    bestByCourse: best.byCourse.slice(),
+    areaKm2: kit.polarAreaKm2(real.courses, real.radii),
+    bestCourses: best.courses.slice(),
+    bestRadii: best.radii.slice(),
+    /* Read off the half-sweep at the exact offset, not out of `byCourse`. The
+     * per-degree table is sampled on whole courses; the wind is not necessarily
+     * on one, and the tiles quote the axis itself. */
+    upwindKm: kit.radiusAtAlpha(halfReal, 0),
+    downwindKm: kit.radiusAtAlpha(halfReal, 180),
+    crosswindKm: kit.radiusAtAlpha(halfReal, 90),
+  };
+}
+
+/**
+ * One slot, not a map. The footprint depends on the rail and the launch point
+ * and on nothing else in the document, so a route edit — which invalidates the
+ * snapshot memo, since it is a different mission — leaves the ring untouched and
+ * hands back the identical object rather than re-flying ~80 planMission probes.
+ * The rail only ever moves in one direction at a time, so one slot catches it.
+ * @type {{ sig: string, footprint: MissionFootprint }|null}
+ */
+let footprintMemo = null;
+
+/**
+ * @param {AnalysisInputs} inputs
+ * @param {LatLng} launch
+ * @param {number} plannedCourseDeg
+ * @param {AnalysisDeps} deps
+ * @returns {MissionFootprint|null}
+ */
+function footprintOf(inputs, launch, plannedCourseDeg, deps) {
+  const kit = deps.sweepKit;
+  if (!kit) return null;
+  const sig = hashKey(stableStringify({ inputs, launch, plannedCourseDeg }));
+  if (footprintMemo && footprintMemo.sig === sig) return footprintMemo.footprint;
+  const footprint = Object.freeze(
+    sweepFootprint(inputs, launch, plannedCourseDeg, kit, deps.plan));
+  footprintMemo = { sig, footprint };
+  return footprint;
+}
+
 /* ---------- the pipeline ---------- */
 
 /**
@@ -535,6 +642,7 @@ export function analyzeMission(request, deps) {
       profile: !!deps.elevationProfile,
       stranded: !!deps.strandedNote,
       field: !!deps.terrainField,
+      footprint: !!deps.sweepKit,
     },
     // Not a provider flag but an input: the band decides the Fresnel radius, and
     // the wind levels decide what the legs are flying in. Both are read straight
@@ -583,6 +691,9 @@ function compute(doc, inputs, revision, deps, cacheKey, computedAt) {
       plan: null,
       route: null,
       link: null,
+      // No plan, no ring: every ray of the sweep is a mission this pack cannot
+      // fly. The absence is the same statement W-ENERGY-NO-PACK already makes.
+      footprint: null,
       segments: {},
       constraints: finalizeConstraints(drafts),
       provenance: buildProvenance(doc, deps, corridor,
@@ -677,6 +788,10 @@ function compute(doc, inputs, revision, deps, cacheKey, computedAt) {
   const route = raw ? Object.freeze({
     ...raw,
     returnMode,
+    // What the pilot drew, which is not what was flown: a retrace doubles the
+    // list before it reaches the integrator, so `raw.legs` counts the mirror too.
+    // The map needs the authored count to put one pin on each authored waypoint.
+    waypointCount: wps.length,
     plannedKm: oneWay ? raw.outKm : raw.totalKm,
     plannedMin: oneWay ? raw.outMin : raw.totalMin,
     plannedWh: oneWay ? raw.outWh : raw.totalWh,
@@ -715,6 +830,7 @@ function compute(doc, inputs, revision, deps, cacheKey, computedAt) {
     plan,
     route,
     link,
+    footprint: footprintOf(inputs, launch, bearingDeg, deps),
     segments,
     constraints: finalizeConstraints(drafts),
     provenance: buildProvenance(doc, deps, corridor, field, profile, cacheKey, computedAt),
@@ -835,9 +951,11 @@ function remember(key, snapshot) {
   }
 }
 
-/** Forget every memoised snapshot. For tests and for a hard reset. */
+/** Forget every memoised snapshot — and the footprint beside it, which outlives
+ * any single snapshot. For tests and for a hard reset. */
 export function clearAnalysisCache() {
   CACHE.clear();
+  footprintMemo = null;
 }
 
 /* ---------- stale-drop ---------- */

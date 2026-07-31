@@ -5,6 +5,7 @@ import { destination } from '../src/domain/geo.js';
 import { planMission, U } from '../src/domain/physics.js';
 import { planRoute } from '../src/domain/route.js';
 import { climbEnergyWh } from '../src/domain/vertical.js';
+import { adaptiveHalfSweep, radiusAtAlpha, fullCircle, polarAreaKm2 } from '../src/sweep.js';
 import { createMission } from '../src/domain/mission/mission-schema.js';
 import { missionReduce } from '../src/domain/mission/mission-reducer.js';
 import { resolveMissionAltitudes } from '../src/domain/mission/altitude.js';
@@ -278,10 +279,16 @@ test('return policy decides which totals the mission is planned to', () => {
   assert.equal(direct.route.returnMode, 'direct');
   assert.equal(direct.route.legs.length, 3, 'two out legs and the straight flight home');
   assert.equal(direct.route.plannedKm, direct.route.totalKm);
+  assert.equal(direct.route.waypointCount, 2);
 
   // Retrace is the waypoint list plus its own reverse: the same solver, more legs.
   assert.equal(retrace.route.returnMode, 'retrace');
   assert.equal(retrace.route.legs.length, 4);
+  // The count the pilot authored, not the doubled list the solver flew — the map
+  // puts one pin per authored waypoint and has no other way to know where the
+  // mirror starts.
+  assert.equal(retrace.route.waypointCount, 2);
+  assert.equal(none.route.waypointCount, 2);
   assert.ok(retrace.route.plannedKm > direct.route.plannedKm);
   assert.ok(retrace.route.plannedWh > direct.route.plannedWh);
   // The authored segments still read off the out-legs, whatever follows them.
@@ -562,4 +569,88 @@ test('the composition layer can state provenance the document cannot', () => {
   assert.equal(snap.provenance.forecastIssue, '2026-07-30T06:00:00Z');
   assert.equal(snap.provenance.retrievedAt, '2026-07-30T11:58:00Z');
   assert.match(snap.provenance.samplingResolution, /elevation points over 4.6 km/);
+});
+
+/* ---------- 9. the footprint ---------- */
+
+/* The wind-shaped turnaround envelope moved out of src/map.js and into the
+ * pipeline under ADR 0004, so the map became a thing that draws a snapshot
+ * rather than the only place the footprint existed. These hold it to the same
+ * claim the plan and the route are held to above: an arrangement of sweep.js and
+ * planMission, producing their numbers exactly. */
+
+const SWEEP_KIT = { adaptiveHalfSweep, radiusAtAlpha, fullCircle, polarAreaKm2 };
+
+test('the footprint is sweep.js and planMission, ray for ray', () => {
+  clearAnalysisCache();
+  const inp = inputs();
+  const doc = mission([{ at: wpAt(0, 4) }]);
+
+  // An absent kit is an absent ring, not half of one.
+  assert.equal(analyze(doc, inp).footprint, null);
+
+  const fp = analyze(doc, inp, { sweepKit: SWEEP_KIT }).footprint;
+  assert.ok(fp, 'a wired sweepKit produces a footprint');
+
+  const windFrom = inp.env.windFromDeg;
+  const cache = new Map();
+  const half = (cruiseMode) => adaptiveHalfSweep((alpha) => planMission({
+    ...inp, cruiseMode, courseDeg: windFrom + alpha, lite: true, _pCache: cache,
+  }).radiusKm);
+  const halfReal = half(inp.cruiseMode);
+  const real = fullCircle(halfReal, windFrom);
+  const best = fullCircle(half('range'), windFrom);
+
+  assert.ok(real.radii.some((r) => r > 0), 'the fixture has to sweep a real ring');
+  assert.deepEqual(fp.courses, real.courses);
+  assert.deepEqual(fp.radii, real.radii);
+  assert.deepEqual(fp.byCourse, real.byCourse);
+  assert.deepEqual(fp.bestCourses, best.courses);
+  assert.deepEqual(fp.bestRadii, best.radii);
+  assert.deepEqual(fp.bestByCourse, best.byCourse);
+  assert.equal(fp.areaKm2, polarAreaKm2(real.courses, real.radii));
+
+  // The three axis reaches come off the half-sweep at their exact offsets, which
+  // is not the same as indexing byCourse whenever the wind is off a whole degree.
+  assert.equal(fp.upwindKm, radiusAtAlpha(halfReal, 0));
+  assert.equal(fp.downwindKm, radiusAtAlpha(halfReal, 180));
+  assert.equal(fp.crosswindKm, radiusAtAlpha(halfReal, 90));
+
+  // Where it is centred and which way the planning case points out of it.
+  assert.deepEqual(fp.launch, { lat: AUSTIN.lat, lng: AUSTIN.lng });
+  assert.equal(fp.windFromDeg, WIND_FROM);
+  assert.equal(fp.plannedCourseDeg, WIND_FROM, 'headOut flies into the wind');
+  assert.ok(Object.isFrozen(fp));
+});
+
+test('the footprint memo outlives the snapshot memo: a route edit does not re-fly it', () => {
+  clearAnalysisCache();
+  const inp = inputs();
+  const one = analyze(mission([{ at: wpAt(0, 4) }]), inp, { sweepKit: SWEEP_KIT });
+  const two = analyze(mission([{ at: wpAt(0, 4) }, { at: wpAt(90, 4) }]), inp,
+    { sweepKit: SWEEP_KIT });
+
+  assert.notEqual(one, two, 'a different route is a different question');
+  assert.equal(one.footprint, two.footprint,
+    'but not a different ring — the footprint reads the rail, not the route');
+
+  // The rail moving is what invalidates it.
+  const windier = analyze(mission([{ at: wpAt(0, 4) }]),
+    inputs({}, { windAvgMs: U.mphToMs(9) }), { sweepKit: SWEEP_KIT });
+  assert.notEqual(windier.footprint, one.footprint);
+  assert.notDeepEqual(windier.footprint.radii, one.footprint.radii);
+
+  // And a hard reset drops it with everything else.
+  clearAnalysisCache();
+  const after = analyze(mission([{ at: wpAt(0, 4) }]), inp, { sweepKit: SWEEP_KIT });
+  assert.notEqual(after.footprint, one.footprint, 'cleared means recomputed');
+  assert.deepEqual(after.footprint.radii, one.footprint.radii, 'recomputed, not different');
+});
+
+test('no pack is no ring, however the sweep is wired', () => {
+  clearAnalysisCache();
+  const snap = analyze(mission([{ at: wpAt(0, 3) }]), inputs({ battery: null }),
+    { sweepKit: SWEEP_KIT });
+  assert.equal(snap.plan, null);
+  assert.equal(snap.footprint, null);
 });

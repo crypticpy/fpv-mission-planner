@@ -6,7 +6,7 @@ import { WEATHER, allBatteries, allManufacturers, saveCustomBattery, saveCustomM
 import { hideTooltip } from './charts.js';
 import {
   setupMapView, showMapView, renderMapView, pauseMapView, resizeMapView,
-} from './map.js';
+} from './presentation/map/map-view.js';
 import { setupShell, syncView } from './shell.js';
 import { setupThemes } from './themes.js';
 import { readForm } from './forms.js';
@@ -132,7 +132,7 @@ function update() {
     // handed to both the map that draws it and the card that explains it — so the
     // line and the verdict under it cannot disagree about whether it fits. Both
     // decide for themselves whether route mode is showing.
-    renderMapView(r, link, snapshot.route);
+    renderMapView(snapshot);
     renderRouteCard(r, snapshot.route);
     // The licence line rides in on the snapshot's provenance (CC BY 4.0, task
     // #47): whichever elevation source answered — the corridor field or the

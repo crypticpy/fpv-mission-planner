@@ -26,7 +26,7 @@
 // Paths are relative to this file's scope (the app can live at "/" locally
 // or at a GitHub Pages subpath) — never use a leading "/".
 
-const CACHE_NAME = 'fpv-shell-v5';
+const CACHE_NAME = 'fpv-shell-v6';
 
 const PRECACHE_URLS = [
   '.',
@@ -42,7 +42,6 @@ const PRECACHE_URLS = [
   'src/drift.js',
   'src/flightlog.js',
   'src/forms.js',
-  'src/map.js',
   'src/mission-bridge.js',
   'src/mission-commands.js',
   'src/packinstances.js',
@@ -100,6 +99,16 @@ const PRECACHE_URLS = [
   'src/render/spots.js',
   'src/render/terrain.js',
   'src/render/thrustfield.js',
+  'src/presentation/map/map-adapter.js',
+  'src/presentation/map/leaflet-adapter.js',
+  'src/presentation/map/layer-registry.js',
+  'src/presentation/map/map-view.js',
+  'src/presentation/map/footprint-panel.js',
+  'src/presentation/map/layers/launch-layer.js',
+  'src/presentation/map/layers/route-layer.js',
+  'src/presentation/map/layers/footprint-layer.js',
+  'src/presentation/map/layers/spots-layer.js',
+  'src/presentation/map/layers/wind-layer.js',
   'vendor/leaflet/leaflet-src.esm.js',
   'vendor/leaflet/leaflet.css',
   'vendor/leaflet/images/layers.png',
