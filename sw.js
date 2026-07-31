@@ -26,7 +26,7 @@
 // Paths are relative to this file's scope (the app can live at "/" locally
 // or at a GitHub Pages subpath) — never use a leading "/".
 
-const CACHE_NAME = 'fpv-shell-v8';
+const CACHE_NAME = 'fpv-shell-v9';
 
 const PRECACHE_URLS = [
   '.',
@@ -64,6 +64,7 @@ const PRECACHE_URLS = [
   'src/application/analysis/constraints.js',
   'src/application/analysis/wind-advisory.js',
   'src/application/terrain/sample-grid.js',
+  'src/domain/camera.js',
   'src/domain/geo.js',
   'src/domain/physics.js',
   'src/domain/route.js',
@@ -73,6 +74,8 @@ const PRECACHE_URLS = [
   'src/domain/mission/mission-migrations.js',
   'src/domain/mission/mission-reducer.js',
   'src/domain/mission/mission-schema.js',
+  'src/domain/mission/scene-schema.js',
+  'src/domain/mission/scene-commands.js',
   'src/domain/wind/regime.js',
   'src/domain/wind/terrain-forcing.js',
   /* M6's compiler + adapters (ADR 0010). In production these are one lazy chunk
@@ -90,6 +93,7 @@ const PRECACHE_URLS = [
   'src/infrastructure/persistence/indexeddb-store.js',
   'src/infrastructure/persistence/memory-store.js',
   'src/infrastructure/persistence/mission-repository.js',
+  'src/catalog/cameras.js',
   'src/catalog/classes.js',
   'src/catalog/drones.js',
   'src/catalog/manufacturers.js',
@@ -122,6 +126,7 @@ const PRECACHE_URLS = [
   'src/presentation/map/layer-registry.js',
   'src/presentation/map/map-view.js',
   'src/presentation/map/segment-inspector.js',
+  'src/presentation/map/segment-editor.js',
   'src/presentation/map/footprint-panel.js',
   'src/presentation/map/advisory-panel.js',
   'src/presentation/map/tile-sources.js',
@@ -136,6 +141,7 @@ const PRECACHE_URLS = [
   'src/presentation/map/layers/route-layer.js',
   'src/presentation/map/layers/footprint-layer.js',
   'src/presentation/map/layers/spots-layer.js',
+  'src/presentation/map/layers/subject-layer.js',
   'src/presentation/map/layers/wind-layer.js',
   'src/presentation/map/layers/advisory-layer.js',
   'vendor/leaflet/leaflet-src.esm.js',

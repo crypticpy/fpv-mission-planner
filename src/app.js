@@ -52,7 +52,6 @@ import {
   missionSeed, restoreLaunch, pushLaunch, pushLoadout, pushEnvironment, pushPolicy,
 } from './mission-commands.js';
 import { renderMissions, renderMissionStorage, bindMissions } from './render/missions.js';
-import { setupBrief, bindBrief } from './render/brief.js';
 import { renderSpots, bindSpots } from './render/spots.js';
 import { setupShare, bindShare } from './render/share.js';
 import { renderSessionPlanner } from './render/session.js';
@@ -70,6 +69,25 @@ import { renderSessionPlanner } from './render/session.js';
  * @type {import('./application/analysis/analysis-contracts.js').AnalysisSnapshot|null}
  */
 let latest = null;
+
+/** @type {Promise<typeof import('./render/brief.js')>|null} */
+let briefPromise = null;
+
+/**
+ * The brief rides in its own lazy chunk, the same shape as interop's engine():
+ * one dynamic import on first click, cached forever after. render/brief.js
+ * drags src/brief.js — every sentence and number the brief prints — with it,
+ * none of which the entry bundle needs before a pilot asks for the brief.
+ * First load also wires the module's own close/print/Escape listeners.
+ */
+function briefUi() {
+  briefPromise ??= import('./render/brief.js').then((m) => {
+    m.setupBrief({ latest: () => latest });
+    m.bindBrief();
+    return m;
+  });
+  return briefPromise;
+}
 
 /**
  * One render pass: refresh the rail's own text, ask the analysis host for the
@@ -447,7 +465,12 @@ function bind() {
   $('in-forecast-hour').addEventListener('input', e => setForecastHour(+e.target.value));
   bindSpots();
   bindMissions();
-  bindBrief();
+  // Bound synchronously so the button works from first paint; the chunk loads
+  // inside the first click. openBrief itself is async either way (it already
+  // awaits the interop engine for the loss report), so nothing observable moved.
+  $('btn-brief').addEventListener('click', () => {
+    void briefUi().then((m) => m.openBrief());
+  });
   // An import adds rigs, packs and flights all at once, so the Share fold needs
   // the same pair the authoring forms do: rebuild the rail, then re-plan.
   bindShare();
@@ -558,8 +581,6 @@ setupThemes(() => {
   hideTooltip();
   update();
 });
-// The brief prints the render pass that is on screen, never one of its own.
-setupBrief({ latest: () => latest });
 setupShell({ setView });
 const bootView = restoreSession();
 buildAuthoringForms();

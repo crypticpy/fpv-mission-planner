@@ -36,7 +36,7 @@
 // application (ADR 0009).
 
 import { convertAltitude } from './altitude.js';
-import { ALTITUDE_REFERENCES, SPEED_MODES, intentHoldsStation } from './mission-schema.js';
+import { ALTITUDE_REFERENCES, CAMERA_INTENTS, SPEED_MODES, intentHoldsStation } from './mission-schema.js';
 
 /** @typedef {import('./mission-schema.js').MissionDocumentV1} MissionDocumentV1 */
 /** @typedef {import('./mission-schema.js').Altitude} Altitude */
@@ -115,14 +115,11 @@ export const CONCEPTS = Object.freeze([
   'return-policy', 'reserve',
 ]);
 
-/**
- * The intents that frame something, whether or not a subject was attached.
- * Exported because the analysis asks the same question of a segment when it
- * decides whether an unattached shot is worth a finding — one list, so the two
- * layers cannot drift into disagreeing about what a camera segment is.
- * @type {readonly string[]}
- */
-export const CAMERA_INTENTS = Object.freeze(['reveal', 'orbit', 'pass', 'approach']);
+// CAMERA_INTENTS lives in mission-schema.js with the other intent vocabularies
+// (the analysis needs it without pulling this module into the entry bundle);
+// re-exported here because "which intents frame something" is still the
+// compiler's question, and its consumers ask it of this module.
+export { CAMERA_INTENTS };
 
 /** Which CompiledAltitude field carries which frame. */
 const FRAMES = /** @type {const} */ ([

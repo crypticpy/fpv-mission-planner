@@ -17,7 +17,7 @@ One new domain module, importing nothing, owns every camera number:
 ```text
 fovDeg({ sensorWidthMm, sensorHeightMm, focalLengthMm })
     → { hDeg, vDeg }            pinhole model: 2·atan(sensor/2f)
-shotGeometry(legStart, legEnd, subject, { altitudeMslM })
+shotGeometry({ start, end, subject })         — three ENU points in metres,
     → { distanceStartM, distanceEndM, bearingToSubjectDeg,
         elevationAngleDeg, screenDirection }   — screenDirection is the
         side of frame the subject crosses toward: 'left-to-right' |

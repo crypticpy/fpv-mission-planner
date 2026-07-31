@@ -433,6 +433,24 @@ test('setSegmentIntent drops a dwell time that no longer means anything', () => 
   assert.deepEqual(validateMission(transit).errors, []);
 });
 
+test('setSegmentIntent drops an orbit radius the same way it drops a dwell', () => {
+  const deps = harness();
+  const doc = run(routed(deps), [
+    { type: 'setSegmentIntent', payload: { segmentId: 'seg_3', intent: 'orbit', holdS: 30 } },
+    { type: 'setSegmentCamera', payload: { segmentId: 'seg_3', camera: { pitchDeg: -15, orbit: { radiusM: 25, clockwise: true } } } },
+  ], deps);
+  // Leaving 'orbit' must not be blocked by the orbit bag it makes meaningless
+  // (E-SEG-CAMERA-ORBIT would reject this very command otherwise), and must
+  // not orphan the radius for a later exporter to believe.
+  const passed = missionReduce(doc, { type: 'setSegmentIntent', payload: { segmentId: 'seg_3', intent: 'pass' } }, deps);
+  assert.deepEqual(passed.route.segments[0].camera, { pitchDeg: -15, yawOffsetDeg: null, orbit: null },
+    'the orbit goes; the pitch means the same thing on every camera intent and stays');
+  assert.deepEqual(validateMission(passed).errors, []);
+  // Staying on 'orbit' (a holdS-only re-issue) keeps the radius untouched.
+  const still = missionReduce(doc, { type: 'setSegmentIntent', payload: { segmentId: 'seg_3', intent: 'orbit', holdS: 45 } }, deps);
+  assert.deepEqual(still.route.segments[0].camera.orbit, { radiusM: 25, clockwise: true });
+});
+
 test('every command in MISSION_COMMANDS actually changes something', () => {
   const deps = harness();
   // A subject, a template and a holding leg, seeded so the subject/template
@@ -755,7 +773,7 @@ test('removeSceneTemplate drops the preset without touching any segment that alr
  * error as newly introduced by this command and rejects the command outright,
  * so the segment keeps its old intent rather than a broken new one. It is a
  * usability gap (the pilot has to clear the camera first), not a soundness one. */
-test('setSegmentIntent off orbit is rejected, not silently corrupting, when camera.orbit is still set', () => {
+test('setSegmentIntent off orbit drops the orbit bag rather than rejecting the escape', () => {
   const deps = harness();
   const withOrbitCamera = missionReduce(
     missionReduce(routed(deps), { type: 'setSegmentIntent', payload: { segmentId: 'seg_3', intent: 'orbit', holdS: 20 } }, deps),
@@ -765,8 +783,13 @@ test('setSegmentIntent off orbit is rejected, not silently corrupting, when came
   assert.equal(withOrbitCamera.route.segments[0].camera.orbit.radiusM, 15);
   assert.deepEqual(deps.warnings, [], 'both setup commands succeed cleanly');
 
+  // The radius is meaningful only while the intent is 'orbit', so it leaves
+  // with the intent — the same treatment holdS gets, and for the same reason.
+  // Rejecting here would make "clear the radius first" a rule the pilot has to
+  // remember to change a dropdown.
   const next = missionReduce(withOrbitCamera, { type: 'setSegmentIntent', payload: { segmentId: 'seg_3', intent: 'transit' } }, deps);
-  assert.equal(next, withOrbitCamera, 'rejected: the document is never handed back invalid');
-  assert.equal(deps.warnings[0].code, 'W-CMD-REJECTED');
-  assert.match(deps.warnings[0].path, /camera\.orbit/);
+  assert.notEqual(next, withOrbitCamera, 'the command lands');
+  assert.deepEqual(deps.warnings, [], 'nothing to warn about: no orphan survived to reject');
+  assert.equal(next.route.segments[0].camera.orbit, null);
+  assert.deepEqual(validateMission(next).errors, []);
 });

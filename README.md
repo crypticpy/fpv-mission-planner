@@ -425,6 +425,34 @@ weight will depend on the selected Micro Four Thirds lens. Camera `cdA` values
 are envelope-based planning estimates because neither manufacturer publishes
 aerodynamic drag data.
 
+## Planning the shot, not just the flight
+
+A cinematic route is flown *at* something, and the planner can now say what.
+Click a segment on the map and an editor opens beside the inspector: intent
+(transit, reveal, orbit, hold, pass, return, approach), altitude, speed, dwell
+time, camera pitch and yaw offset, orbit radius and direction. Subjects — the
+peak, the ridge line, the tree you are diving — are placed, dragged, and removed
+as markers on the 2D map, with an optional height and size, and any camera
+segment can be pointed at one. A camera profile (a small catalog from
+action-camera to full-frame, or your own sensor and focal length) turns that
+geometry into a field of view.
+
+Everything downstream reads from one analysis: the inspector and the brief show
+subject distance at each end of the leg, how much of the frame the subject
+fills, and which way it crosses the screen — toward, away, held, or
+left-to-right — all computed from the same resolved altitudes the terrain and
+energy checks use. The 3D view draws the shot line and the camera's view
+frustum on the route, so you can see what the lens sees before anything flies.
+The analysis also refuses to be polite about physics: a hold now costs
+station-keeping power *in the planned wind* rather than a calm-air hover figure
+(light breezes are genuinely cheaper than a dead calm — translational lift is
+real — and strong winds genuinely dearer), an orbit is charged at its
+worst-quarter airspeed around the circle, and a shot whose required airspeed
+exceeds the aircraft's maximum is flagged as unflyable as authored, before
+energy is even counted. Camera intent and camera profile travel through the
+export loss report like every other concept: a format that cannot carry them
+says so before you export.
+
 ## Adding your own drone
 
 "Add a drone" in the Aircraft rail builds a rig with **no required physics

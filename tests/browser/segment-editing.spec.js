@@ -146,6 +146,19 @@ test.describe('subjects and the segment editor', () => {
     await editorRow(page, 'Orbit radius').locator('input').blur();
     await expect(page.locator('#segment-status')).toBeHidden();
 
+    // ---- an empty altitude box must never become "0 metres" ----
+    // Number('') is 0, so changing the frame while the figure is cleared once
+    // re-authored the leg at ground level, silently. Now it explains instead.
+    const altRow = editorRow(page, 'Altitude');
+    await altRow.locator('input').fill('');
+    await altRow.locator('select').selectOption('agl');
+    await expect(page.locator('#segment-status')).toBeVisible();
+    await expect(page.locator('#segment-status')).toContainText('altitude', { ignoreCase: true });
+    // With a real figure in the box the same frame change lands cleanly.
+    await altRow.locator('input').fill('90');
+    await altRow.locator('input').blur();
+    await expect(page.locator('#segment-status')).toBeHidden();
+
     // ---- the brief prints the shot ----
     await page.locator('#btn-brief').click();
     const sheet = page.locator('#brief-sheet');

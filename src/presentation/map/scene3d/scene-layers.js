@@ -589,7 +589,7 @@ function subjectLayers(subjects, palette) {
       getPixelOffset: [0, -16],
       billboard: true,
       pickable: false,
-      updateTriggers: { getText: subjects.map((s) => s.name).join(' ') },
+      updateTriggers: { getText: subjects.map((s) => s.name).join('\0') },
     }),
   ];
 }

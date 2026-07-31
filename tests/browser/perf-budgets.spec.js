@@ -91,8 +91,21 @@ test.describe('performance budgets', () => {
   /* Numbers, not ratios. The headroom under each is intentional: these are the
    * sizes the M4 work landed at, rounded up to the next round figure, so the
    * assertion fires on a new dependency rather than on ordinary churn. Moving
-   * one of these up is a decision someone should have to make on purpose. */
-  const ENTRY_BUDGET_KB = 160;
+   * one of these up is a decision someone should have to make on purpose.
+   *
+   * The entry budget was re-based 160 → 168 at M7 ship, and most of that move
+   * is the meter getting honest, not the app getting fatter. Under the old
+   * chunk graph the entry statically imported a sibling mission-schema chunk
+   * (5.2 kB gzip) that the `index-` prefix never counted — every pilot
+   * downloaded it before first paint, invisibly to this assertion. M7's
+   * de-tangling (CAMERA_INTENTS moved to mission-schema.js so analyze.js
+   * stops dragging the compiler into the entry) collapsed that graph: the
+   * entry chunk now carries its whole static closure and nothing rides
+   * uncounted. Same meter-equivalent budget (160 + 5.2 ≈ 165) plus M7's real
+   * always-path growth (segment editor, shot analysis) minus the brief moving
+   * to a lazy chunk, landed at 166.9; 168 keeps the same ~1 kB headroom the
+   * old figure had at M6 ship. */
+  const ENTRY_BUDGET_KB = 168;
   const SCENE3D_BUDGET_KB = 500;
 
   test('the built bundles are inside their gzip budgets', async () => {

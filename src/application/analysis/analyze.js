@@ -35,7 +35,7 @@
 
 import { fovDeg, orbitAirspeedMs, shotGeometry, subjectFraming } from '../../domain/camera.js';
 import { destination, distanceKm, bearingTo } from '../../domain/geo.js';
-import { CAMERA_INTENTS } from '../../domain/mission/compile.js';
+import { CAMERA_INTENTS } from '../../domain/mission/mission-schema.js';
 import { HOLD_INTENTS } from '../../domain/mission/mission-schema.js';
 import { U, powerAtSpeed } from '../../domain/physics.js';
 import {

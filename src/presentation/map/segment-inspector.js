@@ -17,9 +17,11 @@
 //     render as clear, and a leg whose altitude never resolved must never render
 //     as a height. This is the same rule the 3D scene draws by, in words.
 //
-//   *Selection is view state.* Nothing here raises a command, writes to the
-//     document or persists anything (ADR 0002). Closing the panel clears a
-//     variable in map-view.js and asks for another render pass; that is all.
+//   *Selection is view state.* Selecting, inspecting and closing never touch
+//     the document (ADR 0002): closing the panel clears a variable in
+//     map-view.js and asks for another render pass; that is all. The reading
+//     half stays that way; edits live in segment-editor.js below, which raises
+//     reducer commands through the `raise` port this module only threads.
 //
 // It is not a map layer — it draws no overlays and renders whether or not an
 // engine has initialised — so like footprint-panel.js it takes the snapshot

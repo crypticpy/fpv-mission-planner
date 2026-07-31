@@ -247,6 +247,16 @@ export const ALTITUDE_REFERENCES = Object.freeze(['launchRelative', 'agl', 'msl'
 export const SEGMENT_INTENTS = Object.freeze(['transit', 'reveal', 'orbit', 'hold', 'pass', 'return', 'approach']);
 /** The intents a dwell time means something for; `holdS` is rejected on all others. */
 export const HOLD_INTENTS = Object.freeze(['hold', 'orbit']);
+/**
+ * The intents that frame something, whether or not a subject was attached.
+ * Lives here with the other intent vocabularies rather than in compile.js,
+ * which re-exports it: the analysis imports this list statically, and an
+ * entry-bundle import of the compiler would drag the whole lazy interop
+ * engine into the first paint. One list either way — the compiler and the
+ * analysis cannot drift into disagreeing about what a camera segment is.
+ * @type {readonly string[]}
+ */
+export const CAMERA_INTENTS = Object.freeze(['reveal', 'orbit', 'pass', 'approach']);
 /** @type {readonly string[]} */
 export const SPEED_MODES = Object.freeze(['cruise', 'fixed', 'maxRange']);
 /** @type {readonly string[]} */

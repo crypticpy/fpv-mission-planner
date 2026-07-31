@@ -441,8 +441,12 @@ export function closeBrief() {
   document.body.classList.remove('brief-open');
 }
 
+// The open button itself is bound in app.js, not here: this module rides in a
+// lazy chunk (like interop's engine) and only loads on the first click, so the
+// listener that triggers that load has to live in the entry bundle. Everything
+// bound below only matters once the brief exists, which is exactly when this
+// module does.
 export function bindBrief() {
-  $('btn-brief').addEventListener('click', () => { void openBrief(); });
   $('brief-close').addEventListener('click', closeBrief);
   $('brief-print').addEventListener('click', () => window.print());
   document.addEventListener('keydown', (e) => {

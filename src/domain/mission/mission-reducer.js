@@ -337,6 +337,13 @@ const HANDLERS = {
    * mis-click is not a thing anyone should have to do); setting it to anything
    * else drops the duration rather than leaving an orphan number for a later
    * exporter to find and believe.
+   *
+   * The camera's orbit bag gets the same treatment for the same reason: it is
+   * meaningful only on intent 'orbit' (E-SEG-CAMERA-ORBIT), so leaving that
+   * intent drops it — otherwise the orphaned radius would make this very
+   * command fail validation, and the only way out of 'orbit' would be to
+   * remember to clear the radius first. Pitch and yaw survive; they mean the
+   * same thing on every camera intent.
    */
   setSegmentIntent(doc, payload) {
     const { index, segment } = findSegment(doc, payload.segmentId);
@@ -352,8 +359,11 @@ const HANDLERS = {
     const holdS = !holds ? null
       : isNum(payload.holdS) ? payload.holdS
         : (segment.holdS ?? null);
+    const camera = intent !== 'orbit' && segment.camera?.orbit != null
+      ? { ...segment.camera, orbit: null }
+      : (segment.camera ?? null);
     const segments = [...doc.route.segments];
-    segments[index] = { ...segment, intent, holdS };
+    segments[index] = { ...segment, intent, holdS, camera };
     return withRoute(doc, segments);
   },
 
