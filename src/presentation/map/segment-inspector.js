@@ -26,13 +26,17 @@
 // directly rather than a frame.
 
 import { SEVERITY_RANK } from '../../application/analysis/analysis-contracts.js';
-import { WARN_ICON, f0, f1, mmss } from '../../render/format.js';
+import { WARN_ICON, compass, f0, f1, mmss } from '../../render/format.js';
+import { renderSegmentEditor, resetSegmentEditor } from './segment-editor.js';
 
 /**
  * @typedef {import('../../application/analysis/analysis-contracts.js').AnalysisSnapshot} AnalysisSnapshot
  * @typedef {import('../../application/analysis/analysis-contracts.js').Constraint} Constraint
  * @typedef {import('../../application/analysis/analysis-contracts.js').SegmentAnalysis} SegmentAnalysis
+ * @typedef {import('../../application/analysis/analysis-contracts.js').SegmentShot} SegmentShot
  * @typedef {import('./map-adapter.js').UnitSet} UnitSet
+ * @typedef {import('./segment-editor.js').SceneProjection} SceneProjection
+ * @typedef {import('./segment-editor.js').Raise} Raise
  */
 
 const $ = (/** @type {string} */ id) => document.getElementById(id);
@@ -42,6 +46,20 @@ const REFERENCE_WORD = {
   msl: 'MSL',
   agl: 'above ground',
   launchRelative: 'above the launch',
+};
+
+/**
+ * `ScreenDirection` in a sentence. The five values are a closed vocabulary from
+ * domain/camera.js and each one is a different shot, so each gets its own words
+ * rather than a shared "moves". 'held' is the absence of a sweep, not a sixth
+ * direction, and says so.
+ */
+const SCREEN_WORD = {
+  'left-to-right': 'crosses the frame left to right',
+  'right-to-left': 'crosses the frame right to left',
+  toward: 'closes on it head-on',
+  away: 'leaves it behind',
+  held: 'held in frame — this leg barely travels',
 };
 
 /* ---------- the pure half ---------- */
@@ -161,6 +179,68 @@ export function segmentFacts(segment, u) {
   rows.push(verticalRow(segment));
   rows.push(altitudeRow(segment));
   rows.push(clearanceRow(segment));
+  if (segment.shot) rows.push(...shotRows(segment.shot));
+  return rows;
+}
+
+/**
+ * The shot, exactly as M7 wave C computed it (ADR 0011 §3) — four rows, and not
+ * one of the numbers in them is arrived at here.
+ *
+ * Every field of a `SegmentShot` is separately nullable and each null names a
+ * different missing input: the five geometry fields go null together when an
+ * altitude never resolved (a shot short one of its three points is not a
+ * partially known shot), while the framing pair goes null on its own when the
+ * subject has no radius or the scene has no camera profile. So the rows say
+ * which input is absent rather than printing an em dash and leaving the pilot to
+ * guess whether the shot is unknown or the lens is.
+ *
+ * @param {SegmentShot} shot
+ * @returns {{ label: string, value: string, note?: string }[]}
+ */
+function shotRows(shot) {
+  const rows = [];
+
+  rows.push({
+    label: 'Framing',
+    value: shot.subjectName,
+    note: shot.screenDirection
+      ? SCREEN_WORD[shot.screenDirection] ?? shot.screenDirection
+      : 'the leg passes straight over it — there is no side of frame to cross to',
+  });
+
+  const start = shot.distanceStartM;
+  const end = shot.distanceEndM;
+  rows.push({
+    label: 'Subject range',
+    value: start == null || end == null
+      ? 'unknown — an altitude this shot is measured between never resolved'
+      : `${f0(start)} → ${f0(end)} m`,
+    note: shot.bearingToSubjectDeg == null
+      ? undefined
+      : `${f0(shot.bearingToSubjectDeg)}° ${compass(shot.bearingToSubjectDeg)} from the leg's midpoint`,
+  });
+
+  const elevation = shot.elevationAngleDeg;
+  rows.push({
+    label: 'Elevation angle',
+    value: elevation == null
+      ? 'unknown'
+      : `${f1(Math.abs(elevation))}° ${elevation < 0 ? 'below' : 'above'} horizontal`,
+  });
+
+  const a = shot.framingStart;
+  const b = shot.framingEnd;
+  rows.push({
+    label: 'Frame filled',
+    value: a == null || b == null
+      ? (shot.fov == null
+        ? 'no camera profile — there is no frame to fill'
+        : 'no subject radius — nothing to measure against the frame')
+      : `${f0(a * 100)}% → ${f0(b * 100)}%`,
+    note: shot.subjectRadiusM == null ? undefined : `taken against a ${f0(shot.subjectRadiusM)} m bounding radius`,
+  });
+
   return rows;
 }
 
@@ -244,13 +324,18 @@ function clearanceRow(segment) {
  * @param {string|null} view.selectedSegmentId  already resolved by liveSelection
  * @param {UnitSet} view.units
  * @param {() => void} view.onClose
+ * @param {SceneProjection} [view.scene]  the document's subjects, profile and
+ *   templates — the editing half's only inputs that the snapshot cannot supply
+ * @param {Raise} [view.raise]  one command in, its verdict out. Absent before the
+ *   mission bridge has handed its port over, and the editing half stays folded
+ *   away rather than offering controls that could not land anywhere
  */
-export function renderSegmentInspector({ snapshot, selectedSegmentId, units: u, onClose }) {
+export function renderSegmentInspector({ snapshot, selectedSegmentId, units: u, onClose, scene, raise }) {
   const card = $('segment-card');
   if (!card) return;
 
   const segment = selectedSegmentId ? snapshot?.segments?.[selectedSegmentId] ?? null : null;
-  if (!segment) { card.hidden = true; return; }
+  if (!segment) { card.hidden = true; resetSegmentEditor(); return; }
   card.hidden = false;
 
   const close = $('btn-segment-close');
@@ -262,13 +347,32 @@ export function renderSegmentInspector({ snapshot, selectedSegmentId, units: u, 
   if (title) title.textContent = segmentHeading(segment.index);
 
   const sub = $('segment-sub');
-  if (sub) sub.textContent = `${segment.intent} · everything below is the analysis's own, not recomputed here.`;
+  if (sub) sub.textContent = subLine(segment);
 
   fillFacts(segmentFacts(segment, u));
   fillWarnings(segmentConstraints(snapshot?.constraints, segment.segmentId));
 
+  const fold = $('segment-editor-fold');
+  const editable = !!scene && !!raise;
+  if (fold) fold.hidden = !editable;
+  if (scene && raise) renderSegmentEditor({ segment, scene, raise });
+
   const id = $('segment-id');
   if (id) id.textContent = segment.segmentId;
+}
+
+/**
+ * The line under the heading: what this leg is for, and what it is pointed at.
+ *
+ * The subject's name comes off the shot record rather than the scene, because
+ * the shot is what decided the segment has one — a `subjectRef` the analysis
+ * could not resolve produces no shot, and naming a subject the figures below were
+ * not computed against would be the panel's one and only lie.
+ * @param {SegmentAnalysis} segment
+ */
+function subLine(segment) {
+  const framing = segment.shot ? ` · framing ${segment.shot.subjectName}` : '';
+  return `${segment.intent}${framing} · everything below is the analysis's own, not recomputed here.`;
 }
 
 /** @param {{ label: string, value: string, note?: string }[]} rows */

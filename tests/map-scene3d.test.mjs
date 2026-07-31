@@ -6,6 +6,7 @@ import {
   SCENE_ZOOM_OFFSET,
   boundsOf,
   buildRouteGeometry,
+  buildShotGeometry,
   parseCssRgb,
   ringPositions,
   toFlatZoom,
@@ -313,4 +314,255 @@ test('an unreadable colour falls back rather than guessing', () => {
   for (const bad of ['', null, undefined, 'var(--series-2)', 'tomato', '#12345', 'rgb(1,2)']) {
     assert.deepEqual(parseCssRgb(bad, fallback), fallback, `${bad}`);
   }
+});
+
+/* ---------- the shot geometry (M7 wave D) ---------- */
+
+/* Two failures are what these guard.
+ *
+ * A subject nobody measured drawn as though somebody had — the same class of
+ * mistake as an unresolved leg drawn at a plausible altitude, and the reason
+ * `resolved` travels beside every position in this file.
+ *
+ * And the scene quietly disagreeing with the inspector about one shot. Every
+ * number below comes off the segment's `shot` record; if this file ever starts
+ * deriving a range or an angle of its own, one of these stops matching the
+ * arithmetic it was hand-derived from. */
+
+/** A leg of the drawn line, in the shape buildRouteGeometry hands over. */
+const leg = (over = {}) => ({
+  kind: 'leg',
+  segmentId: 'seg-0',
+  path: [[0, 0, 100], [0.002, 0, 100]],
+  resolved: true,
+  phase: 'out',
+  ...over,
+});
+
+/** A shot record with every field populated; each test spoils the one it is about. */
+const shotOf = (over = {}) => ({
+  subjectId: 'sub-1',
+  subjectName: 'The barn',
+  distanceStartM: 90,
+  distanceEndM: 110,
+  bearingToSubjectDeg: 0,
+  elevationAngleDeg: 0,
+  screenDirection: 'left-to-right',
+  framingStart: 0.2,
+  framingEnd: 0.3,
+  subjectRadiusM: 12,
+  fov: { hDeg: 90, vDeg: 90 },
+  ...over,
+});
+
+const subject = (over = {}) => ({
+  id: 'sub-1', name: 'The barn', lat: 0.001, lng: 0.001,
+  elevationMslM: 220, radiusM: 12, ...over,
+});
+
+/* Trigonometry through a geodesic and back does not land on round numbers; a
+ * metre-scale tolerance is far tighter than anything these assertions are about. */
+const near = (a, b) => Math.abs(a - b) < 1e-6;
+
+test('a measured subject stands at its own height and an unmeasured one on the ground', () => {
+  const g = buildShotGeometry({
+    legs: [],
+    subjects: [subject(), subject({ id: 'sub-2', name: 'The mast', elevationMslM: null })],
+    selectedSegmentId: null,
+  }, { segments: {}, exaggeration: 2, groundZAt: flatGround(2) });
+
+  // The same rule the route vertices follow: MSL times the exaggeration, because
+  // MapLibre scales the mesh about sea level and reports it back already scaled.
+  assert.deepEqual(g.subjects[0].position, [0.001, 0.001, 440]);
+  assert.equal(g.subjects[0].resolved, true);
+
+  // 100 m of ground at 2× is 200, plus the lift that keeps it off the mesh.
+  assert.deepEqual(g.subjects[1].position, [0.001, 0.001, 200 + DRAPE_LIFT_M]);
+  assert.equal(g.subjects[1].resolved, false,
+    'nobody measured this one — it must not read as a height');
+});
+
+test('the subject the open segment frames is the one lit up', () => {
+  const g = buildShotGeometry({
+    legs: [],
+    subjects: [subject(), subject({ id: 'sub-2', name: 'The mast' })],
+    selectedSegmentId: 'seg-0',
+  }, {
+    segments: { 'seg-0': { shot: shotOf() } },
+    exaggeration: 1,
+    groundZAt: flatGround(),
+  });
+  assert.deepEqual(g.subjects.map((s) => s.framed), [true, false]);
+});
+
+test('a shot line leaves the middle of the leg it belongs to', () => {
+  const g = buildShotGeometry({
+    legs: [leg()],
+    subjects: [subject()],
+    selectedSegmentId: null,
+  }, {
+    segments: { 'seg-0': { shot: shotOf() } },
+    exaggeration: 1,
+    groundZAt: flatGround(),
+  });
+
+  assert.equal(g.shots.length, 1);
+  assert.deepEqual(g.shots[0].path[0], [0.001, 0, 100], 'halfway along the drawn leg');
+  assert.deepEqual(g.shots[0].path[1], g.subjects[0].position);
+  assert.equal(g.shots[0].subjectId, 'sub-1');
+  assert.equal(g.shots[0].selected, false);
+});
+
+test('a shot is as resolved as its worse end', () => {
+  const both = (legOver, subjectOver) => buildShotGeometry({
+    legs: [leg(legOver)],
+    subjects: [subject(subjectOver)],
+    selectedSegmentId: null,
+  }, {
+    segments: { 'seg-0': { shot: shotOf() } },
+    exaggeration: 1,
+    groundZAt: flatGround(),
+  }).shots[0].resolved;
+
+  assert.equal(both({}, {}), true);
+  assert.equal(both({ resolved: false }, {}), false, 'the leg end is a guess');
+  assert.equal(both({}, { elevationMslM: null }), false, 'the subject end is a guess');
+});
+
+test('the flight home does not draw the outbound shot a second time', () => {
+  // Under a retrace the way back carries the authored segment ids again, so a
+  // builder that took every leg would hang two lines off one shot.
+  const g = buildShotGeometry({
+    legs: [leg(), leg({ phase: 'home', path: [[0.002, 0, 100], [0, 0, 100]] })],
+    subjects: [subject()],
+    selectedSegmentId: null,
+  }, {
+    segments: { 'seg-0': { shot: shotOf() } },
+    exaggeration: 1,
+    groundZAt: flatGround(),
+  });
+  assert.equal(g.shots.length, 1);
+});
+
+test('a segment with nothing to film, and a shot whose subject is gone, draw nothing', () => {
+  const nothing = (input, segments) => buildShotGeometry({
+    subjects: [subject()], selectedSegmentId: null, ...input,
+  }, { segments, exaggeration: 1, groundZAt: flatGround() });
+
+  assert.deepEqual(nothing({ legs: [leg()] }, { 'seg-0': { shot: null } }).shots, []);
+  assert.deepEqual(nothing({ legs: [leg()] }, {}).shots, []);
+  assert.deepEqual(nothing({ legs: [leg({ segmentId: null })] }, {}).shots, []);
+  assert.deepEqual(
+    nothing({ legs: [leg()] }, { 'seg-0': { shot: shotOf({ subjectId: 'sub-9' }) } }).shots, [],
+    'no marker to draw the line to');
+});
+
+/* ---------- the view pyramid ---------- */
+
+test('the frustum is the open segment’s alone', () => {
+  const build = (selectedSegmentId) => buildShotGeometry({
+    legs: [leg(), leg({ segmentId: 'seg-1', path: [[0.002, 0, 100], [0.004, 0, 100]] })],
+    subjects: [subject()],
+    selectedSegmentId,
+  }, {
+    segments: { 'seg-0': { shot: shotOf() }, 'seg-1': { shot: shotOf() } },
+    exaggeration: 1,
+    groundZAt: flatGround(),
+  });
+
+  assert.equal(build(null).frustum, null, 'nothing open, nothing to outline');
+  assert.equal(build('seg-0').frustum.segmentId, 'seg-0');
+  assert.equal(build('seg-1').frustum.segmentId, 'seg-1');
+});
+
+test('the frame’s corners are the domain’s own, placed on the globe', () => {
+  // Hand-derived. Apex is the leg midpoint at [0.001, 0, 100]; the record says
+  // the subject bears due north at 90 m and 110 m from the two ends, so the mean
+  // range is 100 m, and a 90° field of view puts tan(45°) × 100 = 100 m of half
+  // width and half height on the frame at that range.
+  const g = buildShotGeometry({
+    legs: [leg()],
+    subjects: [subject()],
+    selectedSegmentId: 'seg-0',
+  }, {
+    segments: { 'seg-0': { shot: shotOf(), camera: null } },
+    exaggeration: 2,
+    groundZAt: flatGround(2),
+  });
+  const f = g.frustum;
+
+  assert.deepEqual(f.apex, [0.001, 0, 100]);
+  assert.equal(f.outline.length, 5, 'four corners and the closing vertex');
+  assert.deepEqual(f.outline[4], f.outline[0]);
+  assert.equal(f.edges.length, 4);
+  for (let i = 0; i < 4; i++) assert.deepEqual(f.edges[i], [f.apex, f.outline[i]]);
+
+  // 100 m above and below the apex, and the vertical offset picks up the same
+  // exaggeration the apex's own Z already carries.
+  const [tl, tr, br, bl] = f.outline;
+  assert.ok(near(tl[2], 300) && near(tr[2], 300), 'the top pair, 200 scaled metres up');
+  assert.ok(near(br[2], -100) && near(bl[2], -100), 'the bottom pair, the same below');
+
+  // Ordered top-left, top-right, bottom-right, bottom-left as seen from behind a
+  // camera looking north: left is west of the apex, right is east of it, and all
+  // four are north of it. The horizontal spread is metres and does not scale.
+  assert.ok(tl[0] < 0.001 && bl[0] < 0.001, 'the left pair is west');
+  assert.ok(tr[0] > 0.001 && br[0] > 0.001, 'the right pair is east');
+  assert.ok(f.outline.slice(0, 4).every((p) => p[1] > 0), 'the frame is out in front');
+  assert.ok(Math.abs((0.001 - tl[0]) - (tr[0] - 0.001)) < 1e-9, 'symmetric about the axis');
+});
+
+test('the authored camera swings the frame rather than being quietly ignored', () => {
+  const build = (camera) => buildShotGeometry({
+    legs: [leg()], subjects: [subject()], selectedSegmentId: 'seg-0',
+  }, {
+    segments: { 'seg-0': { shot: shotOf(), camera } },
+    exaggeration: 1,
+    groundZAt: flatGround(),
+  }).frustum;
+
+  // A 90° yaw offset on a due-north shot points the frame due east: every corner
+  // moves east of the apex, and the frame straddles the new axis rather than the
+  // old one — left of an east-facing camera is north, right of it is south.
+  const swung = build({ pitchDeg: null, yawOffsetDeg: 90, orbit: null });
+  const corners = swung.outline.slice(0, 4);
+  assert.ok(corners.every((p) => p[0] > 0.001), 'east of the apex');
+  assert.ok(near(corners.reduce((s, p) => s + p[1], 0) / 4, 0), 'centred on the new axis');
+  assert.ok(corners[0][1] > 0 && corners[1][1] < 0, 'left is north, right is south');
+
+  // An authored pitch overrides the elevation angle the geometry would look down.
+  const level = build(null);
+  const down = build({ pitchDeg: -30, yawOffsetDeg: null, orbit: null });
+  assert.ok(down.outline[0][2] < level.outline[0][2], 'the whole frame tips down');
+});
+
+test('a frame the record cannot support is left undrawn rather than invented', () => {
+  const build = (shotOver) => buildShotGeometry({
+    legs: [leg()], subjects: [subject()], selectedSegmentId: 'seg-0',
+  }, {
+    segments: { 'seg-0': { shot: shotOf(shotOver) } },
+    exaggeration: 1,
+    groundZAt: flatGround(),
+  }).frustum;
+
+  assert.equal(build({ fov: null }), null, 'no camera profile, no field of view');
+  assert.equal(build({ bearingToSubjectDeg: null }), null, 'the leg passes over the subject');
+  assert.equal(build({ elevationAngleDeg: null }), null);
+  assert.equal(build({ distanceStartM: null, distanceEndM: null }), null);
+  // One end is enough to say how far the frame reaches.
+  assert.ok(build({ distanceStartM: null }) !== null);
+  // And the shot line is still drawn — losing the pyramid is not losing the shot.
+  assert.equal(buildShotGeometry({
+    legs: [leg()], subjects: [subject()], selectedSegmentId: 'seg-0',
+  }, {
+    segments: { 'seg-0': { shot: shotOf({ fov: null }) } },
+    exaggeration: 1,
+    groundZAt: flatGround(),
+  }).shots.length, 1);
+});
+
+test('an empty scene is empty rather than absent', () => {
+  const g = buildShotGeometry({ legs: [], subjects: [], selectedSegmentId: null },
+    { segments: {}, exaggeration: 1, groundZAt: flatGround() });
+  assert.deepEqual(g, { subjects: [], shots: [], frustum: null });
 });

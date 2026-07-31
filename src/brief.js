@@ -209,19 +209,102 @@ function linkLine(link, plan, u) {
     + (link.losBlockKm != null ? ` — the ground is across the ray itself by ${dist(link.losBlockKm)}.` : '.');
 }
 
-function routeSection(route, u) {
+/**
+ * How the subject crosses the frame, in words rather than in the pipeline's
+ * token. Shared with the map inspector's wording in substance, shortened here
+ * because it sits inside a table cell.
+ */
+const SCREEN_WORD = {
+  'left-to-right': 'crossing left to right',
+  'right-to-left': 'crossing right to left',
+  toward: 'closing head-on',
+  away: 'falling behind',
+  held: 'held in frame',
+};
+
+/**
+ * What one leg is filming, or '' where it films nothing.
+ *
+ * Every number in it is the analysis's own `shot` record (ADR 0011 §3) — this
+ * function converts units and picks words, and computes no geometry. A segment
+ * with no shot still names its intent, because "orbit" on a leg with no subject
+ * attached is exactly the thing a pilot needs to notice on the page.
+ *
+ * @param {object|null} seg  the SegmentAnalysis for this leg, if there is one
+ * @param {object} u  the unit system
+ * @returns {string}
+ */
+function shotPhrase(seg, u) {
+  if (!seg) return '';
+  const shot = seg.shot;
+  if (!shot) return seg.intent && seg.intent !== 'transit' ? seg.intent : '';
+
+  const len = (m) => `${f0(u.altFromM(m))} ${u.altUnit}`;
+  const bits = [`${seg.intent} ${shot.subjectName}`];
+
+  if (shot.distanceStartM != null && shot.distanceEndM != null) {
+    const a = Math.round(u.altFromM(shot.distanceStartM));
+    const b = Math.round(u.altFromM(shot.distanceEndM));
+    bits.push(a === b ? `at ${len(shot.distanceStartM)}` : `${len(shot.distanceStartM)} → ${len(shot.distanceEndM)}`);
+  } else if (shot.distanceEndM != null) {
+    bits.push(`at ${len(shot.distanceEndM)}`);
+  }
+
+  if (shot.framingStart != null && shot.framingEnd != null) {
+    bits.push(`${f0(shot.framingStart * 100)}–${f0(shot.framingEnd * 100)}% of frame`);
+  }
+
+  const dir = shot.screenDirection ? SCREEN_WORD[shot.screenDirection] : null;
+  if (dir) bits.push(dir);
+  return bits.join(', ');
+}
+
+/**
+ * The route table, one row per leg of the flown line.
+ *
+ * The rows are the *segments* now rather than the integrator's legs: an authored
+ * leg is a shot with an intent and possibly a subject, and only the segment
+ * knows that. The figures are unchanged and cannot change — a SegmentAnalysis
+ * carries the integrator's own `distanceKm`, `courseDeg`, `timeMin` and
+ * `flightWh` for its leg verbatim, and `flightWh` is specifically the
+ * level-flight figure the route solved, not the dwell-inclusive `energyWh`. The
+ * totals below the table were never per-leg sums in the first place; they come
+ * off `route` as they always did.
+ *
+ * The flight home has no segment because nobody authored it, so it keeps
+ * reading off the leg. That is the row the note at the foot is about.
+ *
+ * @param {object|null} route
+ * @param {Record<string, object>|null|undefined} segments  keyed by segment id
+ * @param {object} u
+ */
+function routeSection(route, segments, u) {
   if (!route || route.empty) return null;
   const dist = (km) => `${f1(u.distanceFromKm(km))} ${u.distanceUnit}`;
-  const legs = route.legs.map((l, i) => ({
-    name: route.legs.length === 1 ? 'Launch → home'
-      : i === 0 ? 'Launch → 1'
-      : i === route.legs.length - 1 ? `${i} → home`
-      : `${i} → ${i + 1}`,
-    dist: dist(l.distKm),
-    course: `${f0(l.courseDeg)}° ${compass(l.courseDeg)}`,
-    time: l.timeMin == null ? '—' : mmss(l.timeMin),
-    wh: l.whLeg == null ? '—' : `${f1(l.whLeg)} Wh`,
-  }));
+
+  /* Segment k arrives at waypoint k, which is the integrator's leg k — the same
+     mapping the map's own route spans are built on. */
+  const byIndex = [];
+  for (const seg of Object.values(segments ?? {})) {
+    if (Number.isInteger(seg?.index) && seg.index >= 0) byIndex[seg.index] = seg;
+  }
+
+  const legs = route.legs.map((l, i) => {
+    const seg = byIndex[i] ?? null;
+    return {
+      name: route.legs.length === 1 ? 'Launch → home'
+        : i === 0 ? 'Launch → 1'
+        : i === route.legs.length - 1 ? `${i} → home`
+        : `${i} → ${i + 1}`,
+      dist: dist(seg ? seg.distanceKm : l.distKm),
+      course: seg
+        ? `${f0(seg.courseDeg)}° ${compass(seg.courseDeg)}`
+        : `${f0(l.courseDeg)}° ${compass(l.courseDeg)}`,
+      time: (seg ? seg.timeMin : l.timeMin) == null ? '—' : mmss(seg ? seg.timeMin : l.timeMin),
+      wh: (seg ? seg.flightWh : l.whLeg) == null ? '—' : `${f1(seg ? seg.flightWh : l.whLeg)} Wh`,
+      shot: shotPhrase(seg, u),
+    };
+  });
   const verdict = route.unflyable
     ? 'This route cannot be flown as drawn — on at least one heading the wind beats every airspeed this rig holds.'
     : route.fits
@@ -305,6 +388,12 @@ function exportCompatSection(compatibility) {
  * generated offline with no terrain profile, no route and no forecast hour is
  * still the artifact the pilot walks out with, which is the point of the feature.
  *
+ * `segments` is the analysis's own segment map, keyed by id. It rides beside
+ * `route` rather than replacing it because the two answer different questions —
+ * the route is the whole flown line including the failsafe home, the segments are
+ * only what somebody authored — and a brief printed without it still prints every
+ * figure it printed before, just with no shot wording.
+ *
  * `expert` gates the figures the rail only offers in full-detail mode (the link
  * band, the terrain profile, the cruise level): in beginner mode they are pinned
  * to defaults the pilot never chose and sit behind full-only cards they cannot
@@ -313,7 +402,8 @@ function exportCompatSection(compatibility) {
  * the clock, the budget, the warnings, the checks.
  */
 export function buildBrief({
-  plan, verdict, warnings = [], footprint = null, route = null, link = null, terrain = null,
+  plan, verdict, warnings = [], footprint = null, route = null, segments = null,
+  link = null, terrain = null,
   launch = null, drone = null, battery = null, packCount = 1, payloadLabel = null, extraG = 0,
   env = {}, scenarioLabel = null, cruiseAltM = null, times = null, launchAt = null,
   terrainAttribution = null, compatibility = [],
@@ -387,7 +477,7 @@ export function buildBrief({
     // route's clearance findings still came off that DEM, and a credit that
     // disappeared with the chart would not be travelling with the work.
     dataLine: typeof terrainAttribution === 'string' && terrainAttribution ? terrainAttribution : null,
-    route: routeSection(route, u),
+    route: routeSection(route, segments, u),
     checklist: checklist({ plan, clock, link, terrain: terr, route, env, u, expert }),
     exportCompat: exportCompatSection(compatibility),
   };

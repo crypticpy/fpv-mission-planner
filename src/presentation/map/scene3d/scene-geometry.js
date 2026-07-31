@@ -26,12 +26,17 @@
 //     height off a leg the analysis could not place.
 
 import { destination } from '../../../domain/geo.js';
+import { frustumCorners } from '../../../domain/camera.js';
 import { routeSpans, segmentIdOrder, worstPinIndex } from '../layers/route-layer.js';
 
 /**
  * @typedef {import('../map-adapter.js').LatLng} LatLng
  * @typedef {import('../map-adapter.js').LatLngBounds} LatLngBounds
  * @typedef {import('../map-adapter.js').RouteWaypoint} RouteWaypoint
+ * @typedef {import('../map-adapter.js').SceneSubject} SceneSubject
+ * @typedef {import('../../../application/analysis/analysis-contracts.js').SegmentShot} SegmentShot
+ * @typedef {import('../../../domain/mission/mission-schema.js').SegmentCamera} SegmentCamera
+ * @typedef {import('../../../domain/camera.js').Point3} Point3
  */
 
 /** A deck.gl vertex: longitude, latitude, metres up — in that order. */
@@ -89,6 +94,63 @@ import { routeSpans, segmentIdOrder, worstPinIndex } from '../layers/route-layer
  * @property {RouteLeg3[]} legs  one per authored segment hop, for picking
  * @property {RoutePin[]} pins
  * @property {number} count  authored waypoints actually drawn
+ */
+
+/**
+ * A subject, placed in the scene.
+ *
+ * `resolved` carries the same meaning it does on a route vertex and for the same
+ * reason: a subject nobody measured is drawn on the terrain under it, and it must
+ * not be possible to read a confirmed height off it.
+ * @typedef {object} SceneSubject3
+ * @property {'subject'} kind
+ * @property {string} id
+ * @property {string} name
+ * @property {Position3} position
+ * @property {boolean} resolved  false when the height came off the ground
+ * @property {boolean} framed    the selected segment is pointed at this one
+ */
+
+/**
+ * What one segment is looking at: the leg's midpoint, then the subject.
+ * @typedef {object} ShotLine
+ * @property {'shot'} kind
+ * @property {string} segmentId
+ * @property {string} subjectId
+ * @property {Position3[]} path  two vertices
+ * @property {boolean} resolved  both ends' heights are claims, not fallbacks
+ * @property {boolean} selected
+ */
+
+/**
+ * The view pyramid of the selected segment's shot: the rectangle the frame covers
+ * out at the subject, plus the four edges back to the camera.
+ * @typedef {object} ShotFrustum
+ * @property {'frustum'} kind
+ * @property {string} segmentId
+ * @property {Position3} apex
+ * @property {Position3[]} outline  five vertices — the four corners, closed
+ * @property {Position3[][]} edges  four two-vertex paths, apex → corner
+ * @property {boolean} resolved
+ */
+
+/**
+ * @typedef {object} ShotGeometry
+ * @property {SceneSubject3[]} subjects
+ * @property {ShotLine[]} shots
+ * @property {ShotFrustum|null} frustum  at most one: the selected segment's
+ */
+
+/**
+ * The two fields of a `SegmentAnalysis` the shot geometry reads.
+ *
+ * Structural rather than the whole record on purpose — it says at the type level
+ * that everything drawn below comes off what the analysis published about the
+ * shot, and that nothing here is at liberty to reach for a distance or an angle
+ * the pass did not hand over.
+ * @typedef {object} ShotSource
+ * @property {SegmentShot|null} [shot]
+ * @property {SegmentCamera|null} [camera]
  */
 
 /**
@@ -268,6 +330,200 @@ function runsOf(vs, phase) {
     else runs.push({ resolved, phase, path: [vs[i].position, vs[i + 1].position] });
   }
   return runs;
+}
+
+/**
+ * The cinematic half of the scene: where the subjects stand, what each segment is
+ * pointed at, and — for the one segment the pilot has open — the frame it sees.
+ *
+ * Nothing here is a second opinion about the shot. The distances, the bearing,
+ * the elevation angle and the field of view are all read off the segment's
+ * `shot` record exactly as the analysis published them (ADR 0011 §3); the only
+ * arithmetic in this function is the placement that turns those numbers into
+ * positions the scene can draw. `frustumCorners` is called for the outline
+ * because it is the same pure domain math the pass itself used — feeding it the
+ * pass's own numbers reproduces the pass's own pyramid, and re-deriving a range
+ * or an angle here would let 3D and the inspector disagree about one shot.
+ *
+ * The apex is the leg's midpoint because that is where the record's angles were
+ * measured from, and the range is the mean of the two published slant ranges —
+ * the only midpoint distance those two numbers support. It runs a little long
+ * where the subject sits off to one side, which draws the frame's base just past
+ * the subject rather than just short of it; a pyramid that stops short of what it
+ * is framing would be the misleading one.
+ *
+ * Outbound legs only. Under a retrace the flight home is the authored segments
+ * flown backwards and carries their ids again, and one shot drawn twice is one
+ * shot too many.
+ *
+ * @param {object} input
+ * @param {readonly RouteLeg3[]} input.legs  from buildRouteGeometry, so the shot
+ *   lines start on the line the scene actually drew
+ * @param {readonly SceneSubject[]} input.subjects  the scene's roster
+ * @param {string|null} input.selectedSegmentId
+ * @param {object} opts
+ * @param {Record<string, ShotSource>} opts.segments
+ * @param {number} opts.exaggeration
+ * @param {(lng: number, lat: number) => number|null} opts.groundZAt
+ * @returns {ShotGeometry}
+ */
+export function buildShotGeometry(input, opts) {
+  const { legs, subjects, selectedSegmentId } = input;
+  const { segments, exaggeration, groundZAt } = opts;
+
+  const selected = selectedSegmentId ?? null;
+  const framedId = selected ? segments?.[selected]?.shot?.subjectId ?? null : null;
+
+  /** @type {SceneSubject3[]} */
+  const placed = [];
+  /** @type {Map<string, SceneSubject3>} */
+  const byId = new Map();
+  for (const s of subjects ?? []) {
+    if (!Number.isFinite(s?.lat) || !Number.isFinite(s?.lng)) continue;
+    const msl = finite(s.elevationMslM);
+    const drawn = /** @type {SceneSubject3} */ ({
+      kind: 'subject',
+      id: s.id,
+      name: s.name,
+      position: /** @type {Position3} */ ([
+        s.lng,
+        s.lat,
+        msl != null ? msl * exaggeration : (groundZAt(s.lng, s.lat) ?? 0) + DRAPE_LIFT_M,
+      ]),
+      resolved: msl != null,
+      framed: s.id === framedId,
+    });
+    placed.push(drawn);
+    byId.set(s.id, drawn);
+  }
+
+  /** @type {ShotLine[]} */
+  const shots = [];
+  /** @type {ShotFrustum|null} */
+  let frustum = null;
+
+  for (const leg of legs ?? []) {
+    const id = leg?.segmentId;
+    if (!id || leg.phase !== 'out') continue;
+    const source = segments?.[id];
+    const shot = source?.shot;
+    if (!shot) continue;
+    const subject = byId.get(shot.subjectId);
+    if (!subject) continue;
+    const apex = midpointOf(leg.path);
+    if (!apex) continue;
+
+    const isSelected = id === selected;
+    shots.push({
+      kind: 'shot',
+      segmentId: id,
+      subjectId: shot.subjectId,
+      path: [apex, subject.position],
+      resolved: leg.resolved && subject.resolved,
+      selected: isSelected,
+    });
+    if (isSelected && !frustum) {
+      frustum = frustumOf(id, apex, shot, source?.camera ?? null, exaggeration, leg.resolved);
+    }
+  }
+
+  return { subjects: placed, shots, frustum };
+}
+
+/** A real number or null — the one guard every published field here needs.
+ * @param {number|null|undefined} v @returns {number|null} */
+const finite = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+
+/**
+ * Halfway along a drawn leg. Naive about the antimeridian, exactly as `boundsOf`
+ * and the 2D `fit()` are, and for the same reason.
+ * @param {readonly Position3[]} path
+ * @returns {Position3|null}
+ */
+function midpointOf(path) {
+  const a = path?.[0];
+  const b = path?.[1];
+  if (!a || !b) return null;
+  return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2];
+}
+
+/**
+ * One segment's view pyramid, or null where the record cannot support one — an
+ * unprofiled camera has no field of view, and a leg that passes straight over its
+ * subject has no bearing to it.
+ *
+ * The authored camera bag steers: `yawOffsetDeg` swings the frame off the subject
+ * and `pitchDeg` overrides the angle the geometry would otherwise look down. Both
+ * are the pilot's own numbers, so an offset frame is drawn offset rather than
+ * quietly re-centred.
+ *
+ * @param {string} segmentId
+ * @param {Position3} apex
+ * @param {SegmentShot} shot
+ * @param {SegmentCamera|null} camera
+ * @param {number} exaggeration
+ * @param {boolean} resolved
+ * @returns {ShotFrustum|null}
+ */
+function frustumOf(segmentId, apex, shot, camera, exaggeration, resolved) {
+  const bearing = finite(shot.bearingToSubjectDeg);
+  if (bearing == null) return null;
+  const pitch = finite(camera?.pitchDeg) ?? finite(shot.elevationAngleDeg);
+  if (pitch == null) return null;
+  const rangeM = meanRange(shot);
+  if (rangeM == null) return null;
+
+  const corners = frustumCorners(
+    { eM: 0, nM: 0, uM: 0 },
+    bearing + (finite(camera?.yawOffsetDeg) ?? 0),
+    pitch,
+    shot.fov,
+    rangeM,
+  );
+  if (!corners) return null;
+
+  const outline = corners.map((c) => cornerPosition(apex, c, exaggeration));
+  return {
+    kind: 'frustum',
+    segmentId,
+    apex,
+    outline: [...outline, outline[0]],
+    edges: outline.map((p) => [apex, p]),
+    resolved,
+  };
+}
+
+/**
+ * How far the frame reaches, from the midpoint the angles were taken at.
+ * @param {SegmentShot} shot
+ * @returns {number|null}
+ */
+function meanRange(shot) {
+  const start = finite(shot.distanceStartM);
+  const end = finite(shot.distanceEndM);
+  if (start != null && end != null) return (start + end) / 2;
+  return start ?? end;
+}
+
+/**
+ * A camera-frame offset in metres, back on the globe.
+ *
+ * `frustumCorners` works in local ENU metres about the camera, so the horizontal
+ * part is a bearing and a distance from the apex — which is what `destination`
+ * takes, in kilometres. The vertical part is a true-metre offset and picks up the
+ * exaggeration the apex's own Z already carries.
+ *
+ * @param {Position3} apex
+ * @param {Point3} corner
+ * @param {number} exaggeration
+ * @returns {Position3}
+ */
+function cornerPosition(apex, corner, exaggeration) {
+  const horizM = Math.hypot(corner.eM, corner.nM);
+  const [lat, lng] = horizM > 0
+    ? destination(apex[1], apex[0], Math.atan2(corner.eM, corner.nM) * 180 / Math.PI, horizM / 1000)
+    : [apex[1], apex[0]];
+  return [lng, lat, apex[2] + corner.uM * exaggeration];
 }
 
 /**

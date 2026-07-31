@@ -286,13 +286,18 @@ function renderSheet(b, fp, route, u) {
 
   if (b.route) {
     const rt = section('Route');
-    rt.appendChild(rowTable(b.route.legs, [
+    /* The shot column is added only when some leg has something to say in it —
+       an empty sixth cell on every row of a plain transit route is a column of
+       whitespace the printer still has to find room for. */
+    const cols = [
       { cls: 'brief-k', get: r => r.name },
       { cls: 'brief-v', get: r => r.dist },
       { cls: 'brief-v', get: r => r.course },
       { cls: 'brief-v', get: r => r.time },
       { cls: 'brief-v', get: r => r.wh },
-    ]));
+    ];
+    if (b.route.legs.some(r => r.shot)) cols.push({ cls: 'brief-n', get: r => r.shot });
+    rt.appendChild(rowTable(b.route.legs, cols));
     rt.appendChild(h('p', 'brief-note', b.route.verdict));
     if (b.route.loiter) rt.appendChild(h('p', 'brief-note', b.route.loiter));
     rt.appendChild(h('p', 'brief-note', b.route.note));
@@ -383,6 +388,9 @@ export async function openBrief() {
     warnings: latest.constraints,
     footprint: fp,
     route,
+    // Same gate as the route itself: with route mode off there is no leg table
+    // for the shot wording to sit in.
+    segments: route ? latest.segments : null,
     link: latest.link,
     terrain: terrainStatsFor(r),
     // The pin the footprint was swept around, not the rail's idea of it: the two

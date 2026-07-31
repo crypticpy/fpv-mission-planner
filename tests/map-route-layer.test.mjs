@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { routeSpans, segmentIdOrder, worstPinIndex } from '../src/presentation/map/layers/route-layer.js';
+import { createSubjectLayer } from '../src/presentation/map/layers/subject-layer.js';
 
 /* The one piece of arithmetic in the route layer.
  *
@@ -137,4 +138,136 @@ test('the segment ids come back in the order the pilot authored them', () => {
   }), ['seg-a', 'seg-b', 'seg-c']);
   assert.deepEqual(segmentIdOrder({}), []);
   assert.deepEqual(segmentIdOrder(null), []);
+});
+
+/* ---------- the subjects, on the 2D map (M7 wave D) ---------- */
+
+/* A subject layer is mostly markers, and markers are the adapter's business —
+ * but three decisions in it are this layer's own and none of them throws when it
+ * is wrong: which pin is drawn lit, whether the roster is rebuilt at all, and
+ * which gesture ends in which command. A rebuild on every pass is a pin the
+ * pilot cannot drag, because it is torn down mid-drag; a click that survives a
+ * drag deletes the subject that was just moved. */
+
+/** The two adapter calls this layer makes, recorded rather than rendered. */
+function stubAdapter() {
+  const made = [];
+  return {
+    made,
+    live: () => made.filter((m) => !m.removed),
+    marker(opts) {
+      const overlay = { ...opts, removed: false, remove() { overlay.removed = true; } };
+      made.push(overlay);
+      return overlay;
+    },
+  };
+}
+
+const subjectFrame = (over = {}) => ({
+  subjects: [],
+  selectedSegmentId: null,
+  snapshot: { segments: {} },
+  gestures: { dragEnded() {}, afterDrag: () => false, markerClicked() {} },
+  actions: { moveSubject() {}, removeSubject() {} },
+  ...over,
+});
+
+const sub = (over = {}) => ({
+  id: 'sub-1', name: 'The barn', lat: 1, lng: 2, elevationMslM: null, radiusM: null, ...over,
+});
+
+test('every subject on the frame becomes a draggable pin that names itself', () => {
+  const layer = createSubjectLayer();
+  const adapter = stubAdapter();
+  layer.render(subjectFrame({ subjects: [sub(), sub({ id: 'sub-2', name: 'The mast' })] }), adapter);
+
+  assert.equal(adapter.live().length, 2);
+  const [barn] = adapter.live();
+  assert.deepEqual(barn.at, { lat: 1, lng: 2 });
+  assert.equal(barn.draggable, true);
+  assert.match(barn.title, /^The barn — /, 'the pilot’s own name, first');
+  assert.match(barn.title, /drag to move, click to remove/, 'and what the gestures do');
+});
+
+test('the pin the open segment is framing is the lit one', () => {
+  const layer = createSubjectLayer();
+  const adapter = stubAdapter();
+  layer.render(subjectFrame({
+    subjects: [sub(), sub({ id: 'sub-2', name: 'The mast' })],
+    selectedSegmentId: 'seg-0',
+    // Off the analysis, not the document: a segment whose subjectRef the pass
+    // could not resolve has no shot, and lights nothing up.
+    snapshot: { segments: { 'seg-0': { shot: { subjectId: 'sub-2' } } } },
+  }), adapter);
+
+  const [barn, mast] = adapter.live();
+  assert.ok(!barn.html.includes('var(--accent)'));
+  assert.ok(mast.html.includes('var(--accent)'), 'the framed subject takes the accent');
+});
+
+test('a pass that changes nothing leaves the pins where they are', () => {
+  // Every slider on the rail runs a render pass. Rebuilding the roster on each
+  // one drops the pin out from under a drag in progress.
+  const layer = createSubjectLayer();
+  const adapter = stubAdapter();
+  const frame = subjectFrame({ subjects: [sub()] });
+  layer.render(frame, adapter);
+  layer.render(subjectFrame({ subjects: [sub()] }), adapter);
+  assert.equal(adapter.made.length, 1);
+
+  // Moving one, renaming one, or changing which is framed is a redraw.
+  layer.render(subjectFrame({ subjects: [sub({ lat: 1.5 })] }), adapter);
+  assert.equal(adapter.made.length, 2);
+  layer.render(subjectFrame({ subjects: [sub({ lat: 1.5, name: 'The old barn' })] }), adapter);
+  assert.equal(adapter.made.length, 3);
+  assert.equal(adapter.live().length, 1, 'the pin it replaced was taken off the map');
+});
+
+test('a drag moves the subject and a click removes it — through commands, never here', () => {
+  const layer = createSubjectLayer();
+  const adapter = stubAdapter();
+  const moved = [];
+  const removed = [];
+  let afterDrag = false;
+  layer.render(subjectFrame({
+    subjects: [sub()],
+    gestures: { dragEnded() { afterDrag = true; }, afterDrag: () => afterDrag, markerClicked() {} },
+    actions: {
+      moveSubject: (id, at) => moved.push([id, at]),
+      removeSubject: (id) => removed.push(id),
+    },
+  }), adapter);
+
+  const pin = adapter.live()[0];
+  pin.onDragEnd({ lat: 3, lng: 4 });
+  assert.deepEqual(moved, [['sub-1', { lat: 3, lng: 4 }]]);
+
+  // The click the engine fires on the pin at the end of a drag is not a delete.
+  pin.onClick();
+  assert.deepEqual(removed, [], 'the subject just dragged survives its own drop');
+
+  afterDrag = false;
+  pin.onClick();
+  assert.deepEqual(removed, ['sub-1']);
+});
+
+test('a disposed layer leaves nothing on the map and forgets what it drew', () => {
+  const layer = createSubjectLayer();
+  const adapter = stubAdapter();
+  layer.render(subjectFrame({ subjects: [sub()] }), adapter);
+  layer.dispose();
+  assert.equal(adapter.live().length, 0);
+
+  // And the same roster after a dispose is drawn again rather than skipped as
+  // unchanged — the map it was drawn on is gone.
+  layer.render(subjectFrame({ subjects: [sub()] }), adapter);
+  assert.equal(adapter.live().length, 1);
+});
+
+test('a frame with no subjects on it is not an error', () => {
+  const layer = createSubjectLayer();
+  const adapter = stubAdapter();
+  layer.render(subjectFrame(), adapter);
+  layer.render(subjectFrame({ subjects: undefined }), adapter);
+  assert.equal(adapter.made.length, 0);
 });

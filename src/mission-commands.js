@@ -18,11 +18,12 @@
 // the reducer on the way in, so a catalog edit next month cannot reach into a
 // mission that was planned and saved today.
 import { aircraftSnapshot, batterySnapshot, payloadSnapshot } from './domain/mission/mission-schema.js';
+import { missionReduce } from './domain/mission/mission-reducer.js';
 import { state, drone, loadoutBattery, payload } from './state.js';
-import { dispatch } from './mission-bridge.js';
+import { dispatch, missionDocument } from './mission-bridge.js';
 import { launchPoint } from './weather.js';
 import { loadMapState, saveMapState } from './store.js';
-import { setLaunchPoint } from './presentation/map/map-view.js';
+import { setLaunchPoint, setMissionEditor } from './presentation/map/map-view.js';
 import { populateControls } from './render/controls.js';
 import { U } from './domain/physics.js';
 
@@ -169,3 +170,86 @@ export function restoreLaunch(launch) {
   }
   setLaunchPoint(pt);
 }
+
+/* ---------- the segment editor's port (M7, ADR 0011 §5) ---------- */
+//
+// The map got its first editing surface below the launch point in M7: an intent
+// picker, an altitude, a subject, a camera. Those commands have to travel the
+// same way every other command in this file does — through the bridge, from
+// outside presentation/ — and the map cannot import the bridge itself without
+// becoming a second writer.
+//
+// So this file registers a port with the map instead. It is the one place in the
+// module that reads the document, and the header's rule survives that: it reads
+// to *project*, never to decide what to write. `scene.subjects` is a roster of
+// places, and no derived number can stand in for a place — the analysis publishes
+// what a shot is, not where its subject stands (ADR 0011 §3), so a marker has to
+// come from here. The camera profile and the templates are the same case: they
+// are authored state that no pass computes.
+//
+// The one thing the port does that a plain `dispatch` cannot is *say why not*.
+// `dispatch` answers a rejected command with `false` and logs the reducer's
+// explanation to the console, which is the right shape for a control that was
+// only ever driven by the rail's own validated inputs and the wrong shape for a
+// pilot typing an orbit radius. Since `missionReduce` is pure and a rejection
+// leaves the document identical, the reason can be recovered by running the same
+// command against the same document again and keeping the warning — a second
+// reduction whose result is discarded, and which cannot have a side effect
+// because the first one did not have one either.
+
+/**
+ * @typedef {import('./presentation/map/map-adapter.js').SceneSubject} SceneSubject
+ * @typedef {import('./presentation/map/segment-editor.js').SceneProjection} SceneProjection
+ * @typedef {import('./presentation/map/segment-editor.js').EditResult} EditResult
+ */
+
+/** The cinematic half of the open document, in the shape the map reads. */
+function sceneProjection() {
+  const scene = missionDocument()?.scene;
+  return {
+    subjects: (scene?.subjects ?? []).map((s) => ({
+      id: s.id,
+      name: s.name,
+      lat: s.latitude,
+      lng: s.longitude,
+      // Carried, not defaulted: a subject nobody has measured is not a subject at
+      // sea level with a one-metre radius, and 3D has to tell those apart.
+      elevationMslM: s.elevationMslM ?? null,
+      radiusM: s.radiusM ?? null,
+    })),
+    cameraProfile: scene?.cameraProfile ?? null,
+    templates: (scene?.templates ?? []).map((t) => ({ ...t })),
+  };
+}
+
+/**
+ * One command in, and either "it landed" or the reducer's own sentence about why
+ * it did not.
+ * @param {object} command
+ * @returns {EditResult}
+ */
+function raiseEdit(command) {
+  if (dispatch(command)) return { ok: true, message: null };
+  return { ok: false, message: rejectionReason(command) };
+}
+
+/**
+ * Why the bridge would not take that command, in the reducer's words rather than
+ * a paraphrase — the same rule the warning rail follows for a constraint's text
+ * (ADR 0008): the producer knows which field it refused.
+ * @param {object} command
+ * @returns {string}
+ */
+function rejectionReason(command) {
+  const doc = missionDocument();
+  if (!doc) return 'No mission is open yet — nothing to edit.';
+  /** @type {string|null} */
+  let message = null;
+  missionReduce(doc, command, { onWarning: (w) => { message ??= w.message; } });
+  return message ?? 'That command left the mission unchanged.';
+}
+
+/* Registered at import rather than from a setup call: app.js imports this module
+   for its raisers, the map's own setter is a no-op until the map exists, and the
+   port holds no state that needs a boot order. */
+setMissionEditor({ scene: sceneProjection, raise: raiseEdit });

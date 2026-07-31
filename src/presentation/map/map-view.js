@@ -43,6 +43,7 @@ import { createFootprintLayer } from './layers/footprint-layer.js';
 import { createLaunchLayer } from './layers/launch-layer.js';
 import { createRouteLayer } from './layers/route-layer.js';
 import { createSpotsLayer } from './layers/spots-layer.js';
+import { createSubjectLayer } from './layers/subject-layer.js';
 import { createWindLayer } from './layers/wind-layer.js';
 
 /**
@@ -93,6 +94,57 @@ let spotSpec = null;
  * that. Default on — a hazard advisory a pilot has to find before they can see
  * it is one they will miss. */
 let advisoryOn = true;
+/* Why the last edit did not land, when it did not. Beside `sceneNote` and with
+ * the same lifetime rule: it is a fact that outlives the pass it happened in, so
+ * it is composed into the note line rather than written over by the next render.
+ * Cleared by the next edit that succeeds. */
+/** @type {string|null} */
+let editNote = null;
+
+/* ---------- the mission-editing port ---------- */
+//
+// What the map cannot get from the snapshot. ADR 0002's rule is that the map
+// never holds the mission document, and it still does not: this is the same
+// shape of seam `deps.routeWaypoints()` already is for the waypoints — a
+// projection handed in from outside presentation/, plus one way to raise a
+// command and hear what became of it.
+//
+// It exists because the snapshot publishes what a shot *is* and not where its
+// subject stands: `SegmentShot` carries the subject's id, its name and every
+// derived number, but a marker needs a latitude, and a subject roster is not a
+// derived number. The camera profile and the shot templates are the same case.
+// Registered by src/mission-commands.js, which is the module that already turns
+// "the pilot changed something" into a command.
+
+/** @typedef {import('./segment-editor.js').SceneProjection} SceneProjection */
+/** @typedef {import('./segment-editor.js').EditResult} EditResult */
+
+/** @type {{ scene: () => SceneProjection, raise: (command: object) => EditResult }|null} */
+let editor = null;
+
+/** Nothing to draw and nothing to edit, which is the state before a document opens. */
+const NO_SCENE = { subjects: [], cameraProfile: null, templates: [] };
+
+/** @param {{ scene: () => SceneProjection, raise: (command: object) => EditResult }} port */
+export function setMissionEditor(port) { editor = port; }
+
+/** @returns {SceneProjection} */
+const sceneNow = () => editor?.scene() ?? NO_SCENE;
+
+/**
+ * Raise one command and keep its answer. The bridge renders on the commands it
+ * accepts and not on the ones it refuses, so a refusal has to ask for the pass
+ * that will show its explanation.
+ * @param {object} command
+ * @returns {EditResult}
+ */
+function raiseEdit(command) {
+  const result = editor?.raise(command)
+    ?? { ok: false, message: 'No mission is open yet — nothing to edit.' };
+  editNote = result.ok ? null : result.message;
+  if (!result.ok) deps?.requestRender();
+  return result;
+}
 
 const footprintLayer = createFootprintLayer();
 const windLayer = createWindLayer({ reducedMotion: REDUCED_MOTION });
@@ -103,6 +155,9 @@ const registry = createLayerRegistry([
   createAdvisoryLayer(),
   footprintLayer,
   createRouteLayer(),
+  // The things the route is filming, under its pins: a subject is what a leg is
+  // about, and a leg is what the pilot is clicking.
+  createSubjectLayer(),
   createSpotsLayer(),
   createLaunchLayer(),
   windLayer,
@@ -170,7 +225,11 @@ function ensureMap() {
  */
 function onMapClick(at) {
   if (!at || gestures.swallowsMapClick()) return;
-  if (routeActive()) addWaypoint(at);
+  /* Subject mode first, and exclusive: the two editing modes both want the same
+   * gesture, so the one that is lit wins outright rather than the click meaning
+   * both things at once. */
+  if (subjectActive()) placeSubject(at);
+  else if (routeActive()) addWaypoint(at);
   else moveLaunch(at);
 }
 
@@ -179,6 +238,10 @@ function bindControls() {
   $('btn-fit').addEventListener('click', () => { needsFit = true; deps.requestRender(); });
   $('btn-live-wx').addEventListener('click', () => deps.goLive({ ...launch }));
   $('btn-route').addEventListener('click', () => setRouteMode(!routeModeOn()));
+  $('btn-subject').addEventListener('click', () => {
+    subjectOn = !subjectOn;
+    deps.requestRender();
+  });
   $('btn-advisory').addEventListener('click', () => {
     advisoryOn = !advisoryOn;
     deps.requestRender();
@@ -420,6 +483,25 @@ function addWaypoint(at) {
   deps.onAddWaypoint({ lat: at.lat, lng: wrapLng(at.lng) });
 }
 
+/* ---------- subject mode ---------- */
+//
+// The same shape as route mode and for the same reasons — a view preference, not
+// part of the plan, so it is never persisted — with one difference: it starts
+// off rather than following the document. A restored mission's *route* comes back
+// visible because the line is the plan; a restored mission's subjects come back
+// as pins, and putting the map into a mode where the next click drops another one
+// is not something a pilot who just opened a file asked for.
+
+let subjectOn = false;
+
+/** Expert-only, like the route tool: a subject is a shot, and beginner mode is not asking about shots. */
+const subjectActive = () => subjectOn && !deps.beginner();
+
+/** @param {LatLng} at */
+function placeSubject(at) {
+  raiseEdit({ type: 'addSubject', payload: { latitude: at.lat, longitude: wrapLng(at.lng) } });
+}
+
 /* ---------- saved spots ---------- */
 
 /**
@@ -455,7 +537,15 @@ export function renderMapView(snapshot) {
    * Editing the route is not an error. */
   selectedSegmentId = liveSelection(selectedSegmentId, snapshot, routeActive());
 
-  const frame = buildFrame(snapshot);
+  /* Read once and shared: the layers draw the subjects and the inspector edits
+   * them, and two reads of the document a few statements apart is exactly the
+   * kind of "two answers from one pass" ADR 0002 exists to prevent.
+   *
+   * Named `sceneEdit` and not `scene` on purpose — the module-level `scene` is
+   * the 3D handle, and a local of that name shadows it for the rest of this
+   * function, which is a live grenade three statements below. */
+  const sceneEdit = sceneNow();
+  const frame = buildFrame(snapshot, sceneEdit);
   /* Both engines, always — the 2D pass is what computes the footprint's extent,
    * and it costs a handful of Leaflet overlays in a hidden container. Skipping it
    * in 3D would leave Fit view with nothing to frame on. */
@@ -483,6 +573,10 @@ export function renderMapView(snapshot) {
     selectedSegmentId,
     units: frame.units,
     onClose: () => frame.actions.selectSegment(null),
+    scene: sceneEdit,
+    /* The editing half's one way out. Handed over only once a port is registered
+     * — before that the panel reads and does not offer to write. */
+    raise: editor ? raiseEdit : undefined,
   });
   renderAdvisoryPanel({ advisories: snapshot.advisories, visible: frame.advisoryVisible });
   renderRouteControls(frame);
@@ -490,15 +584,18 @@ export function renderMapView(snapshot) {
 
 /**
  * @param {AnalysisSnapshot} snapshot
+ * @param {SceneProjection} sceneEdit
  * @returns {MapFrame}
  */
-function buildFrame(snapshot) {
+function buildFrame(snapshot, sceneEdit) {
   return {
     snapshot,
     launch: { ...launch },
     waypoints: routeWaypoints(),
+    subjects: sceneEdit.subjects,
     spots: spotSpec?.spots ?? [],
     routeMode: routeActive(),
+    subjectMode: subjectActive(),
     selectedSegmentId,
     advisoryVisible: advisoryOn,
     units: deps.units(),
@@ -514,6 +611,16 @@ function buildFrame(snapshot) {
         routeOn = true;
         deps.onRemoveWaypoint(id);
       },
+      /* The three subject gestures. Each is one command and nothing else — in
+       * particular `removeSubject` does not un-point the segments that framed it
+       * first, because the reducer does that in the same reduction and a map that
+       * tidied up after it would be a second writer (ADR 0002). */
+      placeSubject: (at) => placeSubject(at),
+      moveSubject: (id, at) => raiseEdit({
+        type: 'moveSubject',
+        payload: { id, latitude: at.lat, longitude: wrapLng(at.lng) },
+      }),
+      removeSubject: (id) => raiseEdit({ type: 'removeSubject', payload: { id } }),
       selectSpot: (spot) => spotSpec?.onSelect?.(spot),
       /* The one action that raises no command. Clicking the open leg closes it,
        * clicking another switches, and null is the close button — the toggle
@@ -558,8 +665,15 @@ function renderRouteControls(frame) {
   btn.setAttribute('aria-pressed', String(frame.routeMode));
   btn.textContent = frame.routeMode ? 'Route · on' : 'Route';
   $('btn-route-clear').hidden = !frame.routeMode || frame.waypoints.length === 0;
-  // Both canvases: the crosshair means the same thing over either engine.
-  for (const id of ['map-canvas', 'map-3d']) $(id).classList.toggle('route-mode', frame.routeMode);
+  /* The crosshair means "this click edits the plan", which both modes do — so it
+   * is on for either, over either engine. Which edit it is, is what the two
+   * buttons say. */
+  const editing = frame.routeMode || frame.subjectMode;
+  for (const id of ['map-canvas', 'map-3d']) $(id).classList.toggle('route-mode', editing);
+
+  const btnSubject = $('btn-subject');
+  btnSubject.setAttribute('aria-pressed', String(frame.subjectMode));
+  btnSubject.textContent = frame.subjectMode ? 'Subject · on' : 'Subject';
 
   const btn3d = $('btn-3d');
   btn3d.setAttribute('aria-pressed', String(mode === '3d'));
@@ -571,15 +685,17 @@ function renderRouteControls(frame) {
 }
 
 /**
- * The map's one note line, which two things now write to. `sceneNote` is a fact
- * about the engine and outlives a pass; the argument is what this pass has to say
+ * The map's one note line, which three things now write to. `sceneNote` is a fact
+ * about the engine and `editNote` the reason the last edit was refused; both
+ * outlive the pass they were set in. The argument is what this pass has to say
  * about the mission. Composed rather than overwritten, because a render half a
- * second after a failed 3D load must not quietly delete the explanation.
+ * second after a failed 3D load — or after a rejected command — must not quietly
+ * delete the explanation.
  * @param {string|null} msg
  */
 function note(msg) {
   const el = $('map-note');
-  const text = [sceneNote, msg].filter(Boolean).join(' ');
+  const text = [sceneNote, editNote, msg].filter(Boolean).join(' ');
   el.textContent = text;
   el.hidden = !text;
 }

@@ -385,3 +385,138 @@ test('offline, with no footprint, route, terrain or link, the brief survives', (
   assert.ok(b.energy.rows.length >= 6);
   assert.ok(b.checklist.length >= 3);
 });
+
+/* ---------- 6b. the route section, re-pointed at the segments (M7 wave D) ---------- */
+
+/* The exit gate for that re-point: the table now reads off `snapshot.segments`
+ * rather than off the integrator's legs, and not one figure in it may move.
+ *
+ * It cannot, and the tests say why rather than trusting it: a SegmentAnalysis
+ * carries its leg's `distanceKm`, `courseDeg`, `timeMin` and `flightWh`
+ * verbatim, and `flightWh` is specifically the level-flight figure the route
+ * solved — not the dwell-inclusive `energyWh`. Feeding the same figures in under
+ * their segment names must produce a byte-identical table; feeding `energyWh` in
+ * by mistake would not, which is the failure this pins. */
+
+/** The route fixture the section tests are built on. */
+function routeFor(plan) {
+  const wp = (courseDeg, km) => {
+    const [lat, lng] = destination(AUSTIN.lat, AUSTIN.lng, courseDeg, km);
+    return { lat, lng };
+  };
+  return planRoute(plan, {
+    launch: AUSTIN,
+    waypoints: [wp(170, plan.radiusKm * 0.4), wp(90, plan.radiusKm * 0.4)],
+    windFromDeg: WIND_FROM,
+    inputs: inputs(),
+  });
+}
+
+/**
+ * The analysis's segment map for a route, as the pipeline publishes it: one
+ * segment per authored leg, carrying the integrator's own numbers. The flight
+ * home is not in it, because nobody authored it.
+ */
+function segmentsFor(route, over = []) {
+  const authored = route.legs.slice(0, -1);
+  return Object.fromEntries(authored.map((l, i) => [`seg-${i}`, {
+    segmentId: `seg-${i}`,
+    index: i,
+    intent: 'transit',
+    distanceKm: l.distKm,
+    courseDeg: l.courseDeg,
+    timeMin: l.timeMin,
+    flightWh: l.whLeg,
+    // Deliberately different from flightWh: a dwell is real energy and belongs in
+    // the totals, but the leg column has always been the leg alone.
+    holdWh: 3.5,
+    energyWh: l.whLeg == null ? null : l.whLeg + 3.5,
+    shot: null,
+    ...(over[i] ?? {}),
+  }]));
+}
+
+function briefWithRoute(route, segments) {
+  const plan = planFor();
+  return buildBrief({
+    plan, warnings: plan.warnings, footprint: footprintFor(), launch: AUSTIN, route, segments,
+    drone: moz7, battery: nav5000, env: { windFromDeg: WIND_FROM, windMode: 'headOut' },
+    times: legTimes(plan), units: u, now: new Date('2026-07-04T09:00:00'),
+  });
+}
+
+test('the segments print the identical table the integrator’s legs printed', () => {
+  const route = routeFor(planFor());
+  const before = briefWithRoute(route, null);
+  const after = briefWithRoute(route, segmentsFor(route));
+
+  assert.ok(before.route.legs.length > 1);
+  // Cell for cell, including the flight home, which has no segment behind it.
+  const cells = (legs) => legs.map((l) => [l.name, l.dist, l.course, l.time, l.wh]);
+  assert.deepEqual(cells(after.route.legs), cells(before.route.legs));
+  // And every figure under the table, which was never a per-leg sum.
+  assert.equal(after.route.totalKm, before.route.totalKm);
+  assert.equal(after.route.totalMin, before.route.totalMin);
+  assert.equal(after.route.totalWh, before.route.totalWh);
+  assert.equal(after.route.verdict, before.route.verdict);
+  assert.equal(after.route.loiter, before.route.loiter);
+  // The Wh column is the leg's own flight energy, not the dwell-inclusive figure
+  // — the segments above carry a 3.5 Wh hold precisely so this can be seen.
+  const printed = Number.parseFloat(after.route.legs[0].wh);
+  assert.ok(Math.abs(printed - route.legs[0].whLeg) < 0.05, 'the leg alone');
+  assert.ok(Math.abs(printed - (route.legs[0].whLeg + 3.5)) > 3, 'the dwell is not in this column');
+});
+
+test('a leg with a shot says what it is filming, in the pilot’s units', () => {
+  const route = routeFor(planFor());
+  const b = briefWithRoute(route, segmentsFor(route, [{
+    intent: 'orbit',
+    shot: {
+      subjectId: 'sub-1', subjectName: 'The water tower',
+      // 200 m and 100 m — 656 ft and 328 ft in the imperial system these run in.
+      distanceStartM: 200, distanceEndM: 100,
+      bearingToSubjectDeg: 12, elevationAngleDeg: -8,
+      screenDirection: 'left-to-right', framingStart: 0.18, framingEnd: 0.36,
+      subjectRadiusM: 9, fov: { hDeg: 84, vDeg: 55 },
+    },
+  }]));
+
+  const shot = b.route.legs[0].shot;
+  assert.match(shot, /^orbit The water tower/, 'the intent and what it is pointed at');
+  assert.match(shot, /656 ft → 328 ft/, 'the two ranges the pass measured, converted');
+  assert.match(shot, /18–36% of frame/);
+  assert.match(shot, /crossing left to right/);
+  // The other legs are plain transits and say nothing rather than saying 'transit'.
+  assert.equal(b.route.legs[1].shot, '');
+  assert.equal(b.route.legs.at(-1).shot, '', 'the flight home is nobody’s shot');
+});
+
+test('an intent with no subject still names itself, and a transit stays quiet', () => {
+  const route = routeFor(planFor());
+  const b = briefWithRoute(route, segmentsFor(route, [{ intent: 'hold' }, { intent: 'transit' }]));
+  assert.equal(b.route.legs[0].shot, 'hold',
+    'an orbit or a hold with nothing attached is exactly what a pilot must notice');
+  assert.equal(b.route.legs[1].shot, '');
+});
+
+test('a shot the pass could not place prints what it knows and no more', () => {
+  const route = routeFor(planFor());
+  const b = briefWithRoute(route, segmentsFor(route, [{
+    intent: 'reveal',
+    shot: {
+      subjectId: 'sub-1', subjectName: 'The ridge',
+      distanceStartM: null, distanceEndM: null,
+      bearingToSubjectDeg: null, elevationAngleDeg: null,
+      screenDirection: null, framingStart: null, framingEnd: null,
+      subjectRadiusM: null, fov: null,
+    },
+  }]));
+  assert.equal(b.route.legs[0].shot, 'reveal The ridge');
+});
+
+test('a brief with no segments prints the route exactly as it always did', () => {
+  const route = routeFor(planFor());
+  const b = briefWithRoute(route, null);
+  assert.ok(b.route.legs.every((l) => l.shot === ''));
+  assert.equal(b.route.legs[0].name, 'Launch → 1');
+});

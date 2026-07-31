@@ -121,6 +121,10 @@
     "src/catalog/cameras.js",
     "src/domain/mission/scene-schema.js",
     "src/domain/mission/scene-commands.js",
+    // M7 wave D's 2D subject layer — pre-seeded the same way; it reaches only
+    // the map contract and domain/geo.js, both above. Its 3D siblings stay out
+    // on deck.gl's account, like the rest of scene3d/.
+    "src/presentation/map/layers/subject-layer.js",
     // src/state.js is fully typed too (M3), but an include entry pulls its whole
     // import graph into the program, and that graph still isn't clean: it reaches
     // src/data.js, src/registry.js, src/flightlog.js, src/packinstances.js,

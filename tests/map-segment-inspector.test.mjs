@@ -209,3 +209,92 @@ test('a dwell is shown, because the cruise figure is the leg alone', () => {
   assert.equal(hold.value, '19.4 Wh');
   assert.match(hold.note, /2:00 on station/);
 });
+
+/* ---------- the shot, as the analysis published it (M7 wave D) ---------- */
+
+/* The panel's job here is to *report* a SegmentShot, not to work one out — every
+ * figure in these four rows was computed in the analysis pass and any arithmetic
+ * appearing in this file would be a second opinion about one shot.
+ *
+ * The nulls are the interesting half. A SegmentShot's fields go null for
+ * different reasons — the five geometry fields together when an altitude never
+ * resolved, the framing pair on its own when there is no lens or no radius — and
+ * a row that printed an em dash for both would leave the pilot unable to tell
+ * "we could not place this shot" from "you have not chosen a camera". */
+
+const shot = (over = {}) => ({
+  subjectId: 'sub-1',
+  subjectName: 'The barn',
+  distanceStartM: 148.4,
+  distanceEndM: 92.6,
+  bearingToSubjectDeg: 275,
+  elevationAngleDeg: -12.34,
+  screenDirection: 'left-to-right',
+  framingStart: 0.184,
+  framingEnd: 0.295,
+  subjectRadiusM: 12,
+  fov: { hDeg: 84, vDeg: 55 },
+  ...over,
+});
+
+const framing = (over = {}) => solved({ subjectRef: 'sub-1', shot: shot(over) });
+
+test('a segment that films nothing has no shot rows at all', () => {
+  const labels = segmentFacts(solved(), units).map((r) => r.label);
+  for (const l of ['Framing', 'Subject range', 'Elevation angle', 'Frame filled']) {
+    assert.ok(!labels.includes(l), `${l} is a row about a shot that does not exist`);
+  }
+});
+
+test('the shot rows are the published record, in the published numbers', () => {
+  assert.deepEqual(factFor(framing(), 'Framing'),
+    { label: 'Framing', value: 'The barn', note: 'crosses the frame left to right' });
+
+  const range = factFor(framing(), 'Subject range');
+  assert.equal(range.value, '148 → 93 m', 'the two ends the pass measured, not a mean');
+  assert.equal(range.note, "275° W from the leg's midpoint");
+
+  // Signed in the record, said in words: a negative angle is a camera looking
+  // down, and printing "-12.3° above horizontal" would be the wrong sentence.
+  assert.equal(factFor(framing(), 'Elevation angle').value, '12.3° below horizontal');
+  assert.equal(factFor(framing({ elevationAngleDeg: 12.34 }), 'Elevation angle').value,
+    '12.3° above horizontal');
+
+  const filled = factFor(framing(), 'Frame filled');
+  assert.equal(filled.value, '18% → 30%');
+  assert.equal(filled.note, 'taken against a 12 m bounding radius');
+});
+
+test('a leg that barely travels is said to hold, not to cross', () => {
+  assert.match(factFor(framing({ screenDirection: 'held' }), 'Framing').note, /barely travels/);
+  assert.equal(factFor(framing({ screenDirection: 'toward' }), 'Framing').note,
+    'closes on it head-on');
+  assert.equal(factFor(framing({ screenDirection: 'away' }), 'Framing').note, 'leaves it behind');
+  // The leg passes straight over the subject: there is no side of frame to cross
+  // to, and naming one of the four would be inventing a fifth answer.
+  assert.match(factFor(framing({ screenDirection: null }), 'Framing').note, /straight over it/);
+});
+
+test('an unplaced shot says which input is missing, not “—”', () => {
+  // The geometry fields go null together, because a shot short one of its three
+  // points is not a partially known shot.
+  const unplaced = framing({
+    distanceStartM: null, distanceEndM: null, bearingToSubjectDeg: null,
+    elevationAngleDeg: null, screenDirection: null,
+  });
+  assert.match(factFor(unplaced, 'Subject range').value, /never resolved/);
+  assert.equal(factFor(unplaced, 'Subject range').note, undefined);
+  assert.equal(factFor(unplaced, 'Elevation angle').value, 'unknown');
+  // The subject is still named — that much is authored, not computed.
+  assert.equal(factFor(unplaced, 'Framing').value, 'The barn');
+});
+
+test('no lens and no radius are different absences and read differently', () => {
+  const noLens = framing({ fov: null, framingStart: null, framingEnd: null });
+  assert.match(factFor(noLens, 'Frame filled').value, /no camera profile/);
+
+  const noRadius = framing({ subjectRadiusM: null, framingStart: null, framingEnd: null });
+  assert.match(factFor(noRadius, 'Frame filled').value, /no subject radius/);
+  assert.equal(factFor(noRadius, 'Frame filled').note, undefined,
+    'nothing to say a figure was taken against');
+});

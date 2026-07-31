@@ -163,8 +163,15 @@ export const MAP_EVENTS = Object.freeze(
  * @property {AnalysisSnapshot} snapshot
  * @property {LatLng} launch
  * @property {RouteWaypoint[]} waypoints  the document's, in order, with their ids
+ * @property {SceneSubject[]} subjects    what the shots are framing, in document
+ *   order. Beside `waypoints` and for the same reason: the snapshot publishes what
+ *   a shot *is* (`segment.shot` — distances, framing, screen direction) but not
+ *   where its subject stands, and a marker cannot be drawn from a derived number
  * @property {SavedSpot[]} spots          the saved-spot roster, as last handed over
  * @property {boolean} routeMode          the route tool is on *and* usable
+ * @property {boolean} subjectMode        the next map click places a subject
+ *   rather than a waypoint. Exclusive with the waypoint meaning of a click, and
+ *   frame state rather than layer state so both engines route a click the same way
  * @property {string|null} selectedSegmentId  which leg the inspector is open on;
  *   view state, never mission state — nothing about it is persisted or commanded
  * @property {boolean} advisoryVisible  whether the mountain-flow zones are drawn.
@@ -185,6 +192,10 @@ export const MAP_EVENTS = Object.freeze(
  * @property {(at: LatLng) => void} moveLaunch
  * @property {(id: string, at: LatLng) => void} moveWaypoint
  * @property {(id: string) => void} removeWaypoint
+ * @property {(at: LatLng) => void} placeSubject     drop a new subject here
+ * @property {(id: string, at: LatLng) => void} moveSubject
+ * @property {(id: string) => void} removeSubject    every segment framing it is
+ *   un-pointed in the same reduction; the map does not have to tidy up after it
  * @property {(spot: SavedSpot) => void} selectSpot
  * @property {(segmentId: string|null) => void} selectSegment  null clears
  */
@@ -211,6 +222,20 @@ export const MAP_EVENTS = Object.freeze(
 
 /** A document waypoint, resolved to coordinates and carrying its id. */
 /** @typedef {{ id: string, lat: number, lng: number }} RouteWaypoint */
+
+/**
+ * A thing the flight is filming, as the scene holds it. `elevationMslM` and
+ * `radiusM` are the schema's own nullable fields and are carried rather than
+ * defaulted — a subject nobody has measured is not a subject at sea level with a
+ * one-metre radius, and the 3D scene has to be able to tell the difference.
+ * @typedef {object} SceneSubject
+ * @property {string} id
+ * @property {string} name
+ * @property {number} lat
+ * @property {number} lng
+ * @property {number|null} elevationMslM
+ * @property {number|null} radiusM
+ */
 
 /**
  * One drawing concern. `render` runs on every pass and owns everything it drew

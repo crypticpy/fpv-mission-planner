@@ -28,7 +28,9 @@
 import { PathLayer, PolygonLayer, ScatterplotLayer, TextLayer } from '@deck.gl/layers';
 
 import { ADVISORY_CLASS_STYLE, advisoryZones } from '../layers/advisory-layer.js';
-import { DRAPE_LIFT_M, buildRouteGeometry, parseCssRgb, ringPositions } from './scene-geometry.js';
+import {
+  DRAPE_LIFT_M, buildRouteGeometry, buildShotGeometry, parseCssRgb, ringPositions,
+} from './scene-geometry.js';
 
 /**
  * @typedef {import('../map-adapter.js').LatLng} LatLng
@@ -36,6 +38,8 @@ import { DRAPE_LIFT_M, buildRouteGeometry, parseCssRgb, ringPositions } from './
  * @typedef {import('./scene-geometry.js').PathRun} PathRun
  * @typedef {import('./scene-geometry.js').RouteLeg3} RouteLeg3
  * @typedef {import('./scene-geometry.js').RoutePin} RoutePin
+ * @typedef {import('./scene-geometry.js').SceneSubject3} SceneSubject3
+ * @typedef {import('./scene-geometry.js').ShotGeometry} ShotGeometry
  */
 
 /** @typedef {[number, number, number]} Rgb */
@@ -170,6 +174,19 @@ export function buildSceneLayers(frame, ctx) {
 
   const routeColor = route?.fits === false ? palette.routeCritical : palette.route;
   layers.push(...routeLayers(geometry, routeColor, palette, frame.selectedSegmentId ?? null));
+
+  /* What the flight is filming, over the flight itself. The shot lines and the
+   * frustum are drawn off the same `legs` the route was, so a leg and the shot
+   * leaving it can never start in two different places. */
+  layers.push(...shotLayers(buildShotGeometry({
+    legs: geometry.legs,
+    subjects: frame.subjects ?? [],
+    selectedSegmentId: frame.selectedSegmentId ?? null,
+  }, {
+    segments: frame.snapshot.segments ?? {},
+    exaggeration: ctx.exaggeration,
+    groundZAt: ctx.groundZAt,
+  }), palette));
 
   /* The launch pin last-but-one and the numbers last: in a pitched view the pins
    * are what the pilot points at, and a pin behind a ribbon is a pin they cannot
@@ -438,6 +455,143 @@ function routeLayers(geometry, color, palette, selectedSegmentId) {
   }
 
   return out;
+}
+
+/**
+ * What the flight is framing: a marker on every subject, a line from each shot's
+ * leg to the subject it points at, and the selected shot's view pyramid.
+ *
+ * Nothing here is pickable, and that is deliberate rather than unfinished. A pick
+ * this scene's bridge does not recognise falls through to `onGroundClick`, which
+ * in subject mode drops a *second* subject on top of the one just clicked — so
+ * until the bridge learns the `kind`, the honest arrangement is markers that draw
+ * and do not swallow the pointer. The payloads carry `kind` and `id` in the same
+ * shape the route's do, so wiring them up later is a change to scene.js alone.
+ * The subjects stay draggable in 2D, where the gesture already exists.
+ *
+ * ADR 0004's billboard caveat applies here exactly as it does to the route: a
+ * shot line whose ends are both confirmed hangs in the air and is billboarded, a
+ * line with an unmeasured subject or an unresolved leg on one end lies flat,
+ * because a billboarded ribbon on the terrain punches through the hillside.
+ *
+ * @param {ShotGeometry} shot
+ * @param {ScenePalette} palette
+ */
+function shotLayers(shot, palette) {
+  const out = [];
+
+  /* Under the markers: the pyramid is context for the line, and the line is
+   * context for the subject at the end of it. */
+  if (shot.frustum) {
+    const f = shot.frustum;
+    const data = [
+      { kind: 'frustum', segmentId: f.segmentId, path: f.outline, edge: false },
+      ...f.edges.map((path) => ({ kind: 'frustum', segmentId: f.segmentId, path, edge: true })),
+    ];
+    out.push(new PathLayer({
+      id: 'shot-frustum',
+      data,
+      getPath: (d) => d.path,
+      // The frame's own rectangle reads solid; the four edges back to the camera
+      // are scaffolding for it and are drawn at half its weight.
+      getColor: (d) => [...palette.accent, d.edge ? 120 : 200],
+      widthUnits: 'pixels',
+      getWidth: (d) => (d.edge ? 1.2 : 2.2),
+      widthMinPixels: 1,
+      billboard: f.resolved,
+      jointRounded: true,
+      capRounded: true,
+      pickable: false,
+    }));
+  }
+
+  for (const [id, data, billboard] of /** @type {const} */ ([
+    ['shot-lines', shot.shots.filter((s) => s.resolved), true],
+    ['shot-lines-ground', shot.shots.filter((s) => !s.resolved), false],
+  ])) {
+    if (!data.length) continue;
+    out.push(new PathLayer({
+      id,
+      data,
+      getPath: (d) => d.path,
+      // The open segment's sightline is the one being read; the rest are there so
+      // the pilot can see what else the flight is pointed at.
+      getColor: (d) => [...palette.accent, d.selected ? 220 : 90],
+      widthUnits: 'pixels',
+      getWidth: (d) => (d.selected ? 2.5 : 1.5),
+      widthMinPixels: 1,
+      billboard,
+      jointRounded: true,
+      capRounded: true,
+      pickable: false,
+      updateTriggers: {
+        getColor: data.map((d) => d.selected).join(),
+        getWidth: data.map((d) => d.selected).join(),
+      },
+    }));
+  }
+
+  out.push(...subjectLayers(shot.subjects, palette));
+  return out;
+}
+
+/**
+ * The subjects themselves: a square-ish dot and its name.
+ *
+ * Drawn as a wide, thickly stroked scatterplot rather than as a second waypoint
+ * pin — at a glance the pilot has to be able to tell what is flown from what is
+ * filmed, and in 2D the same distinction is a rounded square against a circle.
+ * The framed subject takes the accent, as it does in 2D; the rest are muted, and
+ * an unmeasured subject is drawn hollow because its height came off the terrain
+ * rather than off anything anybody recorded.
+ *
+ * @param {SceneSubject3[]} subjects
+ * @param {ScenePalette} palette
+ */
+function subjectLayers(subjects, palette) {
+  if (!subjects.length) return [];
+  const stamp = subjects.map((s) => `${s.framed}${s.resolved}`).join();
+  return [
+    new ScatterplotLayer({
+      id: 'subjects',
+      data: subjects,
+      getPosition: (d) => d.position,
+      getFillColor: (d) => [
+        ...(d.framed ? palette.accent : palette.unresolved),
+        d.resolved ? 255 : 110,
+      ],
+      getLineColor: [...palette.markerBorder, 255],
+      lineWidthUnits: 'pixels',
+      getLineWidth: 2.5,
+      stroked: true,
+      filled: true,
+      radiusUnits: 'pixels',
+      getRadius: 8,
+      radiusMinPixels: 6,
+      billboard: true,
+      pickable: false,
+      updateTriggers: { getFillColor: stamp },
+    }),
+    new TextLayer({
+      id: 'subject-labels',
+      data: subjects,
+      getPosition: (d) => d.position,
+      getText: (d) => d.name,
+      getColor: [...palette.label, 255],
+      getSize: 11,
+      sizeUnits: 'pixels',
+      fontWeight: 700,
+      // Unlike the waypoint numbers this text is whatever the pilot typed, so the
+      // atlas is built from the names in hand rather than from a fixed range —
+      // 'auto' is deck's own answer to exactly that, and it keeps a scene with two
+      // subjects from rasterising the whole of ASCII.
+      characterSet: 'auto',
+      getPixelOffset: [0, -16],
+      billboard: true,
+      pickable: false,
+      updateTriggers: { getText: subjects.map((s) => s.name).join(' ') },
+    }),
+  ];
 }
 
 /**

@@ -427,6 +427,14 @@
           <button id="btn-route" class="map-btn full-only" type="button" aria-pressed="false"
                   aria-controls="route-card">Route</button>
           <button id="btn-route-clear" class="map-btn full-only" type="button" hidden>Clear route</button>
+          <!-- Subject mode (M7, ADR 0011 §5): clicks drop a thing to film rather
+               than a waypoint. Its own latch beside route mode rather than a
+               third meaning stacked on the same click — the two are exclusive
+               and the button that is lit says which one a click is. Expert-only
+               for the same reason route mode is: a subject is a shot, and the
+               beginner rail is not asking about shots. -->
+          <button id="btn-subject" class="map-btn full-only" type="button" aria-pressed="false"
+                  aria-controls="segment-card">Subject</button>
           <!-- The mountain-flow zones (M5). Deliberately not full-only and
                deliberately on by default: the colours are a hazard advisory, and
                one a pilot has to discover a button for is one they will fly
@@ -527,6 +535,19 @@
       </div>
       <p id="segment-sub" class="card-sub"></p>
       <dl id="segment-facts" class="segment-facts"></dl>
+      <!-- The editing half (M7, ADR 0011 §5) — the first surface in the app that
+           changes anything below the launch point. Folded away by default
+           because the panel's first job is still to answer "what about that
+           leg"; every control inside commits on change and raises one reducer
+           command, and the line under it carries the reducer's own words when
+           one is refused. The controls themselves are built by
+           src/presentation/map/segment-editor.js: which of them exist depends on
+           the segment's intent, so there is nothing static to write here. -->
+      <details id="segment-editor-fold" class="custom-batt" hidden>
+        <summary>Edit this shot</summary>
+        <dl id="segment-editor" class="segment-facts"></dl>
+      </details>
+      <p id="segment-status" class="route-note" role="status" hidden></p>
       <div id="segment-warnings" class="warnings" hidden></div>
       <p id="segment-id" class="segment-id"></p>
     </section>
