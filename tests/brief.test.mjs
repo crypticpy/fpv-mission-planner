@@ -520,3 +520,75 @@ test('a brief with no segments prints the route exactly as it always did', () =>
   assert.ok(b.route.legs.every((l) => l.shot === ''));
   assert.equal(b.route.legs[0].name, 'Launch → 1');
 });
+
+/* ---------- 10. the Evidence section and coordinate redaction (ADR 0012 §6) ---------- */
+
+test('with no evidence bundle at all, there is no Evidence section', () => {
+  const { b } = brief();
+  assert.equal(b.evidence, null);
+});
+
+test('a null forecast provenance reads as authored by the pilot, not a blank', () => {
+  const { b } = brief({
+    evidence: {
+      forecast: null, terrainSource: null, samplingResolution: null,
+      groundRetrievedAt: null, calibrationSource: null, modelVersion: null,
+    },
+  });
+  assert.deepEqual(b.evidence, ['Forecast: manual — authored by the pilot.']);
+});
+
+test('a fetched forecast prints its source and age against the builder\'s own clock', () => {
+  const { b } = brief({
+    evidence: {
+      // now is pinned at 2026-07-04T09:00:00 in the brief() fixture — three hours later.
+      forecast: { source: 'open-meteo-forecast', retrievedAt: '2026-07-04T06:00:00' },
+      terrainSource: null, samplingResolution: null, groundRetrievedAt: null,
+      calibrationSource: null, modelVersion: null,
+    },
+  });
+  assert.deepEqual(b.evidence, ['Forecast: open-meteo-forecast, captured 3 hr ago.']);
+});
+
+test('the terrain line carries source, resolution and its own sample age', () => {
+  const { b } = brief({
+    evidence: {
+      forecast: null,
+      terrainSource: 'Open-Meteo elevation API',
+      samplingResolution: '42 corridor samples at 50 m spacing (complete coverage)',
+      groundRetrievedAt: '2026-07-04T08:00:00',
+      calibrationSource: null, modelVersion: null,
+    },
+  });
+  assert.deepEqual(b.evidence, [
+    'Forecast: manual — authored by the pilot.',
+    'Terrain: Open-Meteo elevation API, 42 corridor samples at 50 m spacing '
+      + '(complete coverage), sampled 1 hr ago.',
+  ]);
+});
+
+test('calibration and model version print only when supplied', () => {
+  const { b } = brief({
+    evidence: {
+      forecast: null, terrainSource: null, samplingResolution: null, groundRetrievedAt: null,
+      calibrationSource: 'flight-log calibration (3 flights)', modelVersion: 'analysis-v1',
+    },
+  });
+  assert.deepEqual(b.evidence, [
+    'Forecast: manual — authored by the pilot.',
+    'Calibration: flight-log calibration (3 flights).',
+    'Analysis model: analysis-v1.',
+  ]);
+});
+
+test('redacting coordinates withholds the launch point and nothing else', () => {
+  const open = brief();
+  const redacted = brief({ redactCoordinates: true });
+  assert.equal(redacted.b.launch.decimal, 'withheld');
+  assert.equal(redacted.b.launch.degMin, 'withheld');
+  // The flight itself is untouched — same reach, same energy, same clock, only
+  // the coordinates are gone. This is the diff the feature is allowed to make.
+  assert.equal(redacted.b.reach.radiusText, open.b.reach.radiusText);
+  assert.deepEqual(redacted.b.energy.rows, open.b.energy.rows);
+  assert.equal(redacted.b.clock.turn, open.b.clock.turn);
+});

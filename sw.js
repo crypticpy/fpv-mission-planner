@@ -26,7 +26,7 @@
 // Paths are relative to this file's scope (the app can live at "/" locally
 // or at a GitHub Pages subpath) — never use a leading "/".
 
-const CACHE_NAME = 'fpv-shell-v9';
+const CACHE_NAME = 'fpv-shell-v10';
 
 const PRECACHE_URLS = [
   '.',
@@ -62,13 +62,20 @@ const PRECACHE_URLS = [
   'src/application/analysis/analysis-contracts.js',
   'src/application/analysis/analyze.js',
   'src/application/analysis/constraints.js',
+  'src/application/analysis/route-checks.js',
+  'src/application/analysis/vertical-flight.js',
   'src/application/analysis/wind-advisory.js',
+  'src/application/terrain/elevation-cache.js',
+  'src/application/terrain/sample-corridor.js',
   'src/application/terrain/sample-grid.js',
+  'src/application/terrain/terrain-contracts.js',
   'src/domain/camera.js',
+  'src/domain/fresnel.js',
   'src/domain/geo.js',
   'src/domain/physics.js',
   'src/domain/route.js',
   'src/domain/units.js',
+  'src/domain/vertical.js',
   'src/domain/mission/altitude.js',
   'src/domain/mission/compile.js',
   'src/domain/mission/mission-migrations.js',
@@ -76,8 +83,10 @@ const PRECACHE_URLS = [
   'src/domain/mission/mission-schema.js',
   'src/domain/mission/scene-schema.js',
   'src/domain/mission/scene-commands.js',
+  'src/domain/terrain/terrain-features.js',
   'src/domain/wind/regime.js',
   'src/domain/wind/terrain-forcing.js',
+  'src/infrastructure/elevation/open-meteo-elevation.js',
   /* M6's compiler + adapters (ADR 0010). In production these are one lazy chunk
      the generated worker picks up from its dist/ walk automatically — unlike
      scene3d it is ~40 kB gzip of pure text handling, exactly what a pilot at a
@@ -90,6 +99,7 @@ const PRECACHE_URLS = [
   'src/infrastructure/export/kml.js',
   'src/infrastructure/export/qgc-plan.js',
   'src/infrastructure/export/xml.js',
+  'src/infrastructure/persistence/evidence-repository.js',
   'src/infrastructure/persistence/indexeddb-store.js',
   'src/infrastructure/persistence/memory-store.js',
   'src/infrastructure/persistence/mission-repository.js',
@@ -121,6 +131,7 @@ const PRECACHE_URLS = [
   'src/render/spots.js',
   'src/render/terrain.js',
   'src/render/thrustfield.js',
+  'src/render/update-notice.js',
   'src/presentation/map/map-adapter.js',
   'src/presentation/map/leaflet-adapter.js',
   'src/presentation/map/layer-registry.js',

@@ -25,6 +25,7 @@
 
 import { buildBrief } from '../brief.js';
 import { compatibilityReport } from '../interop.js';
+import { missionDocument } from '../mission-bridge.js';
 import { routeState } from '../presentation/map/map-view.js';
 import { bearingTo, distanceKm } from '../domain/geo.js';
 import {
@@ -313,6 +314,12 @@ function renderSheet(b, fp, route, u) {
     host.appendChild(ground);
   }
 
+  if (b.evidence) {
+    const ev = section('Evidence');
+    for (const line of b.evidence) ev.appendChild(h('p', 'brief-note', line));
+    host.appendChild(ev);
+  }
+
   if (b.warnings.length) {
     const warn = section('Warnings');
     for (const w of b.warnings) {
@@ -369,9 +376,48 @@ function chrome() {
   ].filter(Boolean);
 }
 
-export async function openBrief() {
+/**
+ * The Evidence section's raw material (ADR 0012 §6), read off the snapshot
+ * and the mission document exactly as they stand — nothing here is looked up
+ * further or recomputed (ADR 0002). The forecast half comes from the
+ * document's own environment provenance rather than `latest.provenance`,
+ * because the snapshot's `retrievedAt`/`forecastValid` are stamped from
+ * `capturedAt` on every environment push, manual included, and cannot by
+ * themselves tell a fetched hour from a hand-typed one; the raw fetch bag on
+ * the document (weather.js) is null for manual/preset and only set on an
+ * actual forecast/archive call, which is the distinction this section exists
+ * to print. The ground half uses the advisory grid's provenance as the best
+ * available age/coverage for "when was this ground sampled" — the corridor
+ * field's own retrievedAt is not threaded onto the snapshot, and the advisory
+ * grid's is, at no cost of a new snapshot field.
+ * @param {import('../application/analysis/analysis-contracts.js').AnalysisSnapshot} latest
+ */
+function evidenceFor(latest) {
+  const prov = latest.provenance ?? null;
+  const envProv = missionDocument()?.environmentReference?.provenance ?? null;
+  return {
+    forecast: envProv ? { source: envProv.source, retrievedAt: envProv.retrievedAt } : null,
+    terrainSource: prov?.terrainSource ?? null,
+    samplingResolution: prov?.samplingResolution ?? null,
+    groundRetrievedAt: latest.advisories?.provenance?.retrievedAt ?? null,
+    calibrationSource: prov?.calibrationSource ?? null,
+    modelVersion: prov?.modelVersion ?? null,
+  };
+}
+
+/**
+ * Build the brief off the current snapshot and paint it — shared by
+ * openBrief() and by the redaction checkbox's change handler, neither of
+ * which should duplicate the read-the-snapshot-and-render half of opening.
+ * Deliberately excludes the "the dialog is now open" side effects (focus,
+ * inert chrome, scroll reset): those belong only to the first open, and
+ * re-running them on every checkbox toggle would steal focus off the
+ * checkbox the pilot just used and jump the sheet back to its top.
+ * @returns {Promise<boolean>} whether there was a plan to render at all
+ */
+async function renderCurrent() {
   const latest = deps?.latest?.();
-  if (!latest || !latest.plan) return;
+  if (!latest || !latest.plan) return false;
   const u = units();
   /* The ring the map is showing, read off the same snapshot the plate above it
    * came from rather than out of the map's own memory (ADR 0004): the sweep
@@ -408,6 +454,10 @@ export async function openBrief() {
     times: legTimes(r),
     launchAt: plannedLaunchTime(),
     terrainAttribution: latest.provenance?.terrainAttribution ?? null,
+    evidence: evidenceFor(latest),
+    // Read fresh on every render (open and every checkbox toggle alike) so the
+    // sheet always matches whatever the box says right now.
+    redactCoordinates: $('brief-redact-coords')?.checked ?? false,
     // The report rides a lazy-loaded chunk; if that load fails (offline before
     // the worker cached it), the brief still opens — just without this section.
     compatibility: await compatibilityReport().catch(() => []),
@@ -415,6 +465,11 @@ export async function openBrief() {
     expert: !beginner(),
   });
   renderSheet(b, fp, route, u);
+  return true;
+}
+
+export async function openBrief() {
+  if (!await renderCurrent()) return;
 
   returnFocus = document.activeElement;
   open = true;
@@ -451,5 +506,11 @@ export function bindBrief() {
   $('brief-print').addEventListener('click', () => window.print());
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && open) { e.stopPropagation(); closeBrief(); }
+  });
+  // Lives in the static bar rather than the sheet renderSheet() rebuilds, so its
+  // checked state survives every re-render; toggling it just repaints the sheet
+  // in place (ADR 0012 §6) rather than reopening the whole dialog.
+  $('brief-redact-coords').addEventListener('change', () => {
+    if (open) void renderCurrent();
   });
 }

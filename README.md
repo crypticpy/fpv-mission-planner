@@ -55,6 +55,45 @@ forecast survives offline instead of nothing. Map tiles are never cached (the
 providers' usage policies, and the footprint already renders without them);
 they just won't load offline.
 
+## Offline, and trusting what's on screen
+
+The app shell, the current mission, and the evidence behind the last plan you
+ran are all still there with no signal — but "still there" is not the same
+promise as "still fresh", and the planner tries to be honest about which one
+it's making at any given moment.
+
+- **The shell updates in the background, and says so.** The service worker
+  (`skipWaiting()`/`clients.claim()`) hands a newly-fetched build to the very
+  next load, so a tab left open across a deploy is running old code until it
+  hears about it. It listens for that handoff and shows a dismissible notice —
+  *the planner updated in the background — reload to run the newest build* —
+  with a **Reload** and a **Dismiss** button. There is no auto-reload: a pilot
+  mid-edit never loses work to a deploy landing behind their back. The notice
+  never appears on the very first visit, when there was no older build to have
+  updated *from*.
+- **The mission brief carries its own evidence.** An **Evidence** section on
+  the brief states, from the analysis snapshot's own provenance and nothing
+  recomputed — the forecast's source and age (or *manual — authored by the
+  pilot* when none was fetched), the terrain source, resolution, and how old
+  the sampled ground is, the calibration line, and the analysis model version.
+  It is the same honesty the terrain and wind-advisory sections already
+  practice: a stale or absent source is stated, never hidden behind a number
+  that looks as confident as a fresh one.
+- **Coordinates are withholdable on the brief, and only there.** A checkbox on
+  the brief sheet — *Hide coordinates for sharing*, off by default — replaces
+  every coordinate string on the brief (launch point, route rows) with
+  *withheld*; printing honors whatever the checkbox says. This is a courtesy
+  for a brief you hand to someone who doesn't need your exact location, and it
+  goes no further than the brief: the mission JSON backup and every
+  flight-controller export (GPX, KML, `.plan`, `.waypoints`, `.mission`) are
+  **never** redacted, because the backup is the recovery path and a flight
+  plan without coordinates does not fly.
+- **A corrupted save recovers instead of vanishing.** A mission record the
+  planner can't read is quarantined, not discarded — it shows up in the
+  missions list as a row that says so, with one affordance: download the raw,
+  untouched bytes. There is no delete and no repair-in-place; the recovery
+  path is export → fix → import, on purpose.
+
 ## The model
 
 1. **Air density** — ISA barometric pressure at field elevation, Magnus vapor

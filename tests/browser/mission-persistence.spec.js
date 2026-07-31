@@ -13,6 +13,10 @@
 //
 // External hosts are stubbed exactly as in smoke.spec.js; nothing here contacts
 // a tile or weather provider.
+//
+// The last test is the same store's other promise (ADR 0012 §5, §7): a record
+// this build cannot read as a mission is quarantined, never dropped, with one
+// recovery affordance — download the untouched bytes.
 
 import { expect, test } from '@playwright/test';
 
@@ -193,6 +197,57 @@ test.describe('mission persistence', () => {
     await expect(rows.locator('.spot-name')).toHaveText(['Ridge line copy', 'Ridge line']);
     // The most recently touched mission is the one that reopened.
     await expect(page.locator('#mission-title')).toHaveValue('Ridge line copy');
+
+    expect(errors, `console errors:\n${errors.join('\n')}`).toEqual([]);
+  });
+
+  /* ADR 0012 §5, §7 — the recovery half of persistence. A record `missions`
+   * cannot migrate is not the reducer's problem or a unit test's: it is
+   * whatever landed in IndexedDB by some other means (a future schema this
+   * build predates, a write torn by a crash) and the whole promise is that it
+   * is quarantined, not silently gone. This writes a record the repository
+   * never wrote itself, straight into the store it reads from, to prove the
+   * read path — not the write path — is what catches it. */
+  test('a mission record the repository cannot read is quarantined, and its raw bytes download', async ({ context, page }) => {
+    await stubExternals(context);
+    const errors = watchConsole(page);
+
+    await page.goto('/');
+    await expect(page.locator('#verdict-badge')).not.toHaveText('—');
+
+    // Straight into the `missions` object store, bypassing the repository's
+    // own validate-on-write gate entirely — the one way a truly unreadable
+    // record could exist on disk.
+    await page.evaluate(() => new Promise((resolve, reject) => {
+      const req = indexedDB.open('fpv-planner');
+      req.onerror = () => reject(req.error);
+      req.onsuccess = () => {
+        const db = req.result;
+        const tx = db.transaction('missions', 'readwrite');
+        tx.objectStore('missions').put({ id: 'corrupt-e2e-1', notAMission: true });
+        tx.oncomplete = () => { db.close(); resolve(undefined); };
+        tx.onerror = () => { db.close(); reject(tx.error); };
+      };
+    }));
+
+    // Opening the fold is what asks the repository to list again — the same
+    // read that moves anything it cannot migrate into quarantine
+    // (mission-repository.js's `accept`).
+    await page.locator('#mission-fold summary').click();
+    const row = page.locator('#mission-list .spot-row', { hasText: 'corrupt-e2e-1' });
+    await expect(row).toBeVisible();
+    await expect(row.locator('.spot-meta')).toContainText('could not be read as a mission');
+
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      row.locator('button', { hasText: 'download raw' }).click(),
+    ]);
+    expect(download.suggestedFilename()).toBe('corrupt-e2e-1-quarantined.json');
+
+    // No delete and no repair-in-place (ADR 0012 §5): the row is still there
+    // afterwards, and the mission that was actually open never budged.
+    await expect(row).toBeVisible();
+    await expect(page.locator('#verdict-badge')).not.toHaveText('—');
 
     expect(errors, `console errors:\n${errors.join('\n')}`).toEqual([]);
   });

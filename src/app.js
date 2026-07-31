@@ -9,6 +9,7 @@ import {
 } from './presentation/map/map-view.js';
 import { setupShell, syncView } from './shell.js';
 import { setupThemes } from './themes.js';
+import { setupUpdateNotice } from './render/update-notice.js';
 import { readForm } from './forms.js';
 import {
   state, beginner, drone, battery, compatibleBatteries, missionInputs, scenario, units,
@@ -574,6 +575,16 @@ setupMissionBridge({
       || Math.abs(prev.lat - launch.latitude) > 1e-6
       || Math.abs(prev.lng - launch.longitude) > 1e-6;
     if (moved && state.weatherId === 'live') goLive();
+    // Same-spot restore while live: the boot fetch may already have resolved
+    // before this document existed, in which case its pushEnvironment() was
+    // silently dropped by the bridge's no-document guard and the fetched sky
+    // is on screen with nothing in the document to say where it came from.
+    // Re-push the rail's environment with the live module's stashed bag
+    // (ADR 0012 §1) — no second fetch, just the honesty the drop lost. If the
+    // fetch has not resolved yet this writes the old values with a null bag,
+    // and the fetch's own push corrects both the moment it lands (the
+    // document exists now).
+    else if (state.weatherId === 'live') pushEnvironment(liveProvenance());
   },
   // A document just became the open one: analysis-host.js's evidence restore
   // (ADR 0012 §2) asks the store whether it remembers this mission's ground.
@@ -599,6 +610,7 @@ setupThemes(() => {
   hideTooltip();
   update();
 });
+setupUpdateNotice();
 setupShell({ setView });
 const bootView = restoreSession();
 buildAuthoringForms();

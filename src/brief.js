@@ -210,6 +210,68 @@ function linkLine(link, plan, u) {
 }
 
 /**
+ * How long ago an ISO instant was, in the pilot's words rather than a
+ * timestamp — the same bucketing render/missions.js's `ago()` reads a save
+ * time with, but taking `now` as an argument instead of reading the clock
+ * itself, so a test can pin the age without waiting on a real one.
+ * @param {string|null|undefined} iso
+ * @param {Date} now
+ * @returns {string|null}
+ */
+function ageFrom(iso, now) {
+  if (typeof iso !== 'string') return null;
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return null;
+  const minutes = Math.max(0, (now.getTime() - t) / 60000);
+  if (minutes < 1) return 'moments ago';
+  if (minutes < 60) return `${Math.round(minutes)} min ago`;
+  const hours = minutes / 60;
+  if (hours < 24) return `${Math.round(hours)} hr ago`;
+  const days = Math.round(hours / 24);
+  return `${days} day${days === 1 ? '' : 's'} ago`;
+}
+
+/**
+ * The Evidence section (ADR 0012 §6): what the figures above are actually
+ * standing on, stated in words rather than left for the pilot to infer from a
+ * verdict alone — where the forecast came from and how stale it is, where the
+ * ground came from and how stale that sample is, the flight-log calibration
+ * behind the power model, and the analysis build that did the arithmetic.
+ *
+ * Every word here is already sitting on the analysis snapshot or the mission
+ * document the caller read it off (ADR 0002) — this function formats, it does
+ * not look anything up or recompute anything. `evidence` is null before a
+ * mission has ever been analysed (nothing to attribute yet), and the section
+ * drops entirely rather than printing a page of dashes.
+ *
+ * @param {{
+ *   forecast: { source: string, retrievedAt: string|null }|null,
+ *   terrainSource: string|null, samplingResolution: string|null,
+ *   groundRetrievedAt: string|null,
+ *   calibrationSource: string|null, modelVersion: string|null,
+ * }|null} evidence
+ * @param {Date} now
+ * @returns {string[]|null}
+ */
+function evidenceSection(evidence, now) {
+  if (!evidence) return null;
+  const lines = [];
+  const forecast = evidence.forecast;
+  const forecastAge = forecast ? ageFrom(forecast.retrievedAt, now) : null;
+  lines.push(forecast
+    ? `Forecast: ${forecast.source}${forecastAge ? `, captured ${forecastAge}` : ''}.`
+    : 'Forecast: manual — authored by the pilot.');
+  if (evidence.terrainSource) {
+    const groundAge = ageFrom(evidence.groundRetrievedAt, now);
+    const detail = evidence.samplingResolution ? `, ${evidence.samplingResolution}` : '';
+    lines.push(`Terrain: ${evidence.terrainSource}${detail}${groundAge ? `, sampled ${groundAge}` : ''}.`);
+  }
+  if (evidence.calibrationSource) lines.push(`Calibration: ${evidence.calibrationSource}.`);
+  if (evidence.modelVersion) lines.push(`Analysis model: ${evidence.modelVersion}.`);
+  return lines.length ? lines : null;
+}
+
+/**
  * How the subject crosses the frame, in words rather than in the pipeline's
  * token. Shared with the map inspector's wording in substance, shortened here
  * because it sits inside a table cell.
@@ -400,6 +462,16 @@ function exportCompatSection(compatibility) {
  * see, and printing them would put numbers on paper that are nowhere on screen.
  * What survives the gate is everything a beginner can act on — the footprint,
  * the clock, the budget, the warnings, the checks.
+ *
+ * `evidence` (ADR 0012 §6) is the Evidence section's raw material — forecast
+ * and terrain provenance plus the calibration and model version, bundled by
+ * the caller from the analysis snapshot and the mission document, or null
+ * where there is nothing yet to attribute.
+ *
+ * `redactCoordinates` (ADR 0012 §6) withholds the launch point's printed
+ * lat/lng — the one place a bare coordinate string appears in this brief —
+ * for a copy meant to leave the pilot's hands. It never touches the energy or
+ * reserve figures; a shareable brief is the same flight, minus where it is.
  */
 export function buildBrief({
   plan, verdict, warnings = [], footprint = null, route = null, segments = null,
@@ -408,6 +480,7 @@ export function buildBrief({
   env = {}, scenarioLabel = null, cruiseAltM = null, times = null, launchAt = null,
   terrainAttribution = null, compatibility = [],
   units: u, now = new Date(), expert = true,
+  evidence = null, redactCoordinates = false,
 } = {}) {
   const dist = (km) => `${f1(u.distanceFromKm(km))} ${u.distanceUnit}`;
   const spd = (mph) => f0(u.speedFromMph(mph));
@@ -437,8 +510,8 @@ export function buildBrief({
     verdict: verdict ? { level: verdict.level, label: verdict.label, why: verdict.why, fix: verdict.fix } : null,
     launch: launch ? {
       lat: launch.lat, lng: launch.lng,
-      decimal: formatDecimal(launch.lat, launch.lng),
-      degMin: formatDegMin(launch.lat, launch.lng),
+      decimal: redactCoordinates ? 'withheld' : formatDecimal(launch.lat, launch.lng),
+      degMin: redactCoordinates ? 'withheld' : formatDegMin(launch.lat, launch.lng),
     } : null,
     wind: {
       fromDeg: env.windFromDeg ?? 0,
@@ -477,6 +550,7 @@ export function buildBrief({
     // route's clearance findings still came off that DEM, and a credit that
     // disappeared with the chart would not be travelling with the work.
     dataLine: typeof terrainAttribution === 'string' && terrainAttribution ? terrainAttribution : null,
+    evidence: evidenceSection(evidence, now),
     route: routeSection(route, segments, u),
     checklist: checklist({ plan, clock, link, terrain: terr, route, env, u, expert }),
     exportCompat: exportCompatSection(compatibility),

@@ -388,6 +388,31 @@ body[data-plan="none"] #view-dash.content { display: none; }
    interactive with no plan to draw a footprint from. */
 body[data-plan="none"] #view-map .leaflet-overlay-pane { display: none; }
 
+/* The app-shell update notice (ADR 0012 §4): a new build has already taken
+   over in the background (the service worker's own doing — src/render/
+   update-notice.js only reports it), and this is the one place the pilot is
+   told, with the choice of when to actually reload left to them. Styled after
+   .forecast-banner/.swap-notice's info-banner pattern rather than a new one. */
+.update-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-2);
+  padding: 8px var(--sp-2);
+  border-left: 3px solid var(--accent);
+  border-radius: 4px;
+  background: var(--surface-2);
+  color: var(--ink-2);
+  font-size: 12.5px;
+  animation: rise 0.4s ease-out both;
+}
+.update-notice-actions { display: flex; align-items: center; gap: var(--sp-2); flex: none; }
+@media (prefers-reduced-motion: reduce) {
+  .update-notice { animation: none; }
+}
+
 /* Go/no-go card. One status color drives the badge and the rail, so a theme
    swap moves both; status tokens are tuned against --page, which is what the
    badge label reverses onto. */
@@ -1230,6 +1255,24 @@ body.brief-open { overflow: hidden; }
 }
 .brief-btn-quiet { background: #fff; color: #000; }
 .brief-btn:focus-visible { outline: 3px solid #000; outline-offset: 2px; }
+
+/* The redaction toggle (ADR 0012 §6): pushed to the bar's left edge by its own
+   margin so the two buttons stay right-aligned exactly as before. Black on
+   white like the rest of this bar — `.check-row` is the app's own checkbox but
+   it is themed, and this dialog deliberately never is (see the note on
+   .brief-sheet below). */
+.brief-redact {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: auto;
+  font-family: var(--font-display);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #000;
+  cursor: pointer;
+}
+.brief-redact input { width: 15px; height: 15px; margin: 0; accent-color: #000; }
 
 .brief-sheet {
   max-width: 940px;

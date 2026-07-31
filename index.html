@@ -315,6 +315,9 @@
        answer and its callouts stay on screen whichever tab the pilot has open
        at the field. -->
   <div class="stage">
+    <!-- Filled by src/render/update-notice.js when a new build takes control in
+         the background (ADR 0012 §4) — never on the first install. -->
+    <div id="update-notice" class="update-notice" role="status" aria-live="polite" hidden></div>
     <section id="verdict" class="verdict" role="status" aria-live="polite">
       <p class="verdict-head">
         <span id="verdict-badge" class="verdict-badge">—</span>
@@ -614,6 +617,10 @@
      Filled by src/render/brief.js; black on white in every theme. -->
 <section id="brief" class="brief" role="dialog" aria-modal="true" aria-labelledby="brief-title" hidden>
   <div class="brief-bar">
+    <label class="brief-redact">
+      <input id="brief-redact-coords" type="checkbox">
+      Hide coordinates for sharing
+    </label>
     <button id="brief-print" class="brief-btn" type="button">Print / save PDF</button>
     <button id="brief-close" class="brief-btn brief-btn-quiet" type="button">Close</button>
   </div>
