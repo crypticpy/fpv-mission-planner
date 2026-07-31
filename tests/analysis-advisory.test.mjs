@@ -415,6 +415,29 @@ test('a stable layer in real wind is a regime caution', () => {
   assert.equal(snap.advisories.provenance.soundingLevels, 3);
 });
 
+test('an envelope that never leaves transition says so, not that it spans regimes', () => {
+  // Fr ≈ 1 through the isothermal layer over the 300 m ridge: every ±30%
+  // member lands inside (0.5, 2.0), so band.regimes is exactly ['transition'].
+  // The defect this pins: the spans-more-than-one sentence firing here read
+  // "spans more than one regime (transition)" — a self-contradiction, and it
+  // contradicted the panel's rendering of the very same snapshot.
+  const snap = analyze(ports(fieldFrom(gridFrom(ridgeSurface(90))), {
+    sig: 'fr-near-one', sounding: stableSounding(12), soundingAt: { ...AUSTIN },
+  }));
+
+  const regime = snap.advisories.regime;
+  assert.equal(regime.regime, 'transition');
+  assert.deepEqual([...regime.band.regimes], ['transition'],
+    'the fixture must sit wholly inside the transition band for this test to bite');
+
+  const said = windConstraint(snap, 'W-WIND-REGIME');
+  assert.ok(said, 'an envelope all in transition is still a finding');
+  assert.equal(said.severity, 'caution');
+  assert.doesNotMatch(said.text, /spans more than one regime/,
+    'an envelope of one regime may not be described as spanning several');
+  assert.match(said.text, /stays there across the whole sensitivity envelope/);
+});
+
 test('a Froude number that is zero only because the air is calm says so, at unknown', () => {
   const snap = analyze(ports(fieldFrom(gridFrom(ridgeSurface(90))), {
     sig: 'calm', sounding: stableSounding(0.5), soundingAt: { ...AUSTIN },

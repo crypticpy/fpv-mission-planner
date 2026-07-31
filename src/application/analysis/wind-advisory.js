@@ -323,11 +323,24 @@ function regimeConstraint(regime) {
       + 'instead. This is one bulk number for the whole area — it cannot say where the flow '
       + 'splits, and it does not locate the lee eddy that blocking is associated with.');
   }
+  /* 'transition' is two different findings depending on the envelope. Members
+   * landing in more than one regime is a statement about the forecast — it is
+   * not sharp enough to say which flow this is. Every member landing in
+   * 'transition' (common: Fr near 1 survives ±30% on both inputs) is a
+   * statement about the air itself, and claiming a spanned envelope there
+   * would contradict the panel over the most ordinary mountain case. */
+  if (regime.band.regimes.length > 1) {
+    return draftConstraint('W-WIND-REGIME',
+      `Fr = ${fmt(fr)} and the sensitivity envelope spans more than one regime (${
+        regime.band.regimes.join(', ')}): the air is between climbing the terrain and being `
+      + 'blocked by it, and the forecast is not sharp enough to say which. Treat the flow around '
+      + 'high ground as unsettled rather than predictable.');
+  }
   return draftConstraint('W-WIND-REGIME',
-    `Fr = ${fmt(fr)} and the sensitivity envelope spans more than one regime (${
-      regime.band.regimes.join(', ')}): the air is between climbing the terrain and being `
-    + 'blocked by it, and the forecast is not sharp enough to say which. Treat the flow around '
-    + 'high ground as unsettled rather than predictable.');
+    `Fr = ${fmt(fr)} sits between blocked and flow-over and stays there across the whole `
+    + 'sensitivity envelope: the air has roughly the momentum this terrain demands, and small '
+    + 'shifts in wind or stability tip it either way. Treat the flow around high ground as '
+    + 'unsettled rather than predictable.');
 }
 
 /**

@@ -410,13 +410,17 @@ async function runGridSample(request, sig) {
     gridSampling = false;
     if (pendingGridSig === sig) pendingGridSig = null;
     hostDeps?.update();
-    // A route that moved while this one was in flight never got its own timer,
-    // because `gridSampling` was true when it came past.
+    // A route that moved while this one was in flight never got its own timer
+    // from refreshGrid — `gridSampling` was true when it came past. But the
+    // update() above re-enters refreshGrid with the flag already down, so it
+    // may just have armed this very follow-up; the clear keeps the re-arm from
+    // leaving two live timers fetching one route.
     if (lastGridRequest && lastGridRequest !== request) {
       const nextSig = gridSignature(lastGridRequest);
       if (nextSig !== heldGridSig && nextSig !== failedGridSig) {
         pendingGridSig = nextSig;
         const pending = lastGridRequest;
+        clearTimeout(gridTimer);
         gridTimer = setTimeout(() => { void runGridSample(pending, nextSig); }, SAMPLE_DEBOUNCE_MS);
       }
     }

@@ -80,10 +80,10 @@ function stubElevation({ held = false, groundM = 300 } = {}) {
  * the count — "another ask went out", "no further ask went out" — rather than as
  * absolute totals. That is what each of them was ever really asserting.
  */
-async function boot(net, { title = 'Corridor host' } = {}) {
+async function boot(net, { title = 'Corridor host', onUpdate = null } = {}) {
   let renders = 0;
   setupTerrain({ update: () => {}, revision: analysisRevision, accept: acceptAsync });
-  setupAnalysisHost({ update: () => { renders++; }, fetch: net.doFetch });
+  setupAnalysisHost({ update: () => { renders++; onUpdate?.(); }, fetch: net.doFetch });
   setupMissionBridge({
     seed: () => ({ title, launch: { ...LAUNCH } }),
     requestRender: () => {},
@@ -204,4 +204,40 @@ test('a corridor superseded inside the debounce window is never fetched', async 
   await settle();
   assert.equal(net.calls.length, settled, 'no fetch went out for the corridor that was superseded');
   assert.ok(terrainField(), 'the field in hand still answers the route');
+});
+
+test('a grid follow-up for a moved route is asked once, however many hands re-arm it', async () => {
+  // Production's update() re-enters the analysis, and analyzeNow() runs
+  // refreshGrid() — so a grid sample landing for a route that moved arms the
+  // follow-up twice: once through that re-entry, once through its own finally.
+  // Left uncleared, both timers fire and the same batches go out twice. The
+  // invariant that pins it: with answers cached and signatures held, no
+  // elevation URL is ever put on the wire a second time.
+  const net = stubElevation({ held: true });
+  await boot(net, { title: 'Grid re-arm', onUpdate: () => { analyzeNow(); } });
+  dispatch({ type: 'addWaypoint', payload: { ...OVER_THERE } }, { render: false });
+  analyzeNow();
+  await settle();
+  assert.ok(net.calls.length >= 1, 'asks for the first route are in flight');
+
+  // The route moves while those samples are out…
+  dispatch({ type: 'addWaypoint', payload: { latitude: 30.35, longitude: -97.80 } }, { render: false });
+  analyzeNow();
+
+  // …then everything is allowed to land, follow-ups to fire, and their own
+  // answers to land, until the wire goes quiet.
+  for (let round = 0; round < 3; round++) {
+    for (let spin = 0; spin < 30; spin++) {
+      const before = net.calls.length;
+      net.releaseAll();
+      await sleep(25);
+      if (net.calls.length === before) break;
+    }
+    await settle();
+    net.releaseAll();
+    await sleep(25);
+  }
+
+  const dupes = [...new Set(net.calls.filter((u, i) => net.calls.indexOf(u) !== i))];
+  assert.deepEqual(dupes, [], 'an elevation ask went out twice — two grid timers raced for one route');
 });
