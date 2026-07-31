@@ -35,6 +35,7 @@
     "src/domain/mission/mission-migrations.js",
     "src/domain/mission/mission-reducer.js",
     "src/domain/mission/altitude.js",
+    "src/domain/mission/compile.js",
     "src/application/terrain/sample-grid.js",
     "src/application/analysis/analysis-contracts.js",
     "src/application/analysis/constraints.js",
@@ -88,6 +89,10 @@
     "src/application/terrain/elevation-cache.js",
     "src/application/terrain/sample-corridor.js",
     "src/infrastructure/elevation/open-meteo-elevation.js",
+    // M6 wave A. The XML reader imports nothing at all; adapter-contracts.js
+    // reaches only the compiler's typedefs, which are already here.
+    "src/infrastructure/export/adapter-contracts.js",
+    "src/infrastructure/export/xml.js",
     "src/infrastructure/persistence/mission-repository.js",
     "src/infrastructure/persistence/indexeddb-store.js",
     "src/infrastructure/persistence/memory-store.js",
