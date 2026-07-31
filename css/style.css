@@ -55,7 +55,9 @@ body {
   text-transform: uppercase;
 }
 .masthead-sub { color: var(--muted); font-size: 12.5px; margin-top: 2px; }
-.header-controls { display: flex; align-items: flex-end; gap: var(--sp-2); }
+/* wrap: with the destination rail taking 78px, the three selects no longer
+   fit beside the title on narrow desktops (901–1150px) without it. */
+.header-controls { display: flex; align-items: flex-end; gap: var(--sp-2); flex-wrap: wrap; }
 .header-select {
   color: var(--muted);
   font-size: 11px;
@@ -83,6 +85,11 @@ body {
   max-width: 1360px;
   margin: 0 auto;
 }
+/* The conditions rail belongs to Plan; the other destinations own the full
+   width. Hiding rather than unmounting keeps its controls' state and lets
+   Plan's bottom sheet reuse the same element on mobile. */
+body:not([data-dest="plan"]) .rail { display: none; }
+body:not([data-dest="plan"]) .layout { grid-template-columns: minmax(0, 1fr); }
 @media (max-width: 900px) {
   .layout { grid-template-columns: 1fr; padding: var(--sp-3); }
   .masthead { align-items: flex-start; padding: var(--sp-3); }
@@ -371,8 +378,9 @@ input[type="range"] { width: 100%; margin-top: 6px; accent-color: var(--series-1
 
 /* ---------- content ---------- */
 
-/* Holds the warnings banner plus both tab panels, so the banner survives a tab
-   switch. Static flow, so the fixed mobile dock never covers it. */
+/* Holds the four destination sections; inside Plan, the verdict and warnings
+   sit above both workspace modes so they survive an Overview/Map switch.
+   Static flow, so the fixed mobile dock never covers it. */
 .stage { display: flex; flex-direction: column; gap: var(--sp-3); min-width: 0; }
 .content { display: flex; flex-direction: column; gap: var(--sp-3); min-width: 0; }
 /* No pack fits the selected rig, so there is no plan: the verdict card says so
@@ -382,6 +390,12 @@ input[type="range"] { width: 100%; margin-top: 6px; accent-color: var(--series-1
    launch marker, zoom/controls), with just the stale reachability rings
    removed via the overlay-pane rule below. */
 body[data-plan="none"] #view-dash.content { display: none; }
+/* Same honesty across destinations: Field's session math and Aircraft's
+   performance cards read a plan, so they blank with it — but Aircraft's
+   hangar controls stay, because they are how the no-pack state gets fixed,
+   and Library never needs a plan at all. */
+body[data-plan="none"] :is(#dest-field, #dest-aircraft) .card,
+body[data-plan="none"] #dest-aircraft .footnote { display: none; }
 /* Reachability rings/footprint polygons render into Leaflet's default overlay
    pane (SVG renderer); tiles live in the tile pane and the launch/wind markers
    in the marker pane, so this leaves the map itself fully visible and
@@ -618,14 +632,97 @@ tr.row-invalid td:nth-child(12) { color: var(--status-critical); font-weight: 60
 .footnote { color: var(--muted); font-size: 11.5px; max-width: 72ch; }
 .footnote a { color: var(--series-1); }
 
+/* ---------- destination nav ---------- */
+/* Four destinations — Field / Plan / Library / Aircraft (docs/design-evolution-
+   2026-08.md). One element, two postures: a left icon rail on wide screens, the
+   bottom dock on phones and tablet portrait. */
+
+:root { --destnav-w: 78px; }
+
+.destnav {
+  position: fixed;
+  z-index: 1120; /* above Plan's bottom sheet (1110); Leaflet tops out at 1000 */
+  background: var(--surface-1);
+}
+.destnav-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  color: var(--muted);
+  font: inherit;
+  font-family: var(--font-display);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+/* The inline icons carry only a viewBox; without this they stretch to the
+   button's full width in both postures. */
+.destnav-btn svg { display: block; width: 20px; height: 20px; }
+.destnav-btn:hover { color: var(--ink-2); }
+.destnav-btn[aria-current="page"] { color: var(--ink); }
+.destnav-btn[aria-current="page"] svg { color: var(--accent); }
+
+@media (min-width: 901px) {
+  .destnav {
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: calc(var(--destnav-w) + env(safe-area-inset-left));
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--sp-2);
+    padding: var(--sp-4) 0;
+    padding-left: env(safe-area-inset-left);
+    border-right: 1px solid var(--border);
+  }
+  .destnav-btn { width: 60px; padding: 9px 0 7px; }
+  .destnav-btn[aria-current="page"] {
+    background: var(--surface-2);
+    border-color: var(--border);
+  }
+}
+
+/* ---------- destination sections ---------- */
+
+.dest { display: flex; flex-direction: column; gap: var(--sp-3); min-width: 0; }
+.dest-head { display: flex; flex-direction: column; gap: 2px; }
+.dest-head h2 {
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.dest-sub { color: var(--muted); font-size: 12.5px; max-width: 64ch; }
+
+/* Aircraft's hangar controls reuse the rail-group form styling but own the
+   full stage width there, so the fields flow into columns on wide screens. */
+@media (min-width: 901px) {
+  .hangar .rail-group {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: var(--sp-2) var(--sp-3);
+    align-items: start;
+  }
+  .hangar .rail-group > h2,
+  .hangar .rail-group > p,
+  .hangar .rail-group > div,
+  .hangar .rail-group > details { grid-column: 1 / -1; }
+}
+
 /* ---------- view tabs ---------- */
+/* Plan's workspace modes (Overview | Map) — lives inside #dest-plan now, so it
+   inherits the stage width instead of centering itself. */
 
 .view-tabs {
   display: flex;
   gap: var(--sp-1);
-  max-width: 1360px;
-  margin: 0 auto;
-  padding: var(--sp-2) var(--sp-5) 0;
+  align-items: center;
 }
 .view-tab {
   background: none;
@@ -646,7 +743,30 @@ tr.row-invalid td:nth-child(12) { color: var(--status-critical); font-weight: 60
   background: var(--surface-1);
   border-color: var(--border);
 }
-@media (max-width: 900px) { .view-tabs { padding: var(--sp-2) var(--sp-3) 0; } }
+
+/* Mobile-only trigger for the conditions sheet; desktop shows the rail beside
+   the stage, so the button would be dead weight there. */
+.plan-controls-btn { display: none; }
+@media (max-width: 900px) {
+  .plan-controls-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: auto;
+    background: var(--button);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--ink-2);
+    font: inherit;
+    font-family: var(--font-display);
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 7px 14px;
+    cursor: pointer;
+  }
+  .plan-controls-btn[aria-expanded="true"] { color: var(--ink); border-color: var(--accent); }
+}
 
 /* ---------- map view ---------- */
 
@@ -788,7 +908,7 @@ tr.row-invalid td:nth-child(12) { color: var(--status-critical); font-weight: 60
 
 /* ---------- mobile shell & touch ---------- */
 
-:root { --dock-h: 58px; }
+:root { --dock-h: 64px; } /* icon + label rows need more than the old text-only dock */
 
 /* viewport-fit=cover lets content extend under a notch in landscape;
    these compute to 0 everywhere else. Fixed elements (dock, sheet) ignore
@@ -797,8 +917,13 @@ body {
   padding-left: env(safe-area-inset-left);
   padding-right: env(safe-area-inset-right);
 }
+/* Content clears the fixed destination rail on wide screens; on phones the
+   destnav is the bottom dock and .layout carries the clearance instead. */
+@media (min-width: 901px) {
+  body { padding-left: calc(env(safe-area-inset-left) + var(--destnav-w)); }
+}
 
-.dock, .sheet-scrim { display: none; }
+.sheet-scrim { display: none; }
 
 /* Charts scrub horizontally but must not trap vertical page scroll;
    the table pans horizontally without triggering browser back-swipe. */
@@ -826,8 +951,6 @@ body {
 @media (max-width: 900px) {
   html { scrollbar-gutter: stable; }
 
-  .view-tabs { display: none; }
-
   .masthead { flex-direction: column; align-items: stretch; gap: var(--sp-2); }
   .header-controls { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-2); }
   .header-select select { min-width: 0; width: 100%; }
@@ -842,39 +965,32 @@ body {
   .map-actions { width: 100%; }
   .map-actions .map-btn { flex: 1 1 0; }
 
-  .dock {
+  /* The destnav becomes the bottom dock — the phone's thumb-reach home for the
+     four destinations. */
+  .destnav {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    position: fixed;
+    grid-template-columns: repeat(4, 1fr);
     left: 0; right: 0; bottom: 0;
-    z-index: 1120; /* above the sheet (1110); Leaflet controls sit at 1000 in the root context */
     height: calc(var(--dock-h) + env(safe-area-inset-bottom));
-    padding: 6px calc(var(--sp-2) + env(safe-area-inset-right))
-      calc(6px + env(safe-area-inset-bottom))
+    padding: 5px calc(var(--sp-2) + env(safe-area-inset-right))
+      calc(5px + env(safe-area-inset-bottom))
       calc(var(--sp-2) + env(safe-area-inset-left));
-    background: var(--surface-1);
     border-top: 1px solid var(--border);
   }
-  .dock-btn {
+  .destnav-btn {
     position: relative;
-    background: none;
+    gap: 2px;
+    padding: 4px 0 6px;
+    font-size: 10px;
     border: none;
     border-radius: 8px;
-    color: var(--muted);
-    font: inherit;
-    font-family: var(--font-display);
-    font-size: 12px;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    cursor: pointer;
   }
-  .dock-btn[aria-current="true"], .dock-btn[aria-expanded="true"] { color: var(--ink); }
-  .dock-btn[aria-current="true"]::after, .dock-btn[aria-expanded="true"]::after {
+  .destnav-btn[aria-current="page"]::after {
     content: "";
     position: absolute;
     left: 50%;
     transform: translateX(-50%);
-    bottom: 3px;
+    bottom: 0;
     width: 22px; height: 2px;
     border-radius: 2px;
     background: var(--accent);
@@ -1459,7 +1575,7 @@ body.brief-open { overflow: hidden; }
 /* Only ever the brief. Scoped to .brief-open so hitting Cmd+P with the brief
    closed still prints the app rather than a blank sheet. */
 @media print {
-  body.brief-open { background: #fff; overflow: visible; }
+  body.brief-open { background: #fff; overflow: visible; padding-left: 0; }
   body.brief-open > *:not(#brief) { display: none !important; }
   body.brief-open .brief {
     position: static;

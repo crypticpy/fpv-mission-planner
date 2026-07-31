@@ -38,6 +38,7 @@ import { LINK_BAND_DEFAULT, isLinkBand } from './rf.js';
  * property's type from that single value rather than from the full range
  * restoreSession() and the controls actually assign it.
  * @typedef {object} RailState
+ * @property {'field'|'plan'|'library'|'aircraft'} dest
  * @property {'dash'|'map'} view
  * @property {'imperial'|'metric'} units
  * @property {string} droneId
@@ -62,7 +63,8 @@ import { LINK_BAND_DEFAULT, isLinkBand } from './rf.js';
 
 /** @type {RailState} */
 export const state = {
-  view: 'dash', // 'dash' | 'map'
+  dest: 'plan', // which destination is open — Plan is the working default
+  view: 'dash', // Plan's workspace mode: 'dash' (Overview) | 'map'
   units: 'imperial',
   droneId: 'moz7v2',
   manufacturerId: 'all',
@@ -145,14 +147,28 @@ export function saveSession() {
   storeSet('session', state);
 }
 
+/* The destination the last valid session blob was saved on. Like `detail`,
+   a destination is a view preference, not part of the plan: an unknown or
+   missing value falls back to Plan on its own rather than voiding the blob.
+   Stashed rather than assigned for the same reason restoreSession() returns
+   the view instead of setting it — setDest()'s same-value guard has to see
+   the boot default, or the restored destination would never be shown. */
+let sessionDest = 'plan';
+
+/** @returns {'field'|'plan'|'library'|'aircraft'} */
+export function restoredDest() {
+  return sessionDest;
+}
+
 /**
  * Restore the control surface, all-or-nothing: any unknown id or out-of-range
  * number discards the whole blob, because a half-restored loadout reads as a
  * plan for a rig the pilot never selected. Returns the saved view, if valid.
  *
- * `detail` is the one exception: it is a view preference, not part of the plan,
- * so it falls back to 'full' on its own rather than voiding a blob written
- * before the toggle existed.
+ * `detail` and `dest` are the exceptions: both are view preferences, not part
+ * of the plan, so each falls back to its default on its own rather than
+ * voiding a blob written before it existed (`dest` is read back through
+ * restoredDest() above).
  *
  * Two fields are read with a migration in front of them rather than voiding an
  * older blob — see `landFloor` and `gustFactor` below.
@@ -232,6 +248,7 @@ export function restoreSession() {
     && num(env.elevFt, -1500, 30000) && num(env.tempF, -60, 140) && num(env.rhPct, 0, 100)
     && num(env.windMph, 0, 120) && num(env.gustMph, 0, 160) && num(env.windFromDeg, 0, 359);
   if (!ok) return null;
+  sessionDest = ['field', 'plan', 'library', 'aircraft'].includes(s.dest) ? s.dest : 'plan';
   Object.assign(state, {
     units: s.units, droneId: s.droneId, manufacturerId: s.manufacturerId, batteryId: s.batteryId,
     parallelPacks: s.parallelPacks, payloadId: s.payloadId, extraG: s.extraG,

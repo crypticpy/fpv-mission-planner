@@ -7,13 +7,13 @@ import { hideTooltip } from './charts.js';
 import {
   setupMapView, showMapView, renderMapView, pauseMapView, resizeMapView,
 } from './presentation/map/map-view.js';
-import { setupShell, syncView } from './shell.js';
+import { setupShell, syncDest } from './shell.js';
 import { setupThemes } from './themes.js';
 import { setupUpdateNotice } from './render/update-notice.js';
 import { readForm } from './forms.js';
 import {
   state, beginner, drone, battery, compatibleBatteries, missionInputs, scenario, units,
-  saveSession, restoreSession, packPreheatSeedF, PACK_TEMP_RANGE_F,
+  saveSession, restoreSession, restoredDest, packPreheatSeedF, PACK_TEMP_RANGE_F,
 } from './state.js';
 import { loadMapState } from './store.js';
 import { $, fillSelect } from './render/dom.js';
@@ -26,7 +26,7 @@ import { setupDroneForm, buildDroneForm } from './render/droneform.js';
 import { setupPackInstances, buildPackInstanceForm } from './render/packinstances.js';
 import { resolvePackIr, resetBatteryChecks } from './render/batterychecks.js';
 import { setupFlightLog, buildFlightLogForm } from './render/flightlog.js';
-import { setupCalibration } from './render/calibration.js';
+import { setupCalibration, renderDriftChart } from './render/calibration.js';
 import {
   resetPackCaches, renderWarnings, renderVerdict, renderNoBattery, renderReserveNote,
   renderStats, renderPowerCurve, renderSpeedTradeoff, renderProfile, renderWindSensitivity,
@@ -151,11 +151,32 @@ function update() {
   // beside the controls that move them, and both stay live on the map tab.
   renderWindNotes();
   renderReserveNote(r);
-  // The saved-spots roster lives on the Map tab, and its
-  // distance-from-pin metas go stale whenever the pin moves.
-  if (state.view === 'map') renderSpots();
-  // Render only the visible view: charts measure container width and freeze at
-  // a fallback size when drawn inside a hidden container.
+  // Render only the open destination — and inside Plan, only the visible
+  // workspace mode: charts measure container width and freeze at a fallback
+  // size when drawn inside a display:none container.
+  if (state.dest === 'field') {
+    renderSessionPlanner();
+    return;
+  }
+  if (state.dest === 'library') {
+    // The roster's distance-from-pin metas go stale whenever the pin moves.
+    renderSpots();
+    return;
+  }
+  if (state.dest === 'aircraft') {
+    // Beginner mode hides the two performance cards, so skip the sweeps
+    // behind them entirely.
+    if (!beginner()) {
+      renderPowerCurve(r);
+      renderSpeedTradeoff(r);
+    }
+    renderComparison();
+    renderBatteryNote();
+    // populateControls draws this at boot, possibly while Aircraft is hidden —
+    // redraw at the real container width now that it is showing.
+    renderDriftChart();
+    return;
+  }
   if (state.view === 'map') {
     // The route (Phase 4 item 7) is integrated once, inside the analysis, and
     // handed to both the map that draws it and the card that explains it — so the
@@ -170,18 +191,8 @@ function update() {
     return;
   }
   renderStats(r);
-  // Same reason the map view skips these: a chart drawn into a display:none
-  // container measures nothing and freezes at a fallback size. Beginner mode
-  // hides these three cards, so skip the sweeps behind them entirely.
-  if (!beginner()) {
-    renderPowerCurve(r);
-    renderSpeedTradeoff(r);
-    renderProfile(r);
-  }
-  renderComparison();
+  if (!beginner()) renderProfile(r);
   renderWindSensitivity(r);
-  renderBatteryNote();
-  renderSessionPlanner();
 }
 
 function setView(view) {
@@ -194,9 +205,37 @@ function setView(view) {
   $('tab-map').setAttribute('aria-selected', !dash);
   $('tab-dash').tabIndex = dash ? 0 : -1;
   $('tab-map').tabIndex = dash ? -1 : 0;
-  syncView(view);
+  // The tabs are only clickable inside Plan, but boot restores the saved mode
+  // before the saved destination — starting the map inside a hidden Plan would
+  // have Leaflet measure a 0×0 container.
+  if (state.dest !== 'plan') {
+    saveSession();
+    return;
+  }
   if (dash) pauseMapView();
   else showMapView(); // init-if-needed + invalidateSize, now that it's visible
+  update();
+}
+
+/**
+ * Switch destinations (Field / Plan / Library / Aircraft). Sections toggle by
+ * [hidden]; the body attribute drives the rail's visibility and the layout
+ * column count, and update() draws only what just became visible.
+ */
+function setDest(dest) {
+  if (state.dest === dest) return;
+  const wasPlan = state.dest === 'plan';
+  state.dest = dest;
+  document.body.dataset.dest = dest;
+  for (const d of ['plan', 'field', 'library', 'aircraft']) {
+    $(`dest-${d}`).hidden = d !== dest;
+  }
+  syncDest(dest);
+  // The map only lives inside Plan: stop its animation work while it's off
+  // screen, and bring it back (init-if-needed + invalidateSize) on return.
+  if (wasPlan && state.view === 'map') pauseMapView();
+  if (dest === 'plan' && state.view === 'map') showMapView();
+  saveSession();
   update();
 }
 
@@ -256,6 +295,8 @@ function bind() {
   $('tab-map').addEventListener('click', () => setView('map'));
   document.querySelector('.view-tabs').addEventListener('keydown', e => {
     if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    // The conditions-sheet button rides in the same row but is not a tab.
+    if (!(e.target instanceof HTMLElement) || !e.target.classList.contains('view-tab')) return;
     e.preventDefault();
     const next = state.view === 'dash' ? 'map' : 'dash';
     setView(next);
@@ -500,7 +541,7 @@ function bind() {
       // Mobile URL-bar collapse and the keyboard fire resize with unchanged
       // width — those only need a map reflow, not a full footprint re-render.
       if (window.innerWidth === lastWidth) {
-        if (state.view === 'map') resizeMapView();
+        if (state.dest === 'plan' && state.view === 'map') resizeMapView();
         return;
       }
       lastWidth = window.innerWidth;
@@ -615,19 +656,24 @@ setupThemes(() => {
   update();
 });
 setupUpdateNotice();
-setupShell({ setView });
+setupShell({ setDest });
 const bootView = restoreSession();
+const bootDest = restoredDest();
 buildAuthoringForms();
 buildDroneForm();
 buildFlightLogForm();
 buildPackInstanceForm();
 populateControls();
 bind();
+// Mode before destination: setView only starts the map while Plan is the open
+// destination (it is, at boot), so a session saved on Aircraft with the Map
+// mode armed still restores both without Leaflet measuring a hidden container.
 if (bootView === 'map') setView('map'); // renders as a side effect
+if (bootDest !== 'plan') setDest(bootDest); // renders as a side effect too
 // Live is the boot default (renders immediately, patches when the fetch lands),
 // but a saved preset or hand-entered weather must not be overwritten by it.
 if (state.weatherId === 'live') goLive();
-else if (bootView !== 'map') update();
+else if (bootView !== 'map' && bootDest === 'plan') update();
 // Last, and deliberately not awaited: opening the repository is a round trip to
 // IndexedDB, and the first render must not wait on it. The bridge restores the
 // launch point and the route from the saved mission and asks for its own render
