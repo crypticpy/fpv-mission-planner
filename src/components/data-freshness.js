@@ -10,7 +10,7 @@
 import { icon } from './icons.js';
 import { state } from '../state.js';
 import { WEATHER } from '../data.js';
-import { liveProvenance } from '../render/live.js';
+import { liveProvenance, liveError } from '../render/live.js';
 
 /** @typedef {'current'|'cached'|'stale'|'unavailable'} FreshnessState */
 /**
@@ -57,9 +57,15 @@ export function freshnessModelFrom(snapshot) {
     // ARE the values on screen, at their true age.
     const at = liveProvenance()?.retrievedAt ?? null;
     if (!at) return { source: 'Live', at: null, state: 'unavailable' };
+    // A refresh that is currently failing outranks age: on Plan the rail's
+    // status line says "using last values" right beside the chip, but on the
+    // other three destinations this chip is the only provenance on screen —
+    // it must not read healthy while the sky it shows can only get older.
+    // Same signal the rail prints (liveErr), so the two cannot disagree.
     const aged = (snapshot?.constraints ?? []).some((c) =>
       c.code === 'W-DATA-FORECAST-AGE' || c.code === 'W-DATA-FORECAST-STALE');
-    return { source: 'Live · Open-Meteo', at, state: aged ? 'stale' : 'current' };
+    const state = liveError() ? 'unavailable' : aged ? 'stale' : 'current';
+    return { source: 'Live · Open-Meteo', at, state };
   }
   if (state.weatherId === 'custom') {
     return { source: 'Manual conditions', at: null, state: 'current' };

@@ -510,6 +510,10 @@
       <h2>Field</h2>
       <p class="dest-sub">Day-of flying — how long the packs in your bag keep you in the air at this spot.</p>
     </header>
+    <!-- The no-plan state (M9): data-plan="none" blanks this destination's
+         cards, and without this card Field would be a bare heading with the
+         explanation stranded over in Plan. Rendered by src/components/system-state.js. -->
+    <div id="field-empty" hidden></div>
     <!-- The MissionSummary (design evolution M9): the plan's four field numbers,
          so the day-of screen opens with the mission the pilot just planned.
          Rendered by src/components/mission-summary.js. -->

@@ -59,6 +59,7 @@ import { setupShare, bindShare } from './render/share.js';
 import { renderSessionPlanner } from './render/session.js';
 import { renderWindRibbon, windModelFrom } from './components/wind-ribbon.js';
 import { renderMissionSummary, summaryModelFrom } from './components/mission-summary.js';
+import { renderSystemState } from './components/system-state.js';
 
 /**
  * The analysis snapshot this render pass drew, for the mission brief (Phase 4
@@ -153,9 +154,19 @@ function update() {
   // this line reads one. Say it in the verdict card and stop here.
   if (!snapshot.plan) {
     renderNoBattery();
+    // The same data-plan="none" rule that blanks the dead charts blanks
+    // Field's cards, which would leave that destination a bare heading with
+    // the explanation stranded in Plan — say it here too, with the way back.
+    renderSystemState($('field-empty'), {
+      kind: 'empty',
+      title: 'No pack fits this rig',
+      body: 'No battery in your list matches this drone, so there are no field numbers yet.',
+      action: { label: 'Open Plan', onClick: () => setDest('plan') },
+    });
     return;
   }
   document.body.dataset.plan = 'ok'; // undoes renderNoBattery()'s panel blackout
+  renderSystemState($('field-empty'), null);
   // Both live outside the tab panels — the field answer and its callouts stay
   // on screen whichever tab is open.
   latest = snapshot;
