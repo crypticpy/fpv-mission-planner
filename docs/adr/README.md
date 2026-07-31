@@ -24,3 +24,4 @@ updating its fixtures in the same change.
 | 0009 | Build/type/test tooling and the move to src/ | Accepted |
 | 0010 | Mission compiler, concept inventory, loss-by-construction adapters | Accepted |
 | 0011 | Cinematic intent: camera geometry, shot-aware analysis, honest export | Accepted |
+| 0012 | Offline field product: evidence governance and release hardening | Accepted |
