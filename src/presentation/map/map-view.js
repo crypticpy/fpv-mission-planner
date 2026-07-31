@@ -36,7 +36,9 @@ import { loadMapState, saveMapState } from '../../store.js';
 import { createLeafletAdapter } from './leaflet-adapter.js';
 import { createLayerRegistry } from './layer-registry.js';
 import { renderFootprintPanel } from './footprint-panel.js';
+import { renderAdvisoryPanel } from './advisory-panel.js';
 import { liveSelection, nextSelection, renderSegmentInspector } from './segment-inspector.js';
+import { createAdvisoryLayer } from './layers/advisory-layer.js';
 import { createFootprintLayer } from './layers/footprint-layer.js';
 import { createLaunchLayer } from './layers/launch-layer.js';
 import { createRouteLayer } from './layers/route-layer.js';
@@ -85,12 +87,20 @@ let mode = '2d';
 let sceneNote = null;
 /** @type {{ spots: SavedSpot[], onSelect: ((spot: SavedSpot) => void)|undefined }|null} */
 let spotSpec = null;
+/* Whether the mountain-flow zones are drawn (M5). A view preference like route
+ * mode, and session-only for the same reason: the saved map state is a whitelist
+ * of where the map is looking, and what a pilot had switched on over it is not
+ * that. Default on — a hazard advisory a pilot has to find before they can see
+ * it is one they will miss. */
+let advisoryOn = true;
 
 const footprintLayer = createFootprintLayer();
 const windLayer = createWindLayer({ reducedMotion: REDUCED_MOTION });
 const registry = createLayerRegistry([
-  // Draw order is z-order: the envelope under the route, the route under the
-  // pins, and the launch pin over the spots it might be sitting on.
+  // Draw order is z-order: the advisory wash under everything — it is about the
+  // ground, not about the plan — then the envelope under the route, the route
+  // under the pins, and the launch pin over the spots it might be sitting on.
+  createAdvisoryLayer(),
   footprintLayer,
   createRouteLayer(),
   createSpotsLayer(),
@@ -169,6 +179,10 @@ function bindControls() {
   $('btn-fit').addEventListener('click', () => { needsFit = true; deps.requestRender(); });
   $('btn-live-wx').addEventListener('click', () => deps.goLive({ ...launch }));
   $('btn-route').addEventListener('click', () => setRouteMode(!routeModeOn()));
+  $('btn-advisory').addEventListener('click', () => {
+    advisoryOn = !advisoryOn;
+    deps.requestRender();
+  });
   $('btn-route-clear').addEventListener('click', () => {
     // Clearing is not leaving route mode — the pilot is starting the line again,
     // and the mode has to survive the route going empty under it.
@@ -470,6 +484,7 @@ export function renderMapView(snapshot) {
     units: frame.units,
     onClose: () => frame.actions.selectSegment(null),
   });
+  renderAdvisoryPanel({ advisories: snapshot.advisories, visible: frame.advisoryVisible });
   renderRouteControls(frame);
 }
 
@@ -485,6 +500,7 @@ function buildFrame(snapshot) {
     spots: spotSpec?.spots ?? [],
     routeMode: routeActive(),
     selectedSegmentId,
+    advisoryVisible: advisoryOn,
     units: deps.units(),
     env: snapshot.inputs.env ?? {},
     gestures,
@@ -548,6 +564,10 @@ function renderRouteControls(frame) {
   const btn3d = $('btn-3d');
   btn3d.setAttribute('aria-pressed', String(mode === '3d'));
   btn3d.textContent = mode === '3d' ? '3D · on' : '3D';
+
+  const btnAdvisory = $('btn-advisory');
+  btnAdvisory.setAttribute('aria-pressed', String(frame.advisoryVisible));
+  btnAdvisory.textContent = frame.advisoryVisible ? 'Wind zones · on' : 'Wind zones';
 }
 
 /**

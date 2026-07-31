@@ -64,6 +64,14 @@
     "src/presentation/map/layers/footprint-layer.js",
     "src/presentation/map/layers/route-layer.js",
     "src/presentation/map/layers/spots-layer.js",
+    // M5's advisory pair arrives clean for the same reason the four layers above
+    // did: the layer reaches only the contract and domain/geo.js, and the panel
+    // reaches only the layer — it renders its own text rather than borrowing
+    // src/render/format.js, which is what keeps it out of segment-inspector.js's
+    // position. scene-layers.js draws the same zones from the same exports and
+    // still stays out, on deck.gl's account, not theirs.
+    "src/presentation/map/layers/advisory-layer.js",
+    "src/presentation/map/advisory-panel.js",
     // Wave B's two zero-cost additions. tile-sources.js imports nothing at all;
     // scene-geometry.js reaches only domain/geo.js and route-layer.js, both
     // already here. Their two neighbours under scene3d/ — scene.js and

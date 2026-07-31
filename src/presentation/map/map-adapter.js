@@ -167,6 +167,10 @@ export const MAP_EVENTS = Object.freeze(
  * @property {boolean} routeMode          the route tool is on *and* usable
  * @property {string|null} selectedSegmentId  which leg the inspector is open on;
  *   view state, never mission state — nothing about it is persisted or commanded
+ * @property {boolean} advisoryVisible  whether the mountain-flow zones are drawn.
+ *   Beside `routeMode` and for the same reason: it is a view preference both
+ *   engines have to agree about, and a toggle that reached only one of them
+ *   would leave 3D showing what 2D had just hidden
  * @property {UnitSet} units
  * @property {EnvironmentInputs} env      the rail the plan was made against
  * @property {MapFrameActions} actions

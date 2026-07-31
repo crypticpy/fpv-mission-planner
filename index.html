@@ -420,6 +420,12 @@
           <button id="btn-route" class="map-btn full-only" type="button" aria-pressed="false"
                   aria-controls="route-card">Route</button>
           <button id="btn-route-clear" class="map-btn full-only" type="button" hidden>Clear route</button>
+          <!-- The mountain-flow zones (M5). Deliberately not full-only and
+               deliberately on by default: the colours are a hazard advisory, and
+               one a pilot has to discover a button for is one they will fly
+               without. Pressing it hides the cells and the key together. -->
+          <button id="btn-advisory" class="map-btn" type="button" aria-pressed="true"
+                  aria-controls="advisory-legend">Wind zones · on</button>
           <!-- The 3D scene (ADR 0004). Terrain, imagery and the route at its own
                altitude — the one view that answers "does that ridge cut the link".
                The engine behind it is a lazily imported chunk three times the
@@ -444,7 +450,34 @@
            chunk arrives; 2D is what a pilot who never presses the button pays
            for. -->
       <div id="map-3d" class="map-canvas" hidden></div>
+      <!-- The key to the zones above. Filled by the render pass and up only
+           while the layer is drawing something; the trailing line about unshaded
+           ground is not decoration — it is what stops empty space inside the
+           outline from being read as a clearance. -->
+      <div id="advisory-legend" class="viz-legend advisory-legend" hidden></div>
       <p id="wx-note" class="wx-note" hidden></p>
+    </section>
+
+    <!-- What the zones on the map are, and what they are not (M5). The line
+         under the heading is always visible; the fold below it carries the
+         provenance — the wind and sounding it ran on, the grid and who supplied
+         it, its age, and how much of the classification survives the forecast's
+         own uncertainty — plus the producer's limitations, verbatim. -->
+    <section class="card" id="advisory-card" hidden>
+      <h3>Mountain-flow advisory</h3>
+      <p class="card-sub">Relative terrain forcing over a sampled elevation grid, from one forecast wind.
+        It is a proxy for where the ground forces the air — not a forecast of vertical velocity, not a
+        turbulence magnitude, and it cannot locate a rotor. Low forcing is not a statement that an area is safe.</p>
+      <details id="advisory-fold" class="custom-batt">
+        <summary>What this was computed from</summary>
+        <p class="rail-note">Two baselines: B1 classifies every cell by the terrain forcing the wind imposes on it
+          (w* = V·∇h, a relative proxy), and B2 reads a Froude-like stability regime off the forecast sounding.
+          Surface-driven — it describes flow forced by the ground, not the air at flight altitude.</p>
+        <dl id="advisory-facts" class="segment-facts"></dl>
+        <p class="advisory-limits-head">Stated limitations</p>
+        <ul id="advisory-limits" class="advisory-limits"></ul>
+        <p id="advisory-notes" class="footnote" hidden></p>
+      </details>
     </section>
     <!-- The route the pilot drew (Phase 4 item 7). The ring answers "how far out
          and straight back"; this answers "can I fly out along the river, cut to

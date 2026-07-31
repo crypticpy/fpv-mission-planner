@@ -105,6 +105,7 @@ const PRECACHE_URLS = [
   'src/presentation/map/map-view.js',
   'src/presentation/map/segment-inspector.js',
   'src/presentation/map/footprint-panel.js',
+  'src/presentation/map/advisory-panel.js',
   'src/presentation/map/tile-sources.js',
   /* Nothing from src/presentation/map/scene3d/ — deliberately, and the generated
      worker excludes its built chunk for the same reason (ADR 0004). The 3D scene
@@ -118,6 +119,7 @@ const PRECACHE_URLS = [
   'src/presentation/map/layers/footprint-layer.js',
   'src/presentation/map/layers/spots-layer.js',
   'src/presentation/map/layers/wind-layer.js',
+  'src/presentation/map/layers/advisory-layer.js',
   'vendor/leaflet/leaflet-src.esm.js',
   'vendor/leaflet/leaflet.css',
   'vendor/leaflet/images/layers.png',

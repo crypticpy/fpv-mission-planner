@@ -25,11 +25,13 @@
 //     to a hairline at 70° of pitch, which is most of why anyone pitches); the
 //     footprint rings and the unresolved legs lie flat, where flat is correct.
 
-import { PathLayer, ScatterplotLayer, TextLayer } from '@deck.gl/layers';
+import { PathLayer, PolygonLayer, ScatterplotLayer, TextLayer } from '@deck.gl/layers';
 
-import { buildRouteGeometry, parseCssRgb, ringPositions } from './scene-geometry.js';
+import { ADVISORY_CLASS_STYLE, advisoryZones } from '../layers/advisory-layer.js';
+import { DRAPE_LIFT_M, buildRouteGeometry, parseCssRgb, ringPositions } from './scene-geometry.js';
 
 /**
+ * @typedef {import('../map-adapter.js').LatLng} LatLng
  * @typedef {import('../map-adapter.js').MapFrame} MapFrame
  * @typedef {import('./scene-geometry.js').PathRun} PathRun
  * @typedef {import('./scene-geometry.js').RouteLeg3} RouteLeg3
@@ -52,6 +54,8 @@ import { buildRouteGeometry, parseCssRgb, ringPositions } from './scene-geometry
  * @property {Rgb} worst
  * @property {Rgb} markerBorder
  * @property {Rgb} label
+ * @property {Record<string, Rgb>} advisory  forcing class → colour, resolved from
+ *   the same table the 2D layer draws by
  */
 
 /** What the scene knows and the builders need, beyond the frame itself. */
@@ -63,7 +67,7 @@ import { buildRouteGeometry, parseCssRgb, ringPositions } from './scene-geometry
  */
 
 /** Falls back to the dark theme's own values, so a missing variable is still a map. */
-const FALLBACK = /** @type {Record<keyof ScenePalette, Rgb>} */ ({
+const FALLBACK = /** @type {Record<Exclude<keyof ScenePalette, 'advisory'>, Rgb>} */ ({
   route: [255, 120, 79],
   routeCritical: [255, 92, 92],
   accent: [73, 166, 255],
@@ -89,7 +93,7 @@ const FALLBACK = /** @type {Record<keyof ScenePalette, Rgb>} */ ({
  */
 export function readPalette(el) {
   const cs = getComputedStyle(el);
-  /** @param {string} name @param {keyof ScenePalette} key */
+  /** @param {string} name @param {Exclude<keyof ScenePalette, 'advisory'>} key */
   const c = (name, key) => parseCssRgb(cs.getPropertyValue(name), FALLBACK[key]);
   return {
     route: c('--series-2', 'route'),
@@ -103,7 +107,26 @@ export function readPalette(el) {
     worst: c('--status-warning', 'worst'),
     markerBorder: c('--marker-border', 'markerBorder'),
     label: c('--on-accent', 'label'),
+    advisory: advisoryColors(cs),
   };
+}
+
+/**
+ * The zone colours, off the same table the 2D layer draws by, so the two engines
+ * cannot come to different conclusions about what a class looks like. Each
+ * class's own literal channels are the fallback — carrying them beside the token
+ * is exactly what they are recorded for.
+ *
+ * @param {CSSStyleDeclaration} cs
+ * @returns {Record<string, Rgb>}
+ */
+function advisoryColors(cs) {
+  /** @type {Record<string, Rgb>} */
+  const out = {};
+  for (const [classId, style] of Object.entries(ADVISORY_CLASS_STYLE)) {
+    out[classId] = parseCssRgb(cs.getPropertyValue(style.cssVar), style.rgb);
+  }
+  return out;
 }
 
 /**
@@ -121,6 +144,9 @@ export function buildSceneLayers(frame, ctx) {
   const { palette } = ctx;
   const layers = [];
 
+  // Under everything: the zones are about the ground, and the plan is drawn on
+  // top of the ground in both engines.
+  layers.push(...advisoryLayers(frame, ctx));
   layers.push(...footprintLayers(frame, ctx));
 
   const route = frame.snapshot.route;
@@ -152,6 +178,82 @@ export function buildSceneLayers(frame, ctx) {
   layers.push(...pinLayers(geometry.pins, palette));
 
   return layers;
+}
+
+/**
+ * The mountain-flow zones, on the ground they are about (M5).
+ *
+ * Which cells are shaded and in what colour is decided in
+ * layers/advisory-layer.js and imported rather than restated: the 2D and 3D
+ * pictures of one advisory disagreeing about a cell would be worse than either
+ * of them alone.
+ *
+ * The one thing decided here is height. Every corner takes the terrain's own
+ * elevation, the way ringPositions does — a cell quad is small, and hanging it
+ * off the ground at each corner keeps it on the hillside instead of slicing
+ * through it, which is the objection that keeps a filled footprint out of this
+ * scene. The cell's sampled `elevM` stands in only while the DEM tile under a
+ * corner is still loading.
+ *
+ * @param {MapFrame} frame
+ * @param {SceneContext} ctx
+ */
+function advisoryLayers(frame, ctx) {
+  if (frame.advisoryVisible === false) return [];
+  const zones = advisoryZones(frame.snapshot.advisories);
+  if (!zones?.fills.length) return [];
+
+  const data = zones.fills.map((fill) => ({
+    classId: fill.classId,
+    polygon: fill.corners.map((corner) => [
+      corner.lng, corner.lat, cornerZ(corner, fill.elevM, ctx),
+    ]),
+  }));
+
+  /** @param {{ classId: string }} d */
+  const rgb = (d) => ctx.palette.advisory[d.classId] ?? [137, 148, 156];
+  /** @param {{ classId: string }} d */
+  const missing = (d) => ADVISORY_CLASS_STYLE[d.classId]?.dashed === true;
+
+  return [new PolygonLayer({
+    id: 'advisory-zones',
+    data,
+    getPolygon: (d) => d.polygon,
+    filled: true,
+    stroked: true,
+    extruded: false,
+    getFillColor: (d) => [
+      ...rgb(d), Math.round((ADVISORY_CLASS_STYLE[d.classId]?.fillOpacity ?? 0.3) * 255),
+    ],
+    /* A dashed outline needs PathStyleExtension, which is not among the deck
+     * packages the spike pinned. A cell with no elevation is outlined brighter
+     * and wider instead — still visibly not one of the classified cells, which
+     * is the whole job of the dash in 2D. */
+    getLineColor: (d) => [...rgb(d), missing(d) ? 235 : 150],
+    getLineWidth: (d) => (missing(d) ? 2 : 1),
+    lineWidthUnits: 'pixels',
+    lineWidthMinPixels: 1,
+    // A wash over the terrain: the pilot picks routes and pins, not ground.
+    pickable: false,
+  })];
+}
+
+/**
+ * One corner's altitude: the terrain's if it has been sampled, the cell's own
+ * elevation if it has not, and the same drape lift every ground-hugging overlay
+ * in this scene carries.
+ *
+ * @param {LatLng} at
+ * @param {number|null} elevM
+ * @param {SceneContext} ctx
+ * @returns {number}
+ */
+function cornerZ(at, elevM, ctx) {
+  const ground = ctx.groundZAt(at.lng, at.lat);
+  const fallback = typeof elevM === 'number' && Number.isFinite(elevM)
+    ? elevM * ctx.exaggeration
+    : 0;
+  return (ground ?? fallback) + DRAPE_LIFT_M;
 }
 
 /**
