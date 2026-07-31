@@ -103,6 +103,7 @@ const PRECACHE_URLS = [
   'src/presentation/map/leaflet-adapter.js',
   'src/presentation/map/layer-registry.js',
   'src/presentation/map/map-view.js',
+  'src/presentation/map/segment-inspector.js',
   'src/presentation/map/footprint-panel.js',
   'src/presentation/map/tile-sources.js',
   /* Nothing from src/presentation/map/scene3d/ — deliberately, and the generated

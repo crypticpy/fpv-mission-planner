@@ -62,7 +62,7 @@ function planFor(overrides = {}, envOverrides = {}) {
   return planMission({ ...base, courseDeg: base.env.windFromDeg });
 }
 
-/** The map's own footprint object, built the way src/map.js builds it. */
+/** The map's own footprint object, built the way src/application/analysis/analyze.js builds it. */
 function footprintFor(overrides = {}, envOverrides = {}) {
   const base = inputs(overrides, envOverrides);
   const cache = new Map();

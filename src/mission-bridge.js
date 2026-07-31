@@ -230,7 +230,7 @@ export function reresolveAltitudes() {
   return true;
 }
 
-/* ---------- route commands (raised by src/map.js through its deps) ---------- */
+/* ---------- route commands (raised by src/presentation/map/map-view.js through its deps) ---------- */
 
 /** @param {{ lat: number, lng: number }} pt */
 export function addWaypoint(pt) {

@@ -98,8 +98,8 @@
     // true. Once state.js itself is clean, both still reach further unannotated
     // modules of their own: analysis-host.js through src/domain/route.js,
     // src/terrain.js, src/render/dashboard.js and src/render/terrain.js;
-    // mission-commands.js through src/weather.js, src/map.js and
-    // src/render/controls.js. Typing state.js does not clear either path.
+    // mission-commands.js through src/weather.js, src/presentation/map/map-view.js
+    // and src/render/controls.js. Typing state.js does not clear either path.
     //
     // src/render/missions.js was grouped with them on the same assumption, but it
     // doesn't import src/state.js or src/domain/physics.js at all — its only

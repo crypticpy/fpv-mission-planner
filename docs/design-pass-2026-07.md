@@ -462,8 +462,9 @@ direction.
 
 Do regardless of host: **self-host the fonts** (removes the only
 render-blocking third-party request). Note for a future CSP: inline styles
-are currently unavoidable (themes, charts, Leaflet transforms), and
-`map.js` has the codebase's single `innerHTML`.
+are currently unavoidable (themes, charts, Leaflet transforms), and the map
+adapters (`leaflet-adapter.js`, `scene3d/scene.js`) hold the codebase's only
+`innerHTML` uses.
 
 ---
 

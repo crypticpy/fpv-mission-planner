@@ -262,6 +262,12 @@ async function activate3d() {
     container.hidden = true;
     $('map-canvas').hidden = false;
     adapter.resized();
+    /* A scene whose `ready` rejected after construction (the ready-timeout path)
+     * is still a live MapLibre map holding a WebGL context on this container —
+     * without a teardown, the next press would stack a second map on top of it.
+     * A half-built scene may refuse even that; the container is emptying either
+     * way, and nothing here may derail the 2D recovery below. */
+    try { scene?.destroy(); } catch { /* letting go was the point */ }
     scene = null;
     sceneNote = '3D needs a connection the first time — the map stayed in 2D.';
     btn.disabled = false;
