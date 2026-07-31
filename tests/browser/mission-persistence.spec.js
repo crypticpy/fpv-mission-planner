@@ -20,6 +20,11 @@
 
 import { expect, test } from '@playwright/test';
 
+// The two shell helpers only — the stubs below stay this spec's own, as they
+// have always been. Where the mission fold lives is not: it is one fact about
+// the app, and a second copy of it is a second thing to forget to update.
+import { gotoDest, openMissionFold } from './harness.js';
+
 /** A 1×1 transparent PNG, as the stand-in for every map tile. */
 const BLANK_TILE = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
@@ -172,8 +177,10 @@ test.describe('mission persistence', () => {
     await page.goto('/');
     await expect(page.locator('#verdict-badge')).not.toHaveText('—');
 
-    const fold = page.locator('#mission-fold');
-    await fold.locator('summary').click();
+    // The fold is in Library now, and it ships open — so this is a walk to it,
+    // not a press on it.
+    await gotoDest(page, 'library');
+    await openMissionFold(page);
     const title = page.locator('#mission-title');
     await expect(title).not.toHaveValue('');
 
@@ -191,7 +198,10 @@ test.describe('mission persistence', () => {
     await expectSaved(page);
 
     await page.reload();
-    await page.locator('#mission-fold summary').click();
+    // The session remembers the destination, so the reload may land on Library
+    // already; either way this is where the list is.
+    await gotoDest(page, 'library');
+    await openMissionFold(page);
     const rows = page.locator('#mission-list .spot-row');
     await expect(rows).toHaveCount(2);
     await expect(rows.locator('.spot-name')).toHaveText(['Ridge line copy', 'Ridge line']);
@@ -232,8 +242,15 @@ test.describe('mission persistence', () => {
 
     // Opening the fold is what asks the repository to list again — the same
     // read that moves anything it cannot migrate into quarantine
-    // (mission-repository.js's `accept`).
-    await page.locator('#mission-fold summary').click();
+    // (mission-repository.js's `accept`). The fold ships open, so it is shut
+    // first: the `toggle` this test needs is the one that opens it, and a
+    // single blind click would only take the list off screen.
+    await gotoDest(page, 'library');
+    const fold = page.locator('#mission-fold');
+    await fold.locator('summary').click();
+    await expect(fold).toHaveJSProperty('open', false);
+    await openMissionFold(page);
+
     const row = page.locator('#mission-list .spot-row', { hasText: 'corrupt-e2e-1' });
     await expect(row).toBeVisible();
     await expect(row.locator('.spot-meta')).toContainText('could not be read as a mission');

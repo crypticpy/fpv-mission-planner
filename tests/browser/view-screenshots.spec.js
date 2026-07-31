@@ -53,32 +53,33 @@ const seed = () => missionDoc({
  *
  * Ids rather than text: this is a layout assertion, and a spec that also
  * pinned the wording would fail on a copy edit and say "the tablet layout
- * broke". Navigation is deliberately absent from both lists — below 900 px the
- * app withdraws the top tabs entirely and steers from a fixed bottom dock
- * instead (style.css `@media (max-width: 900px)`), so which control does the
- * steering is a property of the class, not a constant. `nav()` names it.
+ * broke". Navigation is deliberately absent from both lists — it is checked on
+ * its own in `nav()`, because a width that renders every landmark perfectly and
+ * cannot be steered is still broken.
  */
 const PLANNER_LANDMARKS = ['.masthead', '#verdict-badge', '#hero-value'];
 const MAP_LANDMARKS = ['#btn-fit', '#btn-brief', '#map-canvas', '#route-card'];
 
 /**
- * The two navigation controls, whichever pair this width is showing.
+ * The controls this width steers with.
  *
- * Asserted rather than assumed: exactly one of the two sets must be on screen,
- * so a breakpoint that hid both — leaving a tablet with no way to reach the map
- * at all — fails here rather than screenshotting a dead end.
+ * M9 gave every width one vocabulary: the destnav (`#nav-*`) is a left icon
+ * rail above 900 px and the bottom dock below it, but it is the same element
+ * with the same ids either way, and Plan's Overview/Map tab row rides above
+ * both workspace modes. So the pair a spec presses is now a constant — what is
+ * not constant, and is therefore asserted rather than assumed, is that both are
+ * actually on screen: a breakpoint that withdrew either would leave a tablet
+ * with no way to reach the map at all, and that should fail here rather than be
+ * screenshotted.
  *
  * @param {import('@playwright/test').Page} page
  */
 async function nav(page) {
-  const tabs = await page.locator('#tab-map').isVisible();
-  const dock = await page.locator('#dock-map').isVisible();
-  expect(tabs !== dock, tabs
-    ? 'both the tab bar and the dock are on screen'
-    : 'neither the tab bar nor the dock is on screen — this width cannot be navigated').toBe(true);
-  return tabs
-    ? { map: '#tab-map', planner: '#tab-dash' }
-    : { map: '#dock-map', planner: '#dock-planner' };
+  await expect(page.locator('#nav-plan'),
+    'the destnav is not on screen — this width cannot be navigated').toBeVisible();
+  await expect(page.locator('#tab-map'),
+    "Plan's workspace tabs are not on screen — this width cannot reach the map").toBeVisible();
+  return { map: '#tab-map', planner: '#tab-dash' };
 }
 
 /**
@@ -137,16 +138,11 @@ async function boot(page) {
    * it is what keeps a screenshot from catching a card mid-sentence. */
   await expect(page.locator('#terrain-empty')).toBeHidden();
 
-  /* A narrow class seeds through the loadout sheet, which then covers the very
-   * thing the screenshot is of. Put it back the way a pilot would leave it. */
-  const loadout = page.locator('#dock-loadout');
-  if (await loadout.isVisible() && await loadout.getAttribute('aria-expanded') === 'true') {
-    await loadout.click();
-    await expect(loadout).toHaveAttribute('aria-expanded', 'false');
-    // The attribute flips synchronously; the sheet itself is what the picture
-    // is waiting on, and `visibility` is what actually takes it off screen.
-    await expect(page.locator('#rail')).toBeHidden();
-  }
+  /* Seeding is a trip to Library and back now, so nothing it does can leave a
+   * sheet over the view — but a picture is only deterministic if the conditions
+   * sheet is shut, and that is worth saying rather than assuming. Below 900 px
+   * `body.sheet-open` is what puts the rail over the map (src/shell.js). */
+  await expect(page.locator('body')).not.toHaveClass(/\bsheet-open\b/);
   return to;
 }
 
@@ -164,9 +160,10 @@ async function boot(page) {
  * @param {string} name
  */
 async function shoot(page, name, subject = null) {
-  /* Framed on purpose. Seeding the fixture drives the file input in the mission
-   * fold, which leaves the window scrolled to the bottom of the rail — so an
-   * unframed screenshot of "the map view" is a picture of the mission list. */
+  /* Framed on purpose. Seeding the fixture drives the file input in Library's
+   * mission fold, and the window can come back from that trip scrolled — so an
+   * unframed screenshot of "the map view" is a picture of whatever the scroll
+   * position left under the viewport. */
   await page.evaluate((sel) => {
     if (sel) document.querySelector(sel)?.scrollIntoView({ block: 'start', behavior: 'instant' });
     else window.scrollTo({ top: 0, behavior: 'instant' });

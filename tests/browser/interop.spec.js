@@ -27,7 +27,7 @@ import { readFileSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
 
 import {
-  importMissionFile, missionDoc, stubExternals, watchConsole,
+  gotoDest, importMissionFile, missionDoc, openMissionFold, stubExternals, watchConsole,
 } from './harness.js';
 
 /** A real ArduPilot/QGC WPL 110 file: one home row and five plain waypoints, no
@@ -44,19 +44,14 @@ const FORMAT_LABELS = [
   'GPX 1.1', 'KML', 'QGroundControl Plan', 'ArduPilot mission (QGC WPL 110)', 'INAV mission',
 ];
 
-async function openMissionFold(page) {
-  const fold = page.locator('#mission-fold');
-  if (!await fold.evaluate((el) => el.open)) await fold.locator('summary').click();
-}
-
 test.describe('interop', () => {
   test('export downloads a real file and names what stayed behind', async ({ context, page }) => {
     await stubExternals(context);
     const errors = watchConsole(page);
 
     await page.goto('/');
-    // #route-rows only exists on the Map tab (importMissionFile checks it), and
-    // #btn-interop-export sits in the mission fold below either view.
+    // #route-rows only exists on the Map tab (importMissionFile checks it); the
+    // export controls sit in the mission fold, over in Library.
     await page.locator('#tab-map').click();
     await expect(page.locator('#map-canvas.leaflet-container')).toBeVisible();
     await importMissionFile(page, missionDoc({
@@ -66,6 +61,8 @@ test.describe('interop', () => {
       title: 'Ridge Loop',
     }));
 
+    await gotoDest(page, 'library');
+    await openMissionFold(page);
     await page.locator('#interop-format').selectOption('gpx');
     const [download] = await Promise.all([
       page.waitForEvent('download'),
@@ -91,9 +88,12 @@ test.describe('interop', () => {
     const errors = watchConsole(page);
 
     await page.goto('/');
-    // #route-rows only exists on the Map tab, checked below.
+    // #route-rows only exists on the Map tab, checked below — and the card is
+    // drawn by Plan's own render, so the mode is armed before Library takes the
+    // file (src/app.js update()).
     await page.locator('#tab-map').click();
     await expect(page.locator('#map-canvas.leaflet-container')).toBeVisible();
+    await gotoDest(page, 'library');
     await openMissionFold(page);
     await page.locator('#mission-file').setInputFiles({
       name: 'qgroundcontrol-missionplanner.waypoints',
@@ -101,8 +101,6 @@ test.describe('interop', () => {
       buffer: Buffer.from(ARDUPILOT_FIXTURE),
     });
 
-    // Row 0 is home; rows 1-5 are the five waypoints, plus the route panel's own
-    // straight-line-home leg and the whole-route total row.
     await expect(page.locator('#mission-note')).toContainText('Imported');
     await expect(page.locator('#mission-note')).toContainText('ArduPilot mission (QGC WPL 110)');
     // The two losses this specific import makes (ids re-minted, speed policy
@@ -110,6 +108,10 @@ test.describe('interop', () => {
     await expect(page.locator('#mission-note')).toContainText('route geometry');
     await expect(page.locator('#mission-note')).toContainText('speed policy');
     await expect(page.locator('#mission-title')).toHaveValue('Imported ArduPilot mission');
+
+    // Row 0 is home; rows 1-5 are the five waypoints, plus the route panel's own
+    // straight-line-home leg and the whole-route total row.
+    await gotoDest(page, 'plan');
     await expect(page.locator('#route-rows tr')).toHaveCount(7);
 
     expect(errors, `console errors:\n${errors.join('\n')}`).toEqual([]);
@@ -120,6 +122,7 @@ test.describe('interop', () => {
     const errors = watchConsole(page);
 
     await page.goto('/');
+    await gotoDest(page, 'library');
     await openMissionFold(page);
 
     const rows = page.locator('#interop-report p');

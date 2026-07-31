@@ -2,7 +2,10 @@
 //
 // Not a spec: the name carries no `.spec.`, so Playwright's testMatch never
 // collects it. It is imported by route-parity, terrain-fixtures,
-// view-screenshots and perf-budgets.
+// view-screenshots and perf-budgets — and, since M9 put the mission fold behind
+// a destination, by interop and mission-persistence for `gotoDest` and
+// `openMissionFold`, which is knowledge about the shell that should have one
+// home rather than one copy per spec.
 //
 // The three older browser specs each carry their own copy of `stubExternals` and
 // `watchConsole`, and that was the right call while a copy was six lines. The
@@ -429,6 +432,50 @@ export function missionDoc({
 }
 
 /**
+ * The destination the shell currently has open, as `<body data-dest>` reports it.
+ * @param {import('@playwright/test').Page} page
+ * @returns {Promise<'field'|'plan'|'library'|'aircraft'>}
+ */
+export function openDest(page) {
+  return page.evaluate(() => /** @type {*} */ (document.body.dataset.dest || 'plan'));
+}
+
+/**
+ * Show a destination, and wait until its section is the one on screen.
+ *
+ * One vocabulary at every width: the destnav is a left rail above 900 px and the
+ * bottom dock below it, but the buttons and their ids are the same element
+ * either way (src/shell.js), so a spec never has to ask how wide it is to
+ * navigate. Pressing the destination already open is a no-op in the app, and is
+ * left as one here.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {'field'|'plan'|'library'|'aircraft'} dest
+ */
+export async function gotoDest(page, dest) {
+  if (await openDest(page) === dest) return;
+  await page.locator(`#nav-${dest}`).click();
+  await expect(page.locator(`#dest-${dest}`)).toBeVisible();
+}
+
+/**
+ * Open the missions fold, wherever it is left.
+ *
+ * It ships `open` (index.html), so this is a guard and not a press: clicking the
+ * summary unconditionally would shut the fold and take the mission list off
+ * screen with it. Library must already be showing — a `<summary>` inside a
+ * `[hidden]` section cannot be clicked.
+ *
+ * @param {import('@playwright/test').Page} page
+ */
+export async function openMissionFold(page) {
+  const fold = page.locator('#mission-fold');
+  await expect(fold).toBeVisible();
+  if (!await fold.evaluate((el) => el.open)) await fold.locator('summary').click();
+  await expect(fold).toHaveJSProperty('open', true);
+}
+
+/**
  * Open a mission through the app's own import path — the file picker in the
  * mission fold — rather than by writing IndexedDB behind its back. The document
  * therefore goes through `validateMission`, the repository, altitude resolution
@@ -438,26 +485,23 @@ export function missionDoc({
  * @param {ReturnType<typeof missionDoc>} doc
  */
 export async function importMissionFile(page, doc) {
-  /* Below 900 px the rail is not on the page at all — it becomes a sheet behind
-   * the dock's Loadout button (style.css `@media (max-width: 900px)`), and the
-   * mission fold goes with it. Opened by the same control a pilot on a tablet
-   * would press, so narrow view classes seed their fixture the same way wide
-   * ones do rather than through a back door only tests know about. */
-  const fold = page.locator('#mission-fold');
-  if (!await fold.isVisible()) {
-    const loadout = page.locator('#dock-loadout');
-    if (await loadout.isVisible()) {
-      await loadout.click();
-      await expect(fold).toBeVisible();
-    }
-  }
-  if (!await fold.evaluate((el) => el.open)) await fold.locator('summary').click();
+  /* The fold lives in the Library destination now (M9's four-destination
+   * shell), so seeding a fixture is the two presses a pilot makes — go to
+   * Library, come back — at every width, rather than the tablet-only sheet
+   * detour this used to take. Where the caller was is where it is left. */
+  const from = await openDest(page);
+  await gotoDest(page, 'library');
+  await openMissionFold(page);
   await page.locator('#mission-file').setInputFiles({
     name: `${doc.id}.json`,
     mimeType: 'application/json',
     buffer: Buffer.from(JSON.stringify(doc)),
   });
   await expect(page.locator('#mission-note')).toContainText(doc.title);
+  await gotoDest(page, from);
+  /* Asserted only after the return trip: update() draws the open destination
+   * and nothing else (src/app.js), so the route card is filled by the render
+   * that Plan's own re-entry triggers, not by the import. */
   await expect(page.locator('#route-rows tr'))
     .toHaveCount(doc.route.waypoints.length + 2);
 }
