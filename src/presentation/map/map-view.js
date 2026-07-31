@@ -36,6 +36,7 @@ import { loadMapState, saveMapState } from '../../store.js';
 import { createLeafletAdapter } from './leaflet-adapter.js';
 import { createLayerRegistry } from './layer-registry.js';
 import { renderFootprintPanel } from './footprint-panel.js';
+import { liveSelection, nextSelection, renderSegmentInspector } from './segment-inspector.js';
 import { createFootprintLayer } from './layers/footprint-layer.js';
 import { createLaunchLayer } from './layers/launch-layer.js';
 import { createRouteLayer } from './layers/route-layer.js';
@@ -352,6 +353,17 @@ function onTileError() {
 
 let routeOn = null;
 
+/* Which leg the inspector is open on, and nothing more than that.
+ *
+ * Beside `routeOn` because it is the same kind of thing: a view preference, not
+ * part of the plan. It raises no command, is never written to the mission
+ * document and is never persisted — a reload comes back with the route and no
+ * selection, which is right, because "what I was looking at" is not something
+ * the mission knows. Both engines set it through `frame.actions.selectSegment`,
+ * and every render pass re-checks that it still names a segment the analysis
+ * published. */
+let selectedSegmentId = null;
+
 /** The route port, tolerant of a boot render before the mission document exists. */
 const routeWaypoints = () => deps.routeWaypoints?.() ?? [];
 
@@ -417,6 +429,12 @@ export function renderMapView(snapshot) {
   const map = ensureMap();
   map.resized();
 
+  /* Before the frame, so the layers and the panel see the same answer: a
+   * waypoint the pilot just dragged away takes its segment with it, and a
+   * selection naming a segment that no longer exists is dropped without a word.
+   * Editing the route is not an error. */
+  selectedSegmentId = liveSelection(selectedSegmentId, snapshot, routeActive());
+
   const frame = buildFrame(snapshot);
   /* Both engines, always — the 2D pass is what computes the footprint's extent,
    * and it costs a handful of Leaflet overlays in a hidden container. Skipping it
@@ -440,6 +458,12 @@ export function renderMapView(snapshot) {
       plan: snapshot.plan, footprint: snapshot.footprint, units: frame.units,
     });
   }
+  renderSegmentInspector({
+    snapshot,
+    selectedSegmentId,
+    units: frame.units,
+    onClose: () => frame.actions.selectSegment(null),
+  });
   renderRouteControls(frame);
 }
 
@@ -454,6 +478,7 @@ function buildFrame(snapshot) {
     waypoints: routeWaypoints(),
     spots: spotSpec?.spots ?? [],
     routeMode: routeActive(),
+    selectedSegmentId,
     units: deps.units(),
     env: snapshot.inputs.env ?? {},
     gestures,
@@ -468,6 +493,13 @@ function buildFrame(snapshot) {
         deps.onRemoveWaypoint(id);
       },
       selectSpot: (spot) => spotSpec?.onSelect?.(spot),
+      /* The one action that raises no command. Clicking the open leg closes it,
+       * clicking another switches, and null is the close button — the toggle
+       * lives here so 2D and 3D cannot disagree about what a click means. */
+      selectSegment: (id) => {
+        selectedSegmentId = nextSelection(selectedSegmentId, id);
+        deps.requestRender();
+      },
     },
   };
 }

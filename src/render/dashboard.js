@@ -8,7 +8,7 @@ import {
 import { rangeBandKm } from '../drift.js';
 import { SEVERITY_RANK } from '../application/analysis/analysis-contracts.js';
 import {
-  SERIES, f0, f1, mmss, article, flightLabel, liftSource, confidenceWord, ratio, bandPhrase,
+  SERIES, WARN_ICON, f0, f1, mmss, article, flightLabel, liftSource, confidenceWord, ratio, bandPhrase,
 } from './format.js';
 import { $, setTile } from './dom.js';
 
@@ -38,11 +38,6 @@ export function bySeverity(constraints) {
   return [...constraints].sort((a, b) =>
     (SEVERITY_RANK[a.severity] ?? SEVERITY_RANK.unknown) - (SEVERITY_RANK[b.severity] ?? SEVERITY_RANK.unknown));
 }
-
-/** The glyph each severity wears on the rail. */
-const WARN_ICON = {
-  critical: '✕', warning: '▲', caution: '●', unknown: '?', advisory: 'i', 'low-forcing': '~',
-};
 
 /**
  * The warning stack, straight off the analysis snapshot's constraints.

@@ -31,6 +31,7 @@ import {
  * @typedef {import('./map-adapter.js').MapViewState} MapViewState
  * @typedef {import('./map-adapter.js').MarkerOverlay} MarkerOverlay
  * @typedef {import('./map-adapter.js').MarkerSpec} MarkerSpec
+ * @typedef {import('./map-adapter.js').ShapeHandlers} ShapeHandlers
  * @typedef {import('./map-adapter.js').ShapeOverlay} ShapeOverlay
  * @typedef {import('./map-adapter.js').ShapeStyle} ShapeStyle
  */
@@ -93,7 +94,12 @@ export function createLeafletAdapter({ containerId, center, zoom, baseLayer }) {
 
     polygon: (points, style) => shape(L.polygon(points.map(ll), leafletStyle(style)).addTo(map)),
 
-    polyline: (points, style) => shape(L.polyline(points.map(ll), leafletStyle(style)).addTo(map)),
+    polyline: (points, style, handlers) => {
+      const onClick = handlers?.onClick;
+      const line = L.polyline(points.map(ll), leafletStyle(style, Boolean(onClick))).addTo(map);
+      if (onClick) line.on('click', () => onClick());
+      return shape(line);
+    },
 
     marker: (spec) => {
       const icon = L.divIcon({
@@ -142,11 +148,20 @@ export function createLeafletAdapter({ containerId, center, zoom, baseLayer }) {
 
 /**
  * Every overlay this app draws is decoration over the physics — the pilot points
- * at the map, not at the ring on it — so nothing drawn here takes the pointer.
+ * at the map, not at the ring on it — so nothing drawn here takes the pointer
+ * unless the caller asked it to by handing over a handler.
+ *
+ * The one that does asks for `bubblingMouseEvents: false` as well. Leaflet
+ * registers the map as an event target for its own container and walks up the
+ * DOM from whatever was hit, so by default a click on a shape fires on the map
+ * too — which in route mode would drop a waypoint on the very leg just selected.
  * @param {ShapeStyle} style
+ * @param {boolean} interactive
  */
-function leafletStyle(style) {
-  return { interactive: false, ...style };
+function leafletStyle(style, interactive = false) {
+  return interactive
+    ? { interactive: true, bubblingMouseEvents: false, ...style }
+    : { interactive: false, ...style };
 }
 
 /**

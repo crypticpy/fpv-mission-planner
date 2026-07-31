@@ -32,6 +32,7 @@ import { buildRouteGeometry, parseCssRgb, ringPositions } from './scene-geometry
 /**
  * @typedef {import('../map-adapter.js').MapFrame} MapFrame
  * @typedef {import('./scene-geometry.js').PathRun} PathRun
+ * @typedef {import('./scene-geometry.js').RouteLeg3} RouteLeg3
  * @typedef {import('./scene-geometry.js').RoutePin} RoutePin
  */
 
@@ -42,6 +43,7 @@ import { buildRouteGeometry, parseCssRgb, ringPositions } from './scene-geometry
  * @typedef {object} ScenePalette
  * @property {Rgb} route
  * @property {Rgb} routeCritical
+ * @property {Rgb} accent
  * @property {Rgb} casing
  * @property {Rgb} unresolved
  * @property {Rgb} ringPlanned
@@ -64,6 +66,7 @@ import { buildRouteGeometry, parseCssRgb, ringPositions } from './scene-geometry
 const FALLBACK = /** @type {Record<keyof ScenePalette, Rgb>} */ ({
   route: [255, 120, 79],
   routeCritical: [255, 92, 92],
+  accent: [73, 166, 255],
   casing: [7, 16, 24],
   unresolved: [150, 160, 170],
   ringPlanned: [97, 182, 255],
@@ -91,6 +94,7 @@ export function readPalette(el) {
   return {
     route: c('--series-2', 'route'),
     routeCritical: c('--status-critical', 'routeCritical'),
+    accent: c('--accent', 'accent'),
     casing: c('--map-casing', 'casing'),
     unresolved: c('--muted', 'unresolved'),
     ringPlanned: c('--ring-planned', 'ringPlanned'),
@@ -136,10 +140,10 @@ export function buildSceneLayers(frame, ctx) {
       groundZAt: ctx.groundZAt,
       launchElevMslM: frame.env?.elevM ?? null,
     })
-    : { vertices: [], runs: [], pins: [], count: 0 };
+    : { vertices: [], runs: [], legs: [], pins: [], count: 0 };
 
   const routeColor = route?.fits === false ? palette.routeCritical : palette.route;
-  layers.push(...routeLayers(geometry.runs, routeColor, palette));
+  layers.push(...routeLayers(geometry, routeColor, palette, frame.selectedSegmentId ?? null));
 
   /* The launch pin last-but-one and the numbers last: in a pitched view the pins
    * are what the pilot points at, and a pin behind a ribbon is a pin they cannot
@@ -222,7 +226,7 @@ function footprintLayers(frame, ctx) {
 }
 
 /**
- * The flown line, in up to three passes.
+ * The flown line, in up to five passes.
  *
  * Split by whether the height is a claim: resolved legs are drawn in the air, at
  * the altitude the analysis solved, billboarded so they stay legible under
@@ -230,22 +234,33 @@ function footprintLayers(frame, ctx) {
  * whose MSL never resolved must never be readable as a confirmed altitude — the
  * one rule in this whole scene that is about safety rather than looks.
  *
- * @param {PathRun[]} runs
+ * The line itself is drawn one datum per leg rather than as merged runs, and
+ * that is what makes it selectable: deck.gl hands a pick back the datum under
+ * the cursor, so a leg has to *be* a datum for a click to name it. The casing
+ * stays merged — it is the only continuous stroke left, and a wider unbroken
+ * line under the leg joins is what keeps them looking like one route.
+ *
+ * @param {{ runs: PathRun[], legs: RouteLeg3[] }} geometry
  * @param {Rgb} color
  * @param {ScenePalette} palette
+ * @param {string|null} selectedSegmentId
  */
-function routeLayers(runs, color, palette) {
-  const air = runs.filter((r) => r.resolved);
-  const ground = runs.filter((r) => !r.resolved);
+function routeLayers(geometry, color, palette, selectedSegmentId) {
+  const casing = geometry.runs.filter((r) => r.resolved);
+  const air = geometry.legs.filter((l) => l.resolved);
+  const ground = geometry.legs.filter((l) => !l.resolved);
+  const chosen = selectedSegmentId
+    ? geometry.legs.filter((l) => l.segmentId === selectedSegmentId)
+    : [];
   const out = [];
 
-  /** @param {PathRun} r */
-  const width = (r) => (r.phase === 'home' ? 2.5 : 4);
+  /** @param {{ phase: 'out'|'home' }} d */
+  const width = (d) => (d.phase === 'home' ? 2.5 : 4);
 
-  if (air.length) {
+  if (casing.length) {
     out.push(new PathLayer({
       id: 'route-casing',
-      data: air,
+      data: casing,
       getPath: (d) => d.path,
       getColor: [...palette.casing, 160],
       widthUnits: 'pixels',
@@ -256,6 +271,33 @@ function routeLayers(runs, color, palette) {
       capRounded: true,
       pickable: false,
     }));
+  }
+
+  /* Over the casing, under the line: the selected leg reads as the same route
+   * with a light behind it rather than as a different route. Split by where it
+   * is drawn for the same reason the line is — ADR 0004's last constraint is
+   * that a billboarded ribbon lying on terrain punches through the hillside. */
+  for (const [id, data, billboard] of /** @type {const} */ ([
+    ['route-selected', chosen.filter((l) => l.resolved), true],
+    ['route-selected-ground', chosen.filter((l) => !l.resolved), false],
+  ])) {
+    if (!data.length) continue;
+    out.push(new PathLayer({
+      id,
+      data,
+      getPath: (d) => d.path,
+      getColor: [...palette.accent, 230],
+      widthUnits: 'pixels',
+      getWidth: (d) => width(d) + 6,
+      widthMinPixels: 7,
+      billboard,
+      jointRounded: true,
+      capRounded: true,
+      pickable: false,
+    }));
+  }
+
+  if (air.length) {
     out.push(new PathLayer({
       id: 'route-air',
       data: air,
@@ -269,7 +311,9 @@ function routeLayers(runs, color, palette) {
       billboard: true,
       jointRounded: true,
       capRounded: true,
-      pickable: false,
+      // The pick is what opens the inspector; scene.js reads `kind` and
+      // `segmentId` off the datum and raises `frame.actions.selectSegment`.
+      pickable: true,
     }));
   }
 
@@ -287,7 +331,7 @@ function routeLayers(runs, color, palette) {
       billboard: false,
       jointRounded: true,
       capRounded: true,
-      pickable: false,
+      pickable: true,
     }));
   }
 

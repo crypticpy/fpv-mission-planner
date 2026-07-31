@@ -3,6 +3,16 @@
 // name a state in the pilot's words.
 
 export const SERIES = ['var(--series-1)', 'var(--series-2)', 'var(--series-3)', 'var(--series-4)'];
+
+/**
+ * The glyph each of ADR 0008's six severities wears. Here rather than beside one
+ * rail because there is more than one rail now — the warning stack and the
+ * segment inspector — and two of them disagreeing about what a caution looks
+ * like is exactly the drift a shared vocabulary exists to stop.
+ */
+export const WARN_ICON = {
+  critical: '✕', warning: '▲', caution: '●', unknown: '?', advisory: 'i', 'low-forcing': '~',
+};
 export const f0 = (x) => x != null && isFinite(x) ? x.toLocaleString('en-US', { maximumFractionDigits: 0 }) : '—';
 export const f1 = (x) => x != null && isFinite(x) ? x.toLocaleString('en-US', { maximumFractionDigits: 1, minimumFractionDigits: 1 }) : '—';
 

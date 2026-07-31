@@ -206,9 +206,61 @@ test('an empty or degenerate route draws nothing rather than guessing', () => {
   ]) {
     const geometry = buildRouteGeometry(input, nothing);
     assert.deepEqual(geometry.runs, []);
+    assert.deepEqual(geometry.legs, []);
     assert.deepEqual(geometry.pins, []);
     assert.equal(geometry.count, 0);
   }
+});
+
+/* ---------- the leg a pick comes back with ---------- */
+
+test('every hop is its own datum, and each one knows which segment it is', () => {
+  // The runs above are merged so a stretch of confirmed altitude draws as one
+  // unbroken line; the legs are the same geometry unmerged, because deck.gl
+  // hands a pick back the *datum* under the cursor and a run of three legs
+  // cannot name which one was clicked.
+  const geometry = buildRouteGeometry({
+    points: points(3),
+    waypointCount: 3,
+    returnMode: 'direct',
+    worstIndex: null,
+    waypoints: waypoints(3),
+  }, {
+    segments: {
+      s0: { index: 0, altitudeMslM: 200 },
+      s1: { index: 1, altitudeMslM: 200 },
+      s2: { index: 2, altitudeMslM: 200 },
+    },
+    exaggeration: 1,
+    groundZAt: flatGround(),
+    launchElevMslM: 100,
+  });
+
+  assert.equal(geometry.runs.length, 2, 'the drawn line is still merged');
+  assert.deepEqual(geometry.legs.map((l) => l.segmentId), ['s0', 's1', 's2', null]);
+  assert.ok(geometry.legs.every((l) => l.kind === 'leg' && l.path.length === 2));
+  // The hop home under a direct return is flown and drawn but never authored:
+  // it is in the array so the line has no gap, and carries no id so a click on
+  // it opens nothing.
+  assert.deepEqual(geometry.legs.map((l) => l.phase), ['out', 'out', 'out', 'home']);
+  assert.deepEqual(geometry.legs[3].path, [geometry.vertices[3].position, geometry.vertices[0].position]);
+});
+
+test('a leg is only as resolved as its worse end', () => {
+  const geometry = buildRouteGeometry({
+    points: points(2),
+    waypointCount: 2,
+    returnMode: 'direct',
+    worstIndex: null,
+    waypoints: waypoints(2),
+  }, {
+    // The second segment never resolved, so both legs touching w1 are unknown.
+    segments: { s0: { index: 0, altitudeMslM: 250 } },
+    exaggeration: 1,
+    groundZAt: flatGround(),
+    launchElevMslM: 100,
+  });
+  assert.deepEqual(geometry.legs.map((l) => l.resolved), [true, false, false]);
 });
 
 /* ---------- rings and extents ---------- */

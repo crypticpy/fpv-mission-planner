@@ -1082,6 +1082,38 @@ body {
 #route-caveat { margin-top: var(--sp-2); }
 .route-total td { border-bottom: none; color: var(--ink); font-weight: 600; }
 
+/* The invisible per-leg click targets the route layer lays over its own line.
+   Leaflet's own rule for an interactive path is `pointer-events: auto`, which in
+   SVG means `visiblePainted` — hit-testing that browsers tie to whether the
+   stroke is painted, and these are drawn at zero opacity. `stroke` is the value
+   that means "the stroke's geometry, painted or not", which is exactly what a
+   hit target is. Same specificity as Leaflet's rule (0,2,2); style.css is
+   loaded after leaflet.css, so this one wins. */
+.leaflet-pane > svg path.route-hit { pointer-events: stroke; cursor: pointer; }
+
+/* ---------- the selected segment ---------- */
+.segment-facts {
+  display: grid;
+  grid-template-columns: minmax(9rem, auto) 1fr;
+  gap: 6px var(--sp-3);
+  margin-top: var(--sp-2);
+  font-size: 12.5px;
+}
+.segment-facts dt { color: var(--muted); }
+.segment-facts dd { color: var(--ink); font-variant-numeric: tabular-nums; }
+.segment-note { display: block; color: var(--muted); font-size: 11.5px; margin-top: 1px; }
+#segment-warnings { margin-top: var(--sp-2); }
+/* The identifier the click actually came back with, and the key every figure
+   above was looked up under. Monospace because it is a key, muted because a
+   pilot never needs it — until they are reading it out to someone. */
+.segment-id {
+  margin-top: var(--sp-2);
+  color: var(--muted);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 11px;
+  user-select: all;
+}
+
 /* ---------- session planner ---------- */
 .sesh-head, .sesh-row {
   display: grid;

@@ -224,6 +224,13 @@ export function createScene(opts) {
         return;
       }
       if (hit?.kind === 'launch') return; // the pad is dragged, never clicked
+      if (hit?.kind === 'leg' && hit.id) {
+        // View state only: the same toggle the 2D layer raises, through the same
+        // action, so the two engines cannot disagree about what is selected.
+        frame.gestures.markerClicked();
+        frame.actions.selectSegment(hit.id);
+        return;
+      }
 
       /* (3) `info.coordinate` would be a z=0 ground-plane unprojection — the
        * point the ray crosses sea level, not the point on the hill under the
@@ -238,7 +245,8 @@ export function createScene(opts) {
     canvas.addEventListener('pointerdown', (ev) => {
       if (ev.button !== 0 || !current) return;
       const hit = pick(...localPoint(ev));
-      if (!hit) return;
+      // A leg is selectable, not draggable: only the two pins move anything.
+      if (!hit || hit.kind === 'leg') return;
       drag = { kind: hit.kind, id: hit.id, lngLat: [0, 0] };
       moveDrag(ev);
       // Otherwise the map pans out from under the pin being dragged.
@@ -290,14 +298,21 @@ export function createScene(opts) {
 
   /**
    * What is under a screen position, as something the gesture code can act on.
+   *
+   * A leg only counts when it carries a segment id. The hop home under a direct
+   * return is drawn from the same array and picks like anything else, but it is
+   * a line nobody authored — there is nothing to open, so it reads as terrain
+   * and the click falls through to where it always went.
    * @param {number} x @param {number} y
-   * @returns {{ kind: 'launch'|'waypoint', id: string|null }|null}
+   * @returns {{ kind: 'launch'|'waypoint'|'leg', id: string|null }|null}
    */
   function pick(x, y) {
     const info = overlay.pickObject({ x, y, radius: PICK_RADIUS });
-    const object = /** @type {{ kind?: string, id?: string }|null} */ (info?.object ?? null);
+    const object = /** @type {{ kind?: string, id?: string, segmentId?: string|null }|null} */
+      (info?.object ?? null);
     if (object?.kind === 'launch') return { kind: 'launch', id: null };
     if (object?.kind === 'waypoint' && object.id) return { kind: 'waypoint', id: object.id };
+    if (object?.kind === 'leg' && object.segmentId) return { kind: 'leg', id: object.segmentId };
     return null;
   }
 

@@ -28,8 +28,18 @@
  */
 
 /** @typedef {{ remove: () => void }} Drawn */
+/** @typedef {{ segmentId: string|null, a: number, b: number, phase: 'out'|'home' }} RouteSpan */
 
 const CASING = { color: 'var(--map-casing)', weight: 7, opacity: 0.6 };
+/** Under the drawn line, so the line keeps its own colour on top of the accent. */
+const HALO = { color: 'var(--accent)', weight: 9, opacity: 0.85 };
+/**
+ * Invisible, wide, and last in the pane, so it takes the click. Drawn as its own
+ * geometry rather than by splitting the visible line: the return is dashed, and
+ * a dash pattern restarts at every polyline start, so per-leg *drawn* lines would
+ * change the picture. This changes nothing anybody can see.
+ */
+const HIT = { color: '#000', weight: 14, opacity: 0, className: 'route-hit' };
 
 /**
  * Which drawn pin, if any, the reserve's worst case sits on.
@@ -55,6 +65,77 @@ export function worstPinIndex(worstIndex, waypointCount, returnMode) {
   if (returnMode !== 'retrace') return null;
   const mirrored = 2 * waypointCount - 2 - worstIndex;
   return mirrored >= 0 ? mirrored : null;
+}
+
+/**
+ * Every hop the drawn route makes, each named with the authored segment it is —
+ * or with null where it is a hop nobody authored.
+ *
+ * The integrator's point list is `[launch, …authored, …whatever the return
+ * policy appended]`, and the authored segments index the outbound hops one for
+ * one: segment `k` is the hop from point `k` to point `k + 1`. The way home is
+ * where that stops being obvious. Under a retrace the appended points are the
+ * outbound waypoints in reverse, so a hop between two of them is an authored
+ * segment flown backwards — and the segment it is, is the *later* of the two
+ * ends it touches, because a segment is named by where it arrives. The last hop
+ * of a retrace lands on the launch, which is segment 0 flown backwards. Under a
+ * direct return that same hop is a line the aircraft flies and nobody drew, so
+ * it gets no segment and, downstream, no way to select it.
+ *
+ * Pure and shared: 2D uses it to place the click targets and 3D to place the
+ * pickable legs, and a disagreement between the two would mean clicking the same
+ * line opened two different segments.
+ *
+ * @param {object} input
+ * @param {number} input.pointCount     the integrator's own point list length
+ * @param {number} input.waypointCount  what the pilot authored, before any doubling
+ * @param {string} input.returnMode
+ * @param {readonly string[]} input.segmentIds  authored order; segment k arrives at waypoint k
+ * @returns {RouteSpan[]}
+ */
+export function routeSpans({ pointCount, waypointCount, returnMode, segmentIds }) {
+  const n = Math.min(waypointCount, pointCount - 1);
+  if (n < 1) return [];
+
+  /** Which authored waypoint a point index is, or -1 for the launch. @param {number} k */
+  const authoredAt = (k) => (k === 0 ? -1 : (worstPinIndex(k - 1, n, returnMode) ?? -1));
+  /** @param {number} i */
+  const idAt = (i) => (i >= 0 && i < segmentIds.length ? segmentIds[i] ?? null : null);
+
+  /** @type {RouteSpan[]} */
+  const spans = [];
+  for (let k = 0; k < n; k++) spans.push({ segmentId: idAt(k), a: k, b: k + 1, phase: 'out' });
+  for (let k = n; k < pointCount - 1; k++) {
+    spans.push({
+      segmentId: idAt(Math.max(authoredAt(k), authoredAt(k + 1))),
+      a: k,
+      b: k + 1,
+      phase: 'home',
+    });
+  }
+  spans.push({
+    segmentId: returnMode === 'retrace' ? idAt(0) : null,
+    a: pointCount - 1,
+    b: 0,
+    phase: 'home',
+  });
+  return spans;
+}
+
+/**
+ * The authored segment ids in authored order, read off the analysis rather than
+ * the document — the map never holds the document (ADR 0002), and every segment
+ * the analysis published carries the index it was authored at.
+ * @param {Record<string, { index: number }>|null|undefined} segments
+ * @returns {string[]}  sparse where the analysis had nothing to say
+ */
+export function segmentIdOrder(segments) {
+  /** @type {string[]} */
+  const order = [];
+  for (const [id, seg] of Object.entries(segments ?? {})) {
+    if (Number.isInteger(seg?.index) && seg.index >= 0) order[seg.index] = id;
+  }
+  return order;
 }
 
 /** @returns {MapLayer} */
@@ -94,12 +175,44 @@ export function createRouteLayer() {
        * and home. For a direct return that is one hop, exactly as before. */
       const home = [...points.slice(n), points[0]];
 
+      const spans = routeSpans({
+        pointCount: points.length,
+        waypointCount: n,
+        returnMode: route.returnMode,
+        segmentIds: segmentIdOrder(frame.snapshot.segments),
+      });
+      const selected = frame.selectedSegmentId;
+
       // Casing first: a dark stroke under the line keeps it readable over imagery.
       drawn.push(adapter.polyline(outbound, CASING));
+      /* Then the accent, still under the line, so a selected leg reads as the
+       * same route with a light behind it rather than a different route. */
+      for (const span of spans) {
+        if (!span.segmentId || span.segmentId !== selected) continue;
+        drawn.push(adapter.polyline([points[span.a], points[span.b]], HALO));
+      }
       drawn.push(adapter.polyline(outbound, { color, weight: 3.5, opacity: 1 }));
       drawn.push(adapter.polyline(home, {
         color, weight: 2.5, dashArray: '7 6', opacity: 0.95,
       }));
+
+      /* Last of the lines, so it is the one the pointer meets. A hop nobody
+       * authored has nothing to open and stays untouchable. */
+      for (const span of spans) {
+        const id = span.segmentId;
+        if (!id) continue;
+        drawn.push(adapter.polyline([points[span.a], points[span.b]], HIT, {
+          onClick: () => {
+            const f = current;
+            if (!f || f.gestures.afterDrag()) return;
+            /* Same standing-down the pins do: the map is about to hear this
+             * click too, and in route mode that would drop a waypoint on the
+             * leg just selected. */
+            f.gestures.markerClicked();
+            f.actions.selectSegment(id);
+          },
+        }));
+      }
 
       const worst = worstPinIndex(route.worst?.index, n, route.returnMode);
       for (let i = 0; i < n; i++) {

@@ -472,6 +472,25 @@
       <p id="route-caveat" class="footnote"></p>
     </section>
 
+    <!-- One leg of that route, when the pilot clicks it on the map (M4 wave C).
+         The card above is the whole flight adding up; this is the answer to
+         "what about that leg" — its distance and energy, the climb M3b charged
+         it, the altitude it was authored at against the metres MSL everything
+         was actually derived from, the ground under it, and every finding
+         anchored to it. Nothing here is computed; it is the analysis, read out
+         against the segment id the click came back with. Up only while a leg is
+         selected, and the selection is view state — nothing about it is saved. -->
+    <section class="card full-only" id="segment-card" hidden>
+      <div class="card-head">
+        <h3 id="segment-title">Segment</h3>
+        <button id="btn-segment-close" class="map-btn" type="button">Close</button>
+      </div>
+      <p id="segment-sub" class="card-sub"></p>
+      <dl id="segment-facts" class="segment-facts"></dl>
+      <div id="segment-warnings" class="warnings" hidden></div>
+      <p id="segment-id" class="segment-id"></p>
+    </section>
+
     <section class="card spots-card">
       <div class="card-head"><h3>Saved spots</h3></div>
       <p class="card-sub">Your launch points, kept — with the elevation and rig you flew there. Fly here moves the pin;

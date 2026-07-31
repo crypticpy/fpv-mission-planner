@@ -391,6 +391,10 @@ function readSegments(doc, legs, route, ctx) {
       speedHonoured,
       altitudeMslM,
       altitudeDeltaM,
+      /* Carried through untouched so a reader can show the pilot the figure they
+       * typed beside the metres-MSL one every calculation used (ADR 0003). */
+      altitudeAuthoredM: typeof seg.altitude.authored === 'number' ? seg.altitude.authored : null,
+      altitudeReference: typeof seg.altitude.reference === 'string' ? seg.altitude.reference : 'unknown',
       vertical: flight.vertical,
       clearance,
       air: flight.air,

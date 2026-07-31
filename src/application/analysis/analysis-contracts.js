@@ -524,6 +524,8 @@ export function provenanceOf(overrides = {}) {
  * @property {boolean} speedHonoured     false when the solver could not take it
  * @property {number|null} altitudeMslM
  * @property {number|null} altitudeDeltaM
+ * @property {number|null} altitudeAuthoredM  the figure the pilot typed, carried verbatim
+ * @property {string} altitudeReference       the frame they typed it in
  * @property {SegmentVertical|null} vertical
  * @property {SegmentClearance|null} clearance
  * @property {SegmentAir|null} air

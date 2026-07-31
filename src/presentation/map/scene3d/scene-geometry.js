@@ -26,7 +26,7 @@
 //     height off a leg the analysis could not place.
 
 import { destination } from '../../../domain/geo.js';
-import { worstPinIndex } from '../layers/route-layer.js';
+import { routeSpans, segmentIdOrder, worstPinIndex } from '../layers/route-layer.js';
 
 /**
  * @typedef {import('../map-adapter.js').LatLng} LatLng
@@ -54,6 +54,23 @@ import { worstPinIndex } from '../layers/route-layer.js';
  */
 
 /**
+ * One hop of the drawn line, on its own, carrying the segment it is.
+ *
+ * Kept beside `runs` rather than replacing them: the runs are what the scene
+ * draws, merged so a stretch of confirmed altitude is one unbroken line, and
+ * splitting them per leg would restart the line at every waypoint. The legs are
+ * what the scene *picks* — one datum per authored segment, so a click comes back
+ * with an id rather than with a run of several.
+ * @typedef {object} RouteLeg3
+ * @property {'leg'} kind
+ * @property {string|null} segmentId  null on a hop nobody authored — a direct
+ *   return is flown but never drawn, so there is nothing to open
+ * @property {Position3[]} path  two vertices
+ * @property {boolean} resolved
+ * @property {'out'|'home'} phase
+ */
+
+/**
  * A numbered pin, ready to draw and to pick.
  * @typedef {object} RoutePin
  * @property {'waypoint'} kind
@@ -69,6 +86,7 @@ import { worstPinIndex } from '../layers/route-layer.js';
  * @typedef {object} RouteGeometry
  * @property {RouteVertex[]} vertices  the integrator's points, launch first
  * @property {PathRun[]} runs
+ * @property {RouteLeg3[]} legs  one per authored segment hop, for picking
  * @property {RoutePin[]} pins
  * @property {number} count  authored waypoints actually drawn
  */
@@ -126,7 +144,8 @@ export function buildRouteGeometry(input, opts) {
   const { points, waypointCount, returnMode, worstIndex, waypoints } = input;
   const { segments, exaggeration, groundZAt, launchElevMslM } = opts;
 
-  const empty = /** @type {RouteGeometry} */ ({ vertices: [], runs: [], pins: [], count: 0 });
+  const empty = /** @type {RouteGeometry} */
+    ({ vertices: [], runs: [], legs: [], pins: [], count: 0 });
   if (!Array.isArray(points) || points.length < 2) return empty;
   const n = Math.min(waypointCount, points.length - 1);
   if (n < 1) return empty;
@@ -182,6 +201,29 @@ export function buildRouteGeometry(input, opts) {
     ...runsOf([...vertices.slice(n), vertices[0]], 'home'),
   ];
 
+  /* The same hops again, unmerged and named, because a pick has to come back
+   * with one segment. `routeSpans` is the 2D layer's own arithmetic, so the two
+   * engines cannot disagree about which line is which leg. Every hop is here,
+   * including the ones no segment owns — this is what the scene draws, and a
+   * route with a hop missing from it would be a route with a gap. */
+  /** @type {RouteLeg3[]} */
+  const legs = [];
+  const order = segmentIdOrder(segments);
+  for (const span of routeSpans({
+    pointCount: points.length, waypointCount: n, returnMode, segmentIds: order,
+  })) {
+    const from = vertices[span.a];
+    const to = vertices[span.b];
+    if (!from || !to) continue;
+    legs.push({
+      kind: 'leg',
+      segmentId: span.segmentId,
+      path: [from.position, to.position],
+      resolved: from.resolved && to.resolved,
+      phase: span.phase,
+    });
+  }
+
   const worst = worstPinIndex(worstIndex, n, returnMode);
   /** @type {RoutePin[]} */
   const pins = [];
@@ -202,7 +244,7 @@ export function buildRouteGeometry(input, opts) {
     });
   }
 
-  return { vertices, runs, pins, count: n };
+  return { vertices, runs, legs, pins, count: n };
 }
 
 /**

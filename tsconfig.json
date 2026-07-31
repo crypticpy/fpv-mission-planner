@@ -48,6 +48,12 @@
     // vendor/leaflet/leaflet-src.esm.js — 10k lines of unannotated third-party
     // JS that `checkJs` would then check. map-view.js imports the adapter, so it
     // inherits the exclusion. They join if the vendor bundle ever ships types.
+    //
+    // Wave C's segment-inspector.js is out for the same structural reason and no
+    // other: it reads its number formatting off src/render/format.js, which is
+    // the display vocabulary the render modules share and is not annotated. It
+    // joins when format.js does; duplicating a clock to buy a ratchet entry
+    // would be the worse trade.
     "src/presentation/map/map-adapter.js",
     "src/presentation/map/layer-registry.js",
     "src/presentation/map/layers/launch-layer.js",

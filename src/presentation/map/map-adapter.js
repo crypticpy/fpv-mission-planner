@@ -53,6 +53,15 @@
  * @property {boolean} [fill]
  * @property {string} [fillColor]
  * @property {number} [fillOpacity]
+ * @property {string} [className]  a hook for CSS the engine does not own
+ */
+
+/**
+ * What a shape can be asked to report. A shape with no handlers is inert and
+ * takes no pointer events at all, which is what every overlay on this map was
+ * until route segments became selectable — so the default stays "not there".
+ * @typedef {object} ShapeHandlers
+ * @property {() => void} [onClick]
  */
 
 /**
@@ -131,7 +140,7 @@ export const MAP_EVENTS = Object.freeze(
  * @property {(bounds: LatLngBounds, opts?: { paddingPx?: number }) => void} fit
  * @property {() => void} resized  the container's box changed; re-measure
  * @property {(points: LatLng[], style: ShapeStyle) => ShapeOverlay} polygon
- * @property {(points: LatLng[], style: ShapeStyle) => ShapeOverlay} polyline
+ * @property {(points: LatLng[], style: ShapeStyle, handlers?: ShapeHandlers) => ShapeOverlay} polyline
  * @property {(spec: MarkerSpec) => MarkerOverlay} marker
  * @property {(spec: ControlSpec) => ControlOverlay} control
  * @property {(event: MapEventName, handler: (payload: LatLng|null) => void) => void} on
@@ -156,6 +165,8 @@ export const MAP_EVENTS = Object.freeze(
  * @property {RouteWaypoint[]} waypoints  the document's, in order, with their ids
  * @property {SavedSpot[]} spots          the saved-spot roster, as last handed over
  * @property {boolean} routeMode          the route tool is on *and* usable
+ * @property {string|null} selectedSegmentId  which leg the inspector is open on;
+ *   view state, never mission state — nothing about it is persisted or commanded
  * @property {UnitSet} units
  * @property {EnvironmentInputs} env      the rail the plan was made against
  * @property {MapFrameActions} actions
@@ -164,12 +175,14 @@ export const MAP_EVENTS = Object.freeze(
 
 /**
  * Raising an edit, never performing one. Every one of these ends in a command on
- * the mission document (ADR 0002) somewhere outside presentation/.
+ * the mission document (ADR 0002) somewhere outside presentation/ — except
+ * `selectSegment`, which changes what the pilot is looking at and nothing else.
  * @typedef {object} MapFrameActions
  * @property {(at: LatLng) => void} moveLaunch
  * @property {(id: string, at: LatLng) => void} moveWaypoint
  * @property {(id: string) => void} removeWaypoint
  * @property {(spot: SavedSpot) => void} selectSpot
+ * @property {(segmentId: string|null) => void} selectSegment  null clears
  */
 
 /**
