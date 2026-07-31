@@ -55,6 +55,17 @@ import { buildSceneLayers, readPalette } from './scene-layers.js';
 /** How far a pick reaches, in pixels. Wide enough for a thumb on a 10 px dot. */
 const PICK_RADIUS = 6;
 
+/**
+ * How far a pointer must travel before a press on a pin counts as a drag.
+ *
+ * Without it every press is a drag: a stationary click on a waypoint would
+ * commit a move to wherever the cursor sat inside the pick radius and then
+ * suppress its own click, so the pin could never be clicked at all. Leaflet
+ * draws the same line at the same distance (`Draggable`'s `clickTolerance`),
+ * which is what keeps a click on a pin meaning the same thing in both engines.
+ */
+const DRAG_THRESHOLD_PX = 3;
+
 /** The terrain slider's ends. 1 is the truth; 2.5 is where a 40 m rise reads. */
 const EXAGGERATION_MIN = 1;
 const EXAGGERATION_MAX = 2.5;
@@ -83,7 +94,8 @@ export function createScene(opts) {
   /** @type {MapFrame|null} */
   let current = null;
   /** What a pointer is currently dragging, so the pin can follow it live. */
-  /** @type {{ kind: 'launch'|'waypoint', id: string|null, lngLat: [number, number] }|null} */
+  /** @type {{ kind: 'launch'|'waypoint', id: string|null, from: [number, number],
+   *           moved: boolean, lngLat: [number, number] }|null} */
   let drag = null;
   let destroyed = false;
   /** Coalesces the re-render that new DEM tiles ask for. */
@@ -194,7 +206,9 @@ export function createScene(opts) {
    * @returns {MapFrame}
    */
   function applyDrag(frame) {
-    if (!drag) return frame;
+    // Before the threshold there is no position to show: the press may still
+    // turn out to be a click, and `lngLat` is not read until it is a drag.
+    if (!drag?.moved) return frame;
     if (drag.kind === 'launch') {
       return { ...frame, launch: { lat: drag.lngLat[1], lng: drag.lngLat[0] } };
     }
@@ -247,8 +261,9 @@ export function createScene(opts) {
       const hit = pick(...localPoint(ev));
       // A leg is selectable, not draggable: only the two pins move anything.
       if (!hit || hit.kind === 'leg') return;
-      drag = { kind: hit.kind, id: hit.id, lngLat: [0, 0] };
-      moveDrag(ev);
+      drag = {
+        kind: hit.kind, id: hit.id, from: localPoint(ev), moved: false, lngLat: [0, 0],
+      };
       // Otherwise the map pans out from under the pin being dragged.
       map.dragPan.disable();
       map.dragRotate.disable();
@@ -261,13 +276,18 @@ export function createScene(opts) {
     const end = (/** @type {PointerEvent} */ ev) => {
       const frame = current;
       if (!drag || !frame) return;
-      const [lng, lat] = drag.lngLat;
       const gesture = drag;
       drag = null;
       map.dragPan.enable();
       map.dragRotate.enable();
       canvas.style.cursor = '';
       if (canvas.hasPointerCapture?.(ev.pointerId)) canvas.releasePointerCapture(ev.pointerId);
+
+      /* A press that never travelled is a click, and belongs to the click
+       * handler above: nothing to commit, and no guard to raise — raising it
+       * here is what used to swallow every click on a pin. */
+      if (!gesture.moved) return;
+      const [lng, lat] = gesture.lngLat;
 
       // Twice over, for two clicks: the one MapLibre may fire on the terrain
       // behind the pin, and the one it may fire having barely moved at all.
@@ -282,7 +302,14 @@ export function createScene(opts) {
   /** @param {PointerEvent} ev */
   function moveDrag(ev) {
     if (!drag) return;
-    const at = map.unproject(localPoint(ev));
+    const point = localPoint(ev);
+    if (!drag.moved) {
+      const dx = point[0] - drag.from[0];
+      const dy = point[1] - drag.from[1];
+      if (dx * dx + dy * dy < DRAG_THRESHOLD_PX * DRAG_THRESHOLD_PX) return;
+      drag.moved = true;
+    }
+    const at = map.unproject(point);
     drag.lngLat = [at.lng, at.lat];
     /* A waypoint's pin comes off the integrated route, not off the frame's
      * waypoint list, so only the launch pad can follow the finger before the
