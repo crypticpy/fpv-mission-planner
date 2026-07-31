@@ -364,7 +364,12 @@ test('injected providers are classified, anchored and left verbatim', () => {
   assert.ok(link);
   assert.equal(link.text, linkText);
   assert.equal(snap.link.blocked, true);
-  assert.ok(!codes(snap).includes('W-DATA-TERRAIN-ABSENT'));
+  // The wired profile provider quiets the profile's own absence code, but it
+  // does not vouch for the route: with no corridor field port wired, the route
+  // checks still state W-DATA-TERRAIN-ABSENT beside the injected findings.
+  const absent = snap.constraints.find((c) => c.code === 'W-DATA-TERRAIN-ABSENT');
+  assert.ok(absent, 'the unwired field port is a stated absence, not silence');
+  assert.match(absent.text, /route/, 'and it speaks about the route, not the profile');
   assert.ok(!codes(snap).includes('W-DATA-LINK-ABSENT'));
 });
 

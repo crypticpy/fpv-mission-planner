@@ -120,11 +120,18 @@ export function routeWideChecks(spec) {
   const drafts = [];
   if (spec.legs.length === 0) return { clearance, drafts };
 
-  /* Not asked for is not the same as asked for and absent. With no field port
-   * wired the pipeline already says W-DATA-TERRAIN-ABSENT and there is nothing
-   * to add; with a port wired and nothing usable back, silence would be the one
-   * unacceptable answer. */
-  if (!spec.fieldPortWired) return { clearance, drafts };
+  /* Not asked for is not the same as asked for and absent — but both get said.
+   * The pipeline's own W-DATA-TERRAIN-ABSENT drafts cover the single-bearing
+   * profile ports, not this one: an embedder that wires the profile but never
+   * the corridor field would otherwise ship a route with no ground statement at
+   * all. Same code, same mission anchor — when both paths speak, the dedup
+   * keeps one. */
+  if (!spec.fieldPortWired) {
+    drafts.push(draftConstraint('W-DATA-TERRAIN-ABSENT',
+      'No ground was sampled under this route — no corridor terrain source is wired in. Clearance, '
+      + 'sightline and return checks did not run; the route is unchecked, not clear.'));
+    return { clearance, drafts };
+  }
   if (!usableField(spec.field, spec.corridor)) {
     drafts.push(draftConstraint('W-DATA-TERRAIN-SAMPLE-MISSING',
       spec.field
@@ -349,8 +356,11 @@ function returnChecks(spec, centre) {
     const homeKm = distanceKm(leg.to, spec.launch);
     if (!(homeKm > 0)) continue;
     // The height the aircraft comes home at: the return policy's own, or — with
-    // none authored — the height it is already at when it turns. Never a guess.
+    // none authored — the height it is already at when it turns. Never a guess:
+    // with neither resolved, the line home cannot be checked at any height, and
+    // an uncheckable return is unsurveyed, not silently fine.
     const returnMslM = spec.returnAltitudeMslM ?? leg.altitudeMslM;
+    if (returnMslM == null) { unsurveyed.push(leg.segmentId); continue; }
     /** Where along the line home each usable sample falls, km. */
     /** @type {number[]} */
     const along = [];
@@ -361,7 +371,6 @@ function returnChecks(spec, centre) {
       if (!(off.alongKm >= 0) || off.alongKm > homeKm) continue;
       if (Math.abs(off.crossKm) * 1000 > SIGHTLINE_CORRIDOR_M) continue;
       along.push(off.alongKm);
-      if (returnMslM == null) continue;
       const agl = convertAltitude({
         value: returnMslM, from: 'msl', to: 'agl', terrainElevMslM: sample.groundMslM,
       });
@@ -389,9 +398,10 @@ function returnChecks(spec, centre) {
 
   if (unsurveyed.length > 0) {
     drafts.push(draftConstraint('W-RETURN-TERRAIN-UNKNOWN',
-      `The direct line home from ${unsurveyed.length} of this route's waypoint`
-      + `${unsurveyed.length === 1 ? '' : 's'} crosses ground the corridor never sampled. Nothing here `
-      + 'says that return is clear; it says the ground on it was not looked at.',
+      `The direct flight home from ${unsurveyed.length} of this route's waypoint`
+      + `${unsurveyed.length === 1 ? '' : 's'} could not be checked — the line crosses ground the `
+      + 'corridor never sampled, or leaves a waypoint whose return height never resolved. Nothing '
+      + 'here says that return is clear; it says nobody has looked at it.',
       anchorAt('segment', unsurveyed[0])));
   }
 

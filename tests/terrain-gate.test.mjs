@@ -435,6 +435,33 @@ test('a dogleg whose flight home crosses unsampled country says so', async () =>
   assert.ok(wet.segments[unknown.anchor.refId], 'and the segment it names is in the snapshot');
 });
 
+test('a waypoint whose return height never resolved does not pass its return check silently', async () => {
+  // An above-ground-level waypoint over a hole in the data: its altitude never
+  // resolves, so the flight home from it cannot be checked at any height. The
+  // ground on the line home is itself well sampled — coverage is not what is
+  // missing — and counting that coverage as "return checked" was the defect.
+  const doc = mission([{ at: wpAt(45, 3.0), altitude: { authored: 60, reference: 'agl' } }]);
+  const { wet } = await analyzeOverGround(doc, { surface: (km) => (km > 2.9 ? null : LAUNCH_ELEV_M) });
+  const unknown = find(wet, 'W-RETURN-TERRAIN-UNKNOWN');
+  assert.ok(unknown, `an uncheckable return is unsurveyed, not silent: ${codes(wet).join(', ')}`);
+});
+
+test('a wired profile port does not excuse an unwired field port', () => {
+  // The embedder scenario: the single-bearing profile ports are wired and
+  // content, the corridor field port is not wired at all. The route must still
+  // carry a ground statement — the profile path's contentment says nothing
+  // about the route's corridor.
+  clearAnalysisCache();
+  const doc = mission([{ at: wpAt(45, 1.0), altM: 80 }]);
+  const snap = analyzeMission({ doc, inputs: inputs(), revision: revisionOf(doc) }, {
+    plan: planMission, routePlan: planRoute, now: () => AT,
+    terrainWarnings: () => [],
+  });
+  const absent = find(snap, 'W-DATA-TERRAIN-ABSENT');
+  assert.ok(absent, `the route still carries a ground statement: ${codes(snap).join(', ')}`);
+  assert.match(absent.text, /route/, 'and it speaks about the route, not the profile');
+});
+
 /* ---------- 5. one set of identifiers ---------- */
 
 test('every terrain-anchored constraint resolves into both the corridor and the field', async () => {

@@ -186,6 +186,11 @@ function corridorSignature(corridor) {
  * @param {CorridorRequest} corridor
  */
 function refreshField(corridor) {
+  // Whatever ask is pending was scheduled by an older call about an older
+  // corridor; this call re-decides from scratch. Left armed, a superseded timer
+  // fires anyway — and because runSample reads the revision at fire time, its
+  // landing self-certifies as fresh and evicts a good field for a stale one.
+  clearTimeout(sampleTimer);
   if (!sampler || !corridor || corridor.samples.length === 0) return;
   lastCorridor = corridor;
   if (usableField(field, corridor)) return;
@@ -194,7 +199,6 @@ function refreshField(corridor) {
   // pipeline is already saying "not sampled" for this corridor, which is the
   // honest state to sit in until the question changes.
   if (sampling || sig === failedCorridorSig) return;
-  clearTimeout(sampleTimer);
   sampleTimer = setTimeout(() => { void runSample(corridor, sig); }, SAMPLE_DEBOUNCE_MS);
 }
 

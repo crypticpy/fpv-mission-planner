@@ -170,3 +170,29 @@ test('a corridor field for a mission that has moved on is dropped, and the curre
   await sleep(50);
   assert.ok(terrainField(), 'and the answer for the current route is kept');
 });
+
+test('a corridor superseded inside the debounce window is never fetched', async () => {
+  const net = stubElevation();
+  await boot(net, { title: 'Superseded ask' });
+  dispatch({ type: 'addWaypoint', payload: { ...OVER_THERE } }, { render: false });
+  analyzeNow();
+  await settle();
+  assert.equal(net.calls.length, 1, 'the first corridor was sampled');
+  assert.ok(terrainField(), 'and its field is in hand');
+
+  // A second waypoint schedules an ask; removing it again before the debounce
+  // fires makes the field in hand the whole answer once more. The scheduled ask
+  // now describes a corridor nobody flies — it must die with it. Left armed, it
+  // fetches anyway, and its landing self-certifies as fresh (runSample reads
+  // the revision at fire time), evicting the good field for a stale one.
+  dispatch({ type: 'addWaypoint', payload: { latitude: 30.35, longitude: -97.80 } }, { render: false });
+  analyzeNow();
+  const added = missionDocument()?.route.waypoints.at(-1);
+  assert.ok(added, 'the second waypoint exists to be removed');
+  dispatch({ type: 'removeWaypoint', payload: { id: added.id } }, { render: false });
+  analyzeNow();
+
+  await settle();
+  assert.equal(net.calls.length, 1, 'no fetch went out for the corridor that was superseded');
+  assert.ok(terrainField(), 'the field in hand still answers the route');
+});
