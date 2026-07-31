@@ -3,7 +3,8 @@
 //
 // No dependencies, no parser: the app is plain browser ESM, so every module
 // edge is a literal string in an `import`/`export … from` statement and a
-// regex over comment-stripped source finds all of them.
+// regex over comment-stripped source finds all of them (the regexes live in
+// lib/esm-imports.mjs, shared with generate-dev-sw.mjs).
 //
 // Two jobs:
 //
@@ -24,6 +25,7 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { existsSync, statSync } from 'node:fs';
 import path from 'node:path';
+import { importsOf } from './lib/esm-imports.mjs';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const CANDIDATE_ROOTS = ['src', 'js'];
@@ -86,56 +88,6 @@ const SCENE_BARE_ALLOWED = new Set([
   'maplibre-gl/dist/maplibre-gl.css',
 ]);
 const SCENE_BARE_PREFIX = '@deck.gl/';
-
-/**
- * Comments blanked out — so an example import inside a doc block is not read as
- * a real edge — with the line count preserved, so reported line numbers match
- * the file.
- *
- * Line comments go first on each line: this codebase's prose is full of things
- * like `js/render/*`, and treating that as a block-comment opener would swallow
- * the rest of the file.
- */
-function stripComments(src) {
-  const out = [];
-  let inBlock = false;
-  for (let line of src.split('\n')) {
-    if (inBlock) {
-      const end = line.indexOf('*/');
-      if (end === -1) { out.push(''); continue; }
-      inBlock = false;
-      line = line.slice(end + 2);
-    }
-    line = line.replace(/(^|[^:'"])\/\/.*$/, '$1');
-    line = line.replace(/\/\*.*?\*\//g, '');
-    const open = line.indexOf('/*');
-    if (open !== -1) { inBlock = true; line = line.slice(0, open); }
-    out.push(line);
-  }
-  return out.join('\n');
-}
-
-// Both anchored to the start of a line, because an ESM import/export-from is
-// always a top-level statement. The clause between the keyword and `from`
-// excludes quotes and semicolons so a match can never run past the end of the
-// statement it started in and swallow an unrelated string literal.
-const IMPORT_RE = /^[ \t]*import\s+(?:[^'";]*?\sfrom\s*)?['"]([^'"]+)['"]/gm;
-const EXPORT_FROM_RE = /^[ \t]*export\s+(?:\*(?:\s+as\s+[\w$]+)?|\{[^}]*\})\s*from\s*['"]([^'"]+)['"]/gm;
-
-/**
- * Static module specifiers in `src`, with the line each was found on.
- * Covers `import x from 's'`, `import 's'`, `export … from 's'`.
- */
-function importsOf(src) {
-  const clean = stripComments(src);
-  const found = [];
-  for (const re of [IMPORT_RE, EXPORT_FROM_RE]) {
-    for (const m of clean.matchAll(re)) {
-      found.push({ spec: m[1], line: clean.slice(0, m.index).split('\n').length });
-    }
-  }
-  return found;
-}
 
 /** Every source file under `dir`, absolute, sorted. */
 async function walk(dir) {

@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 // generate-sw.mjs — emits dist/sw.js from the build output (ADR 0009).
 //
-// The hand-written PRECACHE_URLS list in the repo-root sw.js has one failure
-// mode that no test catches: add an asset, forget the list, and the app is
-// quietly broken offline for everyone who installed it. This script removes
-// that mode from production builds by walking dist/ and generating the list.
+// A hand-written PRECACHE_URLS list has one failure mode that no test catches:
+// add an asset, forget the list, and the app is quietly broken offline for
+// everyone who installed it. This script removes that mode from production
+// builds by walking dist/ and generating the list; generate-dev-sw.mjs does
+// the same for the dev path from the source import graph.
 //
 // The *runtime* half of the worker is not duplicated here — it is lifted
 // verbatim out of the repo-root sw.js, starting at its first event listener.
