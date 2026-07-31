@@ -113,6 +113,10 @@
     // Self-contained (zero imports), so typing its own body was enough — no
     // dependency stood between it and the ratchet.
     "src/domain/physics.js",
+    // M7 waves A/B (ADR 0011) — entries added ahead of the files, same as the
+    // M6 adapters above: camera.js imports nothing; cameras.js is a catalog.
+    "src/domain/camera.js",
+    "src/catalog/cameras.js",
     // src/state.js is fully typed too (M3), but an include entry pulls its whole
     // import graph into the program, and that graph still isn't clean: it reaches
     // src/data.js, src/registry.js, src/flightlog.js, src/packinstances.js,
