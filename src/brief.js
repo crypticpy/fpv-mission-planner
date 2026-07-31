@@ -55,6 +55,17 @@ const MODE_WORDS = {
   cross: 'out crosswind',
 };
 
+/** Human words for ADR 0010 §2's concept ids — the same vocabulary render/missions.js's export note uses. */
+const CONCEPT_LABELS = {
+  geometry: 'route geometry',
+  'altitude-reference': 'altitude reference',
+  speed: 'speed policy',
+  hold: 'hold time',
+  'camera-intent': 'camera intent',
+  'return-policy': 'return policy',
+  reserve: 'reserve policy',
+};
+
 /** Decimal degrees, five places — about a metre, and what a phone map takes back. */
 export function formatDecimal(lat, lng) {
   return `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
@@ -270,6 +281,23 @@ function checklist({ plan, clock, link, terrain, route, env, u, expert }) {
 }
 
 /**
+ * Per exportable format, what would travel if this mission were handed to
+ * another tool right now — or null when there is nothing to report (no
+ * mission open, or the caller did not wire compatibility in). Every named loss
+ * carries the disposition `deriveLosses` gave it, exactly as ADR 0010 §2 states
+ * it: this prints what the exporter would actually do, not a guess at it.
+ */
+function exportCompatSection(compatibility) {
+  if (!compatibility.length) return null;
+  return compatibility.map((c) => ({
+    label: c.label,
+    text: c.losses.length
+      ? c.losses.map(l => `${CONCEPT_LABELS[l.concept] ?? l.concept} (${l.disposition})`).join(', ')
+      : 'everything this brief covers travels',
+  }));
+}
+
+/**
  * Build the whole brief.
  *
  * Required: `plan` (a planMission result), `units` (a src/domain/units.js system) and
@@ -288,7 +316,7 @@ export function buildBrief({
   plan, verdict, warnings = [], footprint = null, route = null, link = null, terrain = null,
   launch = null, drone = null, battery = null, packCount = 1, payloadLabel = null, extraG = 0,
   env = {}, scenarioLabel = null, cruiseAltM = null, times = null, launchAt = null,
-  terrainAttribution = null,
+  terrainAttribution = null, compatibility = [],
   units: u, now = new Date(), expert = true,
 } = {}) {
   const dist = (km) => `${f1(u.distanceFromKm(km))} ${u.distanceUnit}`;
@@ -361,5 +389,6 @@ export function buildBrief({
     dataLine: typeof terrainAttribution === 'string' && terrainAttribution ? terrainAttribution : null,
     route: routeSection(route, u),
     checklist: checklist({ plan, clock, link, terrain: terr, route, env, u, expert }),
+    exportCompat: exportCompatSection(compatibility),
   };
 }

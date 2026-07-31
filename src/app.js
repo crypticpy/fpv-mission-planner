@@ -42,7 +42,9 @@ import { renderRouteCard } from './render/route.js';
 import {
   setupMissionBridge, openMissionBridge, missionWaypoints,
   addWaypoint, moveWaypoint, removeWaypoint, clearRoute,
+  missionDocument, importMission,
 } from './mission-bridge.js';
+import { setupInterop } from './interop.js';
 import {
   analyzeNow, analysisRevision, acceptAsync, setupAnalysisHost, groundAt,
 } from './analysis-host.js';
@@ -544,6 +546,13 @@ setupMissionBridge({
   // every field that lands, and null-answering until one has — which the
   // resolver states as 'missing-terrain-sample' rather than guessing.
   terrainSampler: groundAt,
+});
+// Wave D (ADR 0010 §6): the export/import router for every foreign mission
+// format. Reads the same open document and terrain host as the bridge above,
+// and reuses the bridge's own importMission so a foreign file is validated,
+// persisted and opened exactly as a native one is.
+setupInterop({
+  missionDocument, importMission, groundAt, requestRender: update,
 });
 setupThemes(() => {
   hideTooltip();

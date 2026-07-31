@@ -24,6 +24,7 @@
 //     rectangle.
 
 import { buildBrief } from '../brief.js';
+import { compatibilityReport } from '../interop.js';
 import { routeState } from '../presentation/map/map-view.js';
 import { bearingTo, distanceKm } from '../domain/geo.js';
 import {
@@ -325,6 +326,14 @@ function renderSheet(b, fp, route, u) {
     host.appendChild(warn);
   }
 
+  if (b.exportCompat) {
+    const compat = section('Export compatibility');
+    const dl = h('dl', 'brief-dl');
+    for (const c of b.exportCompat) dl.append(h('dt', null, c.label), h('dd', null, c.text));
+    compat.appendChild(dl);
+    host.appendChild(compat);
+  }
+
   const checks = section('Before you launch');
   const ol = h('ol', 'brief-checks');
   for (const item of b.checklist) {
@@ -355,7 +364,7 @@ function chrome() {
   ].filter(Boolean);
 }
 
-export function openBrief() {
+export async function openBrief() {
   const latest = deps?.latest?.();
   if (!latest || !latest.plan) return;
   const u = units();
@@ -391,6 +400,7 @@ export function openBrief() {
     times: legTimes(r),
     launchAt: plannedLaunchTime(),
     terrainAttribution: latest.provenance?.terrainAttribution ?? null,
+    compatibility: await compatibilityReport(),
     units: u,
     expert: !beginner(),
   });
@@ -422,7 +432,7 @@ export function closeBrief() {
 }
 
 export function bindBrief() {
-  $('btn-brief').addEventListener('click', openBrief);
+  $('btn-brief').addEventListener('click', () => { void openBrief(); });
   $('brief-close').addEventListener('click', closeBrief);
   $('brief-print').addEventListener('click', () => window.print());
   document.addEventListener('keydown', (e) => {

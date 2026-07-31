@@ -294,8 +294,15 @@
         <div class="custom-row">
           <button id="btn-mission-copy" class="map-btn" type="button">Save as copy</button>
         </div>
+        <label>Hand this mission to another tool
+          <select id="interop-format"></select>
+        </label>
+        <div class="custom-row">
+          <button id="btn-interop-export" class="map-btn" type="button">Export</button>
+        </div>
+        <div id="interop-report"></div>
         <label>Open a mission file
-          <input id="mission-file" type="file" accept="application/json,.json">
+          <input id="mission-file" type="file" accept=".json,.gpx,.plan,.waypoints,.txt,.mission,application/json">
         </label>
         <p id="mission-note" class="rail-note" role="status" hidden></p>
         <p id="mission-storage" class="rail-note" role="status" hidden></p>

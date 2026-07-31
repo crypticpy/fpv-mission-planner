@@ -6,9 +6,12 @@
 // file is the wording, the rows and the two-step delete — no storage logic and
 // no document editing of its own.
 import {
-  deleteMission, exportMission, importMission, listMissions, missionId, missionStorage,
+  deleteMission, exportMission, listMissions, missionId, missionStorage,
   missionTitle, openMission, renameMission, saveMissionCopy,
 } from '../mission-bridge.js';
+import {
+  compatibilityReport, exportCurrentMission, exportFormats, importForeign,
+} from '../interop.js';
 import { $ } from './dom.js';
 
 // No injected deps: every operation here goes through the bridge, and the bridge
@@ -187,7 +190,75 @@ export function renderMissions() {
   const title = $('mission-title');
   if (document.activeElement !== title) title.value = missionTitle();
   renderMissionStorage();
+  void renderInteropReport();
   void renderList();
+}
+
+/* ---------- interop: hand this mission to (or read one from) another tool ---------- */
+
+/** Human words for ADR 0010 §2's concept ids, for a status line a pilot reads once. */
+const CONCEPT_LABELS = Object.freeze({
+  geometry: 'route geometry',
+  'altitude-reference': 'altitude reference',
+  speed: 'speed policy',
+  hold: 'hold time',
+  'camera-intent': 'camera intent',
+  'return-policy': 'return policy',
+  reserve: 'reserve policy',
+});
+
+/** What a set of adapter losses cost, worded for a note appended after "Exported as X" or "Imported as X". */
+function lossSummary(losses) {
+  if (!losses.length) return 'everything this planner knows about this mission travels.';
+  const concepts = [...new Set(losses.map((l) => CONCEPT_LABELS[l.concept] ?? l.concept))];
+  const n = concepts.length;
+  return `${n} thing${n === 1 ? '' : 's'} this planner knows ${n === 1 ? 'doesn’t' : 'don’t'} travel: ${concepts.join(', ')}.`;
+}
+
+/** The other tool's own label for a format id — exportFormats() covers every format this router can name, kml included. */
+async function formatLabel(formatId) {
+  return (await exportFormats()).find((f) => f.id === formatId)?.label ?? formatId;
+}
+
+async function populateInteropFormats() {
+  const select = $('interop-format');
+  select.replaceChildren(...(await exportFormats()).map((f) => {
+    const opt = document.createElement('option');
+    opt.value = f.id;
+    opt.textContent = f.label;
+    return opt;
+  }));
+}
+
+/** What would travel if the open mission were exported right now, one line per format (ADR 0010 §6). */
+async function renderInteropReport() {
+  const host = $('interop-report');
+  host.replaceChildren();
+  for (const entry of await compatibilityReport()) {
+    const p = document.createElement('p');
+    p.className = 'rail-note';
+    p.textContent = `${entry.label}: ${lossSummary(entry.losses)}`;
+    host.appendChild(p);
+  }
+}
+
+async function onInteropExport() {
+  const formatId = $('interop-format').value;
+  const label = await formatLabel(formatId);
+  const result = await exportCurrentMission(formatId);
+  if (!result.payload) {
+    setNote(`That mission can’t be exported as ${label} yet: ${result.errors[0]?.message ?? ''}`, true);
+    return;
+  }
+  // Same Blob-URL-on-a-synthetic-link download onExport() uses above.
+  const { text, filename, mime } = result.payload;
+  const url = URL.createObjectURL(new Blob([text], { type: mime }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+  setNote(`Exported as ${label} — ${lossSummary(result.semanticLosses)}`);
 }
 
 /* ---------- import ---------- */
@@ -208,15 +279,29 @@ async function onFile(e) {
     // arrives beside the original rather than on top of it.
     input.value = '';
   }
-  const result = await importMission(text);
-  if (!result) { setNote('There is nowhere to store an imported mission in this browser.', true); return; }
-  if (!result.ok) {
+  const { formatId, result, applied } = await importForeign(text, file.name);
+  if (!formatId) {
+    setNote('That file is not a mission format this planner recognizes.', true);
+    return;
+  }
+  if (formatId !== 'mission-document-v1' && !result) {
+    setNote(`${await formatLabel(formatId)} files can’t be imported into this planner (export only).`, true);
+    return;
+  }
+  if (result && result.status === 'failed') {
     setNote(`That file is not a mission this planner can read: ${result.errors[0]?.message ?? ''}`, true);
     return;
   }
-  const warned = result.warnings.length ? ` ${result.warnings.length} thing(s) need attention before analysis.` : '';
-  setNote(`Imported “${result.doc.title}” and opened it.`
-    + `${result.reidentified ? ' It arrived beside the mission it shares an id with, not over it.' : ''}${warned}`);
+  if (!applied) { setNote('There is nowhere to store an imported mission in this browser.', true); return; }
+  if (!applied.ok) {
+    setNote(`That file is not a mission this planner can read: ${applied.errors[0]?.message ?? ''}`, true);
+    return;
+  }
+  const warned = applied.warnings.length ? ` ${applied.warnings.length} thing(s) need attention before analysis.` : '';
+  const reid = applied.reidentified ? ' It arrived beside the mission it shares an id with, not over it.' : '';
+  const asFormat = formatId === 'mission-document-v1' ? '' : ` as ${await formatLabel(formatId)}`;
+  const lossNote = result ? ` ${lossSummary(result.semanticLosses)}` : '';
+  setNote(`Imported “${applied.doc.title}”${asFormat} and opened it.${reid}${warned}${lossNote}`);
   renderMissions();
 }
 
@@ -233,6 +318,8 @@ export function bindMissions() {
     setNote(`Copied to “${copy.title}” — that is the one you are editing now. The original is untouched.`);
     renderMissions();
   });
+  void populateInteropFormats();
+  $('btn-interop-export').addEventListener('click', () => { void onInteropExport(); });
   $('mission-file').addEventListener('change', (e) => { void onFile(e); });
   // The list goes stale while the fold is shut; opening it is the cheapest place
   // to notice.

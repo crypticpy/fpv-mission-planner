@@ -93,6 +93,16 @@
     // reaches only the compiler's typedefs, which are already here.
     "src/infrastructure/export/adapter-contracts.js",
     "src/infrastructure/export/xml.js",
+    // M6 waves B/C adapters — entries added ahead of the files (include patterns
+    // that match nothing are ignored), so parallel waves never contend for this list.
+    "src/infrastructure/export/gpx.js",
+    "src/infrastructure/export/kml.js",
+    "src/infrastructure/export/qgc-plan.js",
+    "src/infrastructure/export/ardupilot-wpl.js",
+    "src/infrastructure/export/inav-mission.js",
+    // Wave D (ADR 0010 §6): the registry over the five adapters above, all
+    // already here — so the router arrived clean on the same account they did.
+    "src/infrastructure/export/import-router.js",
     "src/infrastructure/persistence/mission-repository.js",
     "src/infrastructure/persistence/indexeddb-store.js",
     "src/infrastructure/persistence/memory-store.js",
@@ -123,5 +133,12 @@
     // imports are this mission-bridge.js entry (already clean) and
     // src/render/dom.js (11 errors of its own). It has never been blocked by the
     // physics/state work; it is waiting on dom.js alone.
+    //
+    // Wave D's own top-level module. Unlayered like mission-bridge.js, and clean
+    // for the same reason: every dependency it reaches — compile.js,
+    // adapter-contracts.js, import-router.js — is already on this list, and it
+    // takes its own missionDocument/importMission/groundAt by injection rather
+    // than importing src/mission-bridge.js or src/analysis-host.js directly.
+    "src/interop.js",
   ]
 }
