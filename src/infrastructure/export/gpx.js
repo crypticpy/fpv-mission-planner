@@ -259,7 +259,7 @@ export function importMission(text, { idgen, now } = {}) {
     if (!inRange) {
       return failed([{
         code: 'E-GPX-GEO-RANGE',
-        message: `A point's lat/lon is not a valid coordinate: lat='${node.attrs.lat}', lon='${node.attrs.lon}'.`,
+        message: `A point's lat/lon is not a valid coordinate: lat='${sanitizeText(String(node.attrs.lat ?? ''), { maxLen: 40 })}', lon='${sanitizeText(String(node.attrs.lon ?? ''), { maxLen: 40 })}'.`,
       }]);
     }
     points.push({ latitude, longitude, elevationMslM: eleOf(node) });

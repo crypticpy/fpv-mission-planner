@@ -200,6 +200,21 @@ test('a lat/lon outside range fails rather than clamps', () => {
   assert.equal(result.errors[0].code, 'E-GPX-GEO-RANGE');
 });
 
+test('a hostile lat value is capped and control-stripped before it is echoed in the error', () => {
+  const hostile = `evil${'A'.repeat(200000)}`;
+  const xml = `${XML_DECLARATION}\n<gpx version="1.1" creator="x" xmlns="http://www.topografix.com/GPX/1/1">`
+    + `<wpt lat="${hostile}" lon="-97.7"/></gpx>`;
+  const result = importMission(xml);
+  assert.equal(result.status, 'failed');
+  assert.equal(result.errors[0].code, 'E-GPX-GEO-RANGE');
+  const message = result.errors[0].message;
+  assert.ok(message.length < 200, `the echoed value is capped, got ${message.length} chars`);
+  for (const ch of message) {
+    const cp = /** @type {number} */ (ch.codePointAt(0));
+    assert.ok(cp >= 0x20 && !(cp >= 0x7f && cp <= 0x9f), 'no control characters survive into the note');
+  }
+});
+
 /* ---------- 4. round-trip: the exit gate's defined tolerance ---------- */
 
 test('export then import round-trips coordinates within 1e-6° and MSL altitude within 0.1 m', () => {

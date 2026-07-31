@@ -400,7 +400,9 @@ export async function openBrief() {
     times: legTimes(r),
     launchAt: plannedLaunchTime(),
     terrainAttribution: latest.provenance?.terrainAttribution ?? null,
-    compatibility: await compatibilityReport(),
+    // The report rides a lazy-loaded chunk; if that load fails (offline before
+    // the worker cached it), the brief still opens — just without this section.
+    compatibility: await compatibilityReport().catch(() => []),
     units: u,
     expert: !beginner(),
   });

@@ -232,9 +232,12 @@ async function populateInteropFormats() {
 
 /** What would travel if the open mission were exported right now, one line per format (ADR 0010 §6). */
 async function renderInteropReport() {
+  // Await before clearing, same as renderList: two overlapping calls that both
+  // clear first and append after would leave the report doubled.
+  const entries = await compatibilityReport();
   const host = $('interop-report');
   host.replaceChildren();
-  for (const entry of await compatibilityReport()) {
+  for (const entry of entries) {
     const p = document.createElement('p');
     p.className = 'rail-note';
     p.textContent = `${entry.label}: ${lossSummary(entry.losses)}`;
@@ -279,7 +282,16 @@ async function onFile(e) {
     // arrives beside the original rather than on top of it.
     input.value = '';
   }
-  const { formatId, result, applied } = await importForeign(text, file.name);
+  // importForeign rides the same lazy chunk the export path does; if that load
+  // fails, say so — a silently cleared file input reads as "nothing happened".
+  let routed;
+  try {
+    routed = await importForeign(text, file.name);
+  } catch {
+    setNote('Importing needs a part of the app that could not be loaded — try again once you are back online.', true);
+    return;
+  }
+  const { formatId, result, applied } = routed;
   if (!formatId) {
     setNote('That file is not a mission format this planner recognizes.', true);
     return;

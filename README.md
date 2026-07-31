@@ -559,6 +559,45 @@ Imported flights feed the calibration fit for the imported airframe, so a
 stranger's `etaProp` backed by eleven logged flights is still visibly different
 from one they typed in.
 
+## Handing missions to other tools
+
+A mission plan is only useful if it can leave. The mission fold on the Map tab
+exports the open mission to the formats the rest of the ecosystem actually
+speaks — **GPX 1.1** (any GIS or track viewer), **KML** (Google Earth),
+**QGroundControl `.plan`**, **ArduPilot/MAVLink `.waypoints`**, and **INAV
+Configurator `.mission`** — and reads all of them back except KML, which has no
+mission semantics to read. "Open a mission file" takes any of those alongside
+the planner's own JSON; the format is detected from the extension, or from the
+content when a download dialog has renamed the file to `.txt`.
+
+No two of those formats agree on what a mission *is*, so the planner refuses to
+pretend otherwise. Every export runs the mission through one compiler that
+resolves each altitude into every frame it can (**MSL, launch-relative, AGL**)
+and takes stock of the seven things a mission here can express: route geometry,
+altitude reference, speed policy, hold time, camera intent, return policy, and
+reserve policy. Each format declares which of those it can carry, and the
+difference is computed — not remembered by whoever wrote the adapter. What a
+format would drop or approximate is shown **before you export** (per format,
+under the export button, and in the mission brief), and again in the note after,
+e.g. *"2 things this planner knows don't travel: camera intent, reserve
+policy."* An unknown number is never invented to fill a required field: a
+format that demands an absolute altitude the planner doesn't know (say, launch
+elevation never resolved) fails the export and says why, rather than writing a
+plausible zero.
+
+Field semantics were verified against official docs and source at build time —
+QGC's seven-param `SimpleItem` and display-only `AltitudeMode`, WPL's
+`QGC WPL 110` header with home on row 0, INAV's integer-metre altitudes and
+single relative/AMSL datum bit — and each golden fixture under
+`tests/fixtures/interop/` records where it came from and when. Imports are
+treated as hostile until proven otherwise: XML is read by a strict subset
+parser that refuses DOCTYPE, entity declarations, and processing instructions
+outright, files are size-capped before parsing, every imported string is
+length-capped, control-stripped, and rendered as text, and every import ends at
+the same validation and honest re-identification the planner's own files get.
+Waypoint ids don't survive a trip through a vendor format; a re-import mints
+fresh ones and says so.
+
 ## Honest limitations
 
 - One `etaProp` per airframe, plus one profile-drag growth constant shared by

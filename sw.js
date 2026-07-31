@@ -26,7 +26,7 @@
 // Paths are relative to this file's scope (the app can live at "/" locally
 // or at a GitHub Pages subpath) — never use a leading "/".
 
-const CACHE_NAME = 'fpv-shell-v7';
+const CACHE_NAME = 'fpv-shell-v8';
 
 const PRECACHE_URLS = [
   '.',
@@ -42,6 +42,7 @@ const PRECACHE_URLS = [
   'src/drift.js',
   'src/flightlog.js',
   'src/forms.js',
+  'src/interop.js',
   'src/mission-bridge.js',
   'src/mission-commands.js',
   'src/packinstances.js',
@@ -68,11 +69,24 @@ const PRECACHE_URLS = [
   'src/domain/route.js',
   'src/domain/units.js',
   'src/domain/mission/altitude.js',
+  'src/domain/mission/compile.js',
   'src/domain/mission/mission-migrations.js',
   'src/domain/mission/mission-reducer.js',
   'src/domain/mission/mission-schema.js',
   'src/domain/wind/regime.js',
   'src/domain/wind/terrain-forcing.js',
+  /* M6's compiler + adapters (ADR 0010). In production these are one lazy chunk
+     the generated worker picks up from its dist/ walk automatically — unlike
+     scene3d it is ~40 kB gzip of pure text handling, exactly what a pilot at a
+     trailhead needs to hand a mission to a radio's own app with no signal. */
+  'src/infrastructure/export/adapter-contracts.js',
+  'src/infrastructure/export/ardupilot-wpl.js',
+  'src/infrastructure/export/gpx.js',
+  'src/infrastructure/export/import-router.js',
+  'src/infrastructure/export/inav-mission.js',
+  'src/infrastructure/export/kml.js',
+  'src/infrastructure/export/qgc-plan.js',
+  'src/infrastructure/export/xml.js',
   'src/infrastructure/persistence/indexeddb-store.js',
   'src/infrastructure/persistence/memory-store.js',
   'src/infrastructure/persistence/mission-repository.js',
