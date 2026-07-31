@@ -597,6 +597,148 @@ test('the composition layer can state provenance the document cannot', () => {
   assert.match(snap.provenance.samplingResolution, /elevation points over 4.6 km/);
 });
 
+/* ---------- 8b. forecast age and flight-count calibration (ADR 0012 §1) ---------- */
+
+/* forecastAgeDrafts anchors on when the environment was *fetched*
+ * (env.capturedAt), never on the forecast hour it describes (validAt) — an
+ * archive lookup is deliberately about an hour that already happened, and
+ * that is never itself a reason to warn. What ages is how long ago the fetch
+ * landed, and only when there was a fetch to age at all: a manual or preset
+ * environment carries no provenance, and must never earn either code however
+ * stale its capturedAt looks. */
+
+const HOUR_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * HOUR_MS;
+
+// The exact shape mission-commands.js's environmentReference() fills in (SI
+// units, every field required by checkEnvironment) — a fixture with a hole in
+// it would be rejected by the reducer's own validation, not a fixture the
+// forecast-age logic ever sees.
+const VALID_ENV_VALUES = {
+  temperatureC: 24, relativeHumidityPct: 40, windAvgMs: 5, windGustMs: 8, windFromDeg: 170,
+};
+
+/**
+ * A one-waypoint mission whose environmentReference was fetched `ageMs`
+ * before AT — the same clock every `analyze()` call in this file runs the
+ * pipeline on, so the age is pinned exactly rather than raced against a real
+ * clock. Every case clears the memo first: aircraftSnapshot and provenance
+ * are not part of analyzeMission's cache key (only capturedAt/source/values
+ * are, via forecastSignatureOf), so two fixtures sharing this route and a
+ * blank aircraft would otherwise hit each other's cached snapshot.
+ */
+function withFetchedEnv(ageMs, { source = 'live' } = {}) {
+  clearAnalysisCache();
+  const doc = mission([{ at: wpAt(0, 4) }]);
+  const capturedAt = new Date(Date.parse(AT) - ageMs).toISOString();
+  return missionReduce(doc, {
+    type: 'setEnvironmentReference',
+    payload: {
+      source,
+      capturedAt,
+      values: VALID_ENV_VALUES,
+      provenance: { source: 'open-meteo-forecast', retrievedAt: capturedAt, validAt: capturedAt },
+    },
+  }, { idgen: idgen(), now: () => AT });
+}
+
+test('a forecast just under 6 hours old earns neither age code', () => {
+  const doc = withFetchedEnv(HOUR_MS * 6 - 1000);
+  const snap = analyze(doc);
+  assert.ok(!codes(snap).includes('W-DATA-FORECAST-AGE'));
+  assert.ok(!codes(snap).includes('W-DATA-FORECAST-STALE'));
+});
+
+test('a forecast just past 6 hours old earns a caution, not yet a warning', () => {
+  const doc = withFetchedEnv(HOUR_MS * 6 + 1000);
+  const snap = analyze(doc);
+  assert.ok(codes(snap).includes('W-DATA-FORECAST-AGE'));
+  assert.ok(!codes(snap).includes('W-DATA-FORECAST-STALE'));
+});
+
+test('a forecast just past 24 hours old escalates to a warning, and the caution does not also fire', () => {
+  const doc = withFetchedEnv(DAY_MS + 1000);
+  const snap = analyze(doc);
+  assert.ok(codes(snap).includes('W-DATA-FORECAST-STALE'));
+  assert.ok(!codes(snap).includes('W-DATA-FORECAST-AGE'));
+});
+
+test('the forecast-age caution still fires in the no-pack branch of compute()', () => {
+  const doc = withFetchedEnv(HOUR_MS * 6 + 1000);
+  const snap = analyze(doc, inputs({ battery: null }));
+  assert.ok(codes(snap).includes('W-DATA-FORECAST-AGE'));
+});
+
+test('a manual or preset environment never earns a forecast-age code, however old its capturedAt', () => {
+  for (const source of ['manual', 'preset']) {
+    clearAnalysisCache();
+    const doc = mission([{ at: wpAt(0, 4) }]);
+    const oldCapture = new Date(Date.parse(AT) - DAY_MS * 5).toISOString();
+    // No provenance at all — a manual entry or a saved preset has no fetch
+    // instant to age, which is exactly what gates this off in forecastAgeDrafts.
+    const withEnv = missionReduce(doc, {
+      type: 'setEnvironmentReference',
+      payload: { source, presetId: source === 'preset' ? 'calm-evening' : null, capturedAt: oldCapture, values: VALID_ENV_VALUES },
+    }, { idgen: idgen(), now: () => AT });
+    const snap = analyze(withEnv);
+    assert.ok(!codes(snap).includes('W-DATA-FORECAST-AGE'), `${source} must never age`);
+    assert.ok(!codes(snap).includes('W-DATA-FORECAST-STALE'), `${source} must never age`);
+  }
+});
+
+test('a fetched environment bag reaches the snapshot provenance unchanged, end to end', () => {
+  clearAnalysisCache();
+  const doc = mission([{ at: wpAt(0, 4) }]);
+  const capturedAt = '2026-07-30T09:00:00.000Z'; // 3 hours before AT, under the caution threshold
+  const withEnv = missionReduce(doc, {
+    type: 'setEnvironmentReference',
+    payload: {
+      source: 'live',
+      capturedAt,
+      values: VALID_ENV_VALUES,
+      provenance: { source: 'open-meteo-forecast', retrievedAt: capturedAt, validAt: '2026-07-30T09:00' },
+    },
+  }, { idgen: idgen(), now: () => AT });
+
+  const snap = analyze(withEnv);
+  // The fetch bag's `validAt` is where the pipeline's `forecastValid` comes
+  // from — the one place the two vocabularies (weather.js's and ADR 0008's)
+  // meet (buildProvenance).
+  assert.equal(snap.provenance.forecastValid, '2026-07-30T09:00');
+  assert.equal(snap.provenance.retrievedAt, capturedAt);
+  // Under 6 hours old: neither age code fires, proving this is a clean read
+  // rather than a side effect of the threshold tests above.
+  assert.ok(!codes(snap).includes('W-DATA-FORECAST-AGE'));
+  assert.ok(!codes(snap).includes('W-DATA-FORECAST-STALE'));
+});
+
+test('calibrationSource names the flight count a calibrated aircraft rode in on', () => {
+  clearAnalysisCache();
+  const doc = mission([{ at: wpAt(0, 4) }], {
+    aircraft: { ...MOZ7_SNAPSHOT, calibrated: true, nFlights: 3 },
+  });
+  const snap = analyze(doc);
+  assert.equal(snap.provenance.calibrationSource, 'flight-log calibration (3 flights)');
+});
+
+test('calibrationSource is singular for exactly one flight', () => {
+  clearAnalysisCache();
+  const doc = mission([{ at: wpAt(0, 4) }], {
+    aircraft: { ...MOZ7_SNAPSHOT, calibrated: true, nFlights: 1 },
+  });
+  const snap = analyze(doc);
+  assert.equal(snap.provenance.calibrationSource, 'flight-log calibration (1 flight)');
+});
+
+test('an uncalibrated aircraft names its stated confidence instead of a flight count', () => {
+  clearAnalysisCache();
+  const doc = mission([{ at: wpAt(0, 4) }], {
+    aircraft: { ...MOZ7_SNAPSHOT, calibrated: false, confidence: 'manufacturer spec' },
+  });
+  const snap = analyze(doc);
+  assert.equal(snap.provenance.calibrationSource, 'manufacturer spec');
+});
+
 /* ---------- 9. the footprint ---------- */
 
 /* The wind-shaped turnaround envelope moved out of src/map.js and into the

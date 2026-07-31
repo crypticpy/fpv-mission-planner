@@ -62,12 +62,18 @@ const PRESSURE_VARS = PRESSURE_LEVELS_HPA
 
 /**
  * Fetch current conditions for a point. Returns
- * { patch, gust10Mph, levels, forecast } where patch is ready to merge into
- * state.env, levels is the wind at each of CRUISE_ALTS_M (see windprofile.js)
- * and forecast is the shaped hourly/daily outlook (see shapeForecast). Throws on
- * network/malformed data.
+ * { patch, gust10Mph, levels, forecast, provenance } where patch is ready to
+ * merge into state.env, levels is the wind at each of CRUISE_ALTS_M (see
+ * windprofile.js), forecast is the shaped hourly/daily outlook (see
+ * shapeForecast), and provenance (ADR 0012 §1) stamps what this call actually
+ * knows: the source, when the response landed, and the forecast hour the
+ * values were read for (null when Open-Meteo's own `current.time` is absent,
+ * as in older fixtures — never guessed). Throws on network/malformed data.
+ * `signal` (optional) cancels the underlying fetch; an aborted call throws
+ * the platform's AbortError, which every caller of this function treats as
+ * silence rather than failure (ADR 0012 §3).
  */
-export async function fetchLiveEnv({ lat, lng }) {
+export async function fetchLiveEnv({ lat, lng }, { signal } = {}) {
   // The patch is still built from the 80 m wind: FPV cruise happens at 30–120 m
   // AGL, where the wind runs well above the surface reading, and 80 m is the
   // level every plan in this app's history has flown. The other levels ride
@@ -80,7 +86,7 @@ export async function fetchLiveEnv({ lat, lng }) {
     + '&daily=sunrise,sunset,wind_speed_10m_max,wind_gusts_10m_max,precipitation_probability_max'
     + '&forecast_days=3&timezone=auto'
     + '&temperature_unit=fahrenheit&wind_speed_unit=mph';
-  const res = await fetch(url);
+  const res = await fetch(url, { signal });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const data = await res.json();
   const c = data.current;
@@ -104,6 +110,11 @@ export async function fetchLiveEnv({ lat, lng }) {
     levels: levelsFrom(c),
     sounding: soundingFrom(c),
     forecast: shapeForecast(data),
+    provenance: {
+      source: 'open-meteo-forecast',
+      retrievedAt: new Date().toISOString(),
+      validAt: typeof c.time === 'string' ? c.time : null,
+    },
   };
 }
 
@@ -182,9 +193,11 @@ function soundingFrom(block, i = null) {
  *
  * Throws on network trouble, a malformed payload, or an hour the archive has no
  * data for. Prefilling a form is a convenience, so every caller is expected to
- * carry on without it.
+ * carry on without it. `signal` (optional) cancels the underlying fetch; an
+ * aborted call throws the platform's AbortError (ADR 0012 §3 — silence, not
+ * failure, at every caller).
  */
-export async function fetchArchiveEnv({ lat, lng }, whenLocal) {
+export async function fetchArchiveEnv({ lat, lng }, whenLocal, { signal } = {}) {
   const stamp = String(whenLocal);
   const date = stamp.slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(stamp)) throw new Error('bad timestamp');
@@ -192,7 +205,7 @@ export async function fetchArchiveEnv({ lat, lng }, whenLocal) {
     + `&start_date=${date}&end_date=${date}`
     + '&hourly=temperature_2m,relative_humidity_2m,wind_speed_100m,wind_direction_100m'
     + '&timezone=auto&temperature_unit=fahrenheit&wind_speed_unit=mph';
-  const res = await fetch(url);
+  const res = await fetch(url, { signal });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const data = await res.json();
   const h = data && data.hourly;
@@ -210,6 +223,11 @@ export async function fetchArchiveEnv({ lat, lng }, whenLocal) {
     tempF: Math.round(h.temperature_2m[i]),
     rhPct: numOrNull(h.relative_humidity_2m, i, Math.round),
     elevM: Number.isFinite(data.elevation) ? data.elevation : null,
+    provenance: {
+      source: 'open-meteo-archive',
+      retrievedAt: new Date().toISOString(),
+      validAt: h.time[i],
+    },
   };
 }
 

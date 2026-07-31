@@ -83,7 +83,7 @@
  * being made.
  *
  * @typedef {object} ElevationProvider
- * @property {(points: readonly ElevationPoint[]) => Promise<ElevationAnswer>} elevations
+ * @property {(points: readonly ElevationPoint[], options?: { signal?: AbortSignal }) => Promise<ElevationAnswer>} elevations
  * @property {string} [source]
  * @property {string|null} [dataset]
  * @property {number|null} [resolutionM]

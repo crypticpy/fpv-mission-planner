@@ -270,6 +270,13 @@ test('aircraftSnapshot keeps what the physics reads and drops the rest', () => {
   assert.equal('wheelbaseMm' in snap, false, 'the model never reads it');
 });
 
+test('aircraftSnapshot carries the flight count behind a calibration, and nothing else counts as one', () => {
+  assert.equal(aircraftSnapshot(MOZ7).nFlights, null, 'no opts at all means no count to name');
+  assert.equal(aircraftSnapshot(MOZ7, { calibrated: true, nFlights: 3 }).nFlights, 3);
+  assert.equal(aircraftSnapshot(MOZ7, { calibrated: true, nFlights: '3' }).nFlights, null,
+    'a string is not a flight count, whatever it says');
+});
+
 test('a snapshot does not move when the catalog record does', () => {
   const record = structuredClone(MOZ7);
   const snap = aircraftSnapshot(record);

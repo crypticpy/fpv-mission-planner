@@ -13,7 +13,7 @@ import { f0, compass } from './format.js';
 import { $ } from './dom.js';
 import { populateControls } from './controls.js';
 import { setForecast } from './forecast.js';
-import { pushLaunch } from '../mission-commands.js';
+import { pushLaunch, pushEnvironment } from '../mission-commands.js';
 
 let deps = null; // injected by app.js: { update, revision, accept }
 export function setupLive(d) { deps = d; }
@@ -25,6 +25,22 @@ let liveFetching = false;
 let liveData = null;   // { patch, gust10Mph, at } of the last successful fetch
 let liveErr = null;
 let geoMsg = null;     // geolocation progress/denial, shown in the same status line
+// Resource layer beside liveSeq (ADR 0012 §3): a superseded fetch is aborted
+// rather than merely ignored, so a pilot who taps the launch point three
+// times in a row doesn't leave two dead requests running to completion.
+let liveController = null;
+
+/**
+ * The provenance of the weather the rail is currently showing, for push sites
+ * outside this module (ADR 0012 §1). While the live fetch is the source, its
+ * bag is the answer; any other source is pilot-authored and has no fetch to be
+ * honest about. Without this, a rail edit that re-pushes the environment while
+ * live mode is active — the wind-level select, say — would overwrite the
+ * document's provenance with null while the source still read 'live'.
+ */
+export function liveProvenance() {
+  return state.weatherId === 'live' ? (liveData?.provenance ?? null) : null;
+}
 
 /** Never show live numbers without saying whose sky they came from. */
 function launchLabel() {
@@ -107,6 +123,12 @@ export function updateLiveUI() {
 
 export async function goLive(pt) {
   const seq = ++liveSeq;
+  // The correctness layer (seq) already keeps a superseded answer from
+  // applying; this closes the request itself rather than letting it run to
+  // completion for nobody.
+  liveController?.abort();
+  const controller = new AbortController();
+  liveController = controller;
   state.weatherId = 'live';
   liveFetching = true;
   liveErr = null;
@@ -130,7 +152,8 @@ export async function goLive(pt) {
   };
   let stale = false;
   try {
-    const { patch, gust10Mph, levels, sounding, forecast } = await fetchLiveEnv(where);
+    const { patch, gust10Mph, levels, sounding, forecast, provenance } =
+      await fetchLiveEnv(where, { signal: controller.signal });
     if (seq !== liveSeq || state.weatherId !== 'live') return; // superseded meanwhile
     stale = moved() || !deps.accept(asked, 'live weather fetch');
     if (stale) return;
@@ -146,6 +169,10 @@ export async function goLive(pt) {
     // The fetch resolves the elevation of the spot it was made for, and the
     // launch elevation belongs to the mission document, not the rail (ADR 0002).
     pushLaunch(where);
+    // The document's environmentReference gets the same fetch's provenance
+    // (ADR 0012 §1) — the one write site that used to hardcode `provenance:
+    // null` for every source now hears from the source that actually has one.
+    pushEnvironment(provenance);
     // The scrubber keeps the raw current-conditions patch: its Now step re-applies
     // whichever level is selected at the time, so stashing a level-shifted patch
     // here would bake today's choice into tomorrow's hour.
@@ -153,10 +180,13 @@ export async function goLive(pt) {
     liveData = {
       // The raw fetch, not the level-shifted copy: the status line reads its own
       // level off the profile, so this stays a record of what came back.
-      patch, gust10Mph,
+      patch, gust10Mph, provenance,
       at: new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }),
     };
   } catch (err) {
+    // Silence, not failure (ADR 0012 §3): a request this file cancelled itself
+    // — because a newer one already took over — is not a live-weather outage.
+    if (err?.name === 'AbortError') return;
     if (seq !== liveSeq || state.weatherId !== 'live') return;
     stale = moved() || !deps.accept(asked, 'live weather fetch');
     if (stale) return;

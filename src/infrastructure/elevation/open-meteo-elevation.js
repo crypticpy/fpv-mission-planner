@@ -103,12 +103,14 @@ export function createOpenMeteoElevationProvider(options = {}) {
 
     /**
      * @param {readonly ElevationPoint[]} points
+     * @param {{ signal?: AbortSignal }} [options]
      * @returns {Promise<ElevationAnswer>}
      */
-    async elevations(points) {
+    async elevations(points, options = {}) {
       if (!Array.isArray(points)) {
         throw new TypeError('elevations: points must be an array of { lat, lng }');
       }
+      const { signal } = options;
       const retrievedAt = now();
       /** @type {(number|null)[]} */
       const out = new Array(points.length).fill(null);
@@ -116,6 +118,7 @@ export function createOpenMeteoElevationProvider(options = {}) {
       const notes = [];
       let batches = 0;
       let answered = 0;
+      let aborted = false;
 
       if (points.length === 0) {
         return answer(out, notes, { retrievedAt, batches, answered, requested: 0 });
@@ -127,13 +130,19 @@ export function createOpenMeteoElevationProvider(options = {}) {
 
       const total = Math.ceil(points.length / batchSize);
       for (let start = 0; start < points.length; start += batchSize) {
+        // A cancelled request stops asking rather than finishing a batch
+        // nobody wants any more (ADR 0012 §3) — every point left is better
+        // answered "not sampled" than by a request that keeps running after
+        // the caller has already moved on.
+        if (signal?.aborted) { aborted = true; break; }
         const chunk = points.slice(start, start + batchSize);
         batches++;
         const label = `batch ${batches} of ${total}`;
         let values = null;
         try {
-          values = await requestBatch(doFetch, chunk, label, notes);
+          values = await requestBatch(doFetch, chunk, label, notes, signal);
         } catch (err) {
+          if (isAbortError(err)) { aborted = true; break; }
           notes.push(`${label}: the elevation request failed (${errorText(err)}); `
             + `${chunk.length} point(s) have no ground.`);
         }
@@ -148,7 +157,11 @@ export function createOpenMeteoElevationProvider(options = {}) {
       }
 
       const missing = points.length - answered;
-      if (missing > 0 && notes.length === 0) {
+      // An abort is silence, not failure (ADR 0012 §3): the unanswered points
+      // stay null, but they earn no note — "we stopped asking" is not "the
+      // DEM has no value there", and a note is the one thing this port
+      // promises never to write about a cancellation the caller itself asked for.
+      if (missing > 0 && notes.length === 0 && !aborted) {
         // Every batch came back well formed and some points still have no
         // ground: the DEM has a hole there (ocean, a tile that was never
         // built). Saying so is the difference between "we did not ask" and
@@ -168,12 +181,13 @@ export function createOpenMeteoElevationProvider(options = {}) {
  * @param {readonly ElevationPoint[]} chunk
  * @param {string} label
  * @param {string[]} notes
+ * @param {AbortSignal} [signal]
  * @returns {Promise<unknown[]|null>}
  */
-async function requestBatch(doFetch, chunk, label, notes) {
+async function requestBatch(doFetch, chunk, label, notes, signal) {
   const lat = chunk.map((p) => p.lat.toFixed(4)).join(',');
   const lng = chunk.map((p) => p.lng.toFixed(4)).join(',');
-  const res = await doFetch(`${OPEN_METEO_ELEVATION_URL}?latitude=${lat}&longitude=${lng}`);
+  const res = await doFetch(`${OPEN_METEO_ELEVATION_URL}?latitude=${lat}&longitude=${lng}`, { signal });
   if (!res || !res.ok) {
     notes.push(`${label}: the elevation service answered HTTP ${res?.status ?? 'nothing'}; `
       + `${chunk.length} point(s) have no ground.`);
@@ -227,4 +241,14 @@ function describe(value) {
 function errorText(err) {
   if (err instanceof Error && err.message) return err.message;
   return typeof err === 'string' && err ? err : 'no reason given';
+}
+
+/**
+ * True for the error a cancelled `fetch` throws. Checked by name rather than
+ * `instanceof DOMException` — Node's `AbortSignal` and a browser's agree on
+ * the name, not necessarily on which global carries the class.
+ * @param {unknown} err @returns {boolean}
+ */
+function isAbortError(err) {
+  return !!err && typeof err === 'object' && /** @type {{ name?: unknown }} */ (err).name === 'AbortError';
 }

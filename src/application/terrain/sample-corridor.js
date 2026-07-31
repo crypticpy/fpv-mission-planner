@@ -77,17 +77,21 @@ import { elevationKey, lateralSampleId } from './terrain-contracts.js';
  * @property {Partial<FeatureThresholds>} [thresholds]
  * @property {number} [crossTrackOffsetM]
  * @property {() => string} [now]  ISO instant; injected for deterministic tests
+ * @property {AbortSignal} [signal]  cancels an in-flight provider call (ADR 0012 §3)
  */
 
-/** @typedef {(corridor: CorridorRequest) => Promise<TerrainField>} CorridorTerrainSampler */
+/** @typedef {(corridor: CorridorRequest, signal?: AbortSignal) => Promise<TerrainField>} CorridorTerrainSampler */
 
 /**
- * The seam M3b wires into the pipeline: deps in, one function out.
+ * The seam M3b wires into the pipeline: deps in, one function out. `signal`
+ * (ADR 0012 §3, additive) is the host's per-call cancellation — a superseded
+ * sample aborts the request rather than merely discarding an answer nobody
+ * asked for any more.
  * @param {TerrainSamplerDeps} deps
  * @returns {CorridorTerrainSampler}
  */
 export function createTerrainSampler(deps = {}) {
-  return (corridor) => sampleCorridor(corridor, deps);
+  return (corridor, signal) => sampleCorridor(corridor, { ...deps, signal });
 }
 
 /** One planned point, before anything is known about the ground under it. */
@@ -203,7 +207,7 @@ export async function sampleCorridor(corridor, deps = {}) {
     notes.push('No elevation provider is wired up, so no ground was sampled for this route.');
   } else if (wanted.length > 0 && provider) {
     try {
-      const answer = await provider.elevations(wanted.map((w) => w.point));
+      const answer = await provider.elevations(wanted.map((w) => w.point), { signal: deps.signal });
       const values = answer && Array.isArray(answer.elevationsM) ? answer.elevationsM : null;
       answerProvenance = answer?.provenance ?? null;
       if (!values || values.length !== wanted.length) {
@@ -223,10 +227,13 @@ export async function sampleCorridor(corridor, deps = {}) {
       }
       for (const note of answerProvenance?.notes ?? []) notes.push(note);
     } catch (err) {
-      // A provider that threw is a provider with no answer. Taking the analysis
-      // down with it would lose the energy, wind and route findings too, all of
-      // which are still true.
-      notes.push(`The elevation provider failed: ${errorText(err)}`);
+      // Silence, not failure (ADR 0012 §3): a cancelled request is not a
+      // provider outage, and the port itself already keeps an AbortError from
+      // reaching here in the ordinary case — this is the backstop for a
+      // provider implementation that throws one directly. Anything else is a
+      // provider with no answer; taking the analysis down with it would lose
+      // the energy, wind and route findings too, all of which are still true.
+      if (!isAbortError(err)) notes.push(`The elevation provider failed: ${errorText(err)}`);
     }
   }
 
@@ -323,6 +330,11 @@ export async function sampleCorridor(corridor, deps = {}) {
 function errorText(err) {
   if (err instanceof Error && err.message) return err.message;
   return typeof err === 'string' && err ? err : 'no reason given';
+}
+
+/** True for the error a cancelled fetch/provider call throws. @param {unknown} err @returns {boolean} */
+function isAbortError(err) {
+  return !!err && typeof err === 'object' && /** @type {{ name?: unknown }} */ (err).name === 'AbortError';
 }
 
 /**

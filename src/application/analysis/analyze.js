@@ -649,6 +649,47 @@ function terrainDrafts(plan, deps, profile) {
   return deps.terrainWarnings(plan).map((w) => draftFromLegacy('terrain', w));
 }
 
+/** Six hours before a fetched forecast earns W-DATA-FORECAST-AGE. */
+const FORECAST_AGE_CAUTION_MS = 6 * 60 * 60 * 1000;
+/** A full day before the same forecast escalates to W-DATA-FORECAST-STALE. */
+const FORECAST_AGE_STALE_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * ADR 0012 §1: how long ago the environment was actually fetched, not how old
+ * the forecast hour it describes is — an archive lookup is deliberately about
+ * yesterday and that is never a reason to warn, but a *live* fetch left running
+ * against this analysis for a day is exactly the "the numbers on screen may not
+ * be true any more" case a pilot needs told. `env.provenance` is only ever
+ * non-null for a fetched source (weather.js), so gating on it already excludes
+ * manual and preset environments — there is no fetch instant to age for either.
+ * @param {MissionDocumentV1} doc
+ * @param {string} computedAt ISO instant this analysis run treats as "now" —
+ *   the same injected clock (`deps.now`) `buildProvenance`'s own `computedAt`
+ *   is stamped with, so a test can pin the threshold deterministically.
+ * @returns {ConstraintDraft[]}
+ */
+function forecastAgeDrafts(doc, computedAt) {
+  const env = doc.environmentReference;
+  const prov = env?.provenance;
+  if (!prov) return [];
+  const fetchedAt = typeof prov.retrievedAt === 'string' ? prov.retrievedAt : null;
+  const retrieved = Date.parse(env.capturedAt ?? fetchedAt ?? '');
+  const now = Date.parse(computedAt);
+  if (!Number.isFinite(retrieved) || !Number.isFinite(now)) return [];
+  const ageMs = now - retrieved;
+  if (ageMs >= FORECAST_AGE_STALE_MS) {
+    return [draftConstraint('W-DATA-FORECAST-STALE',
+      'This forecast was fetched more than 24 hours ago. The wind and weather figures below are the '
+      + 'last real forecast, not padding — refetch once connectivity returns.')];
+  }
+  if (ageMs >= FORECAST_AGE_CAUTION_MS) {
+    return [draftConstraint('W-DATA-FORECAST-AGE',
+      'This forecast was fetched more than 6 hours ago. The wind and weather figures below may no '
+      + 'longer match conditions at the launch site.')];
+  }
+  return [];
+}
+
 /**
  * @param {SolvedPlan} plan
  * @param {AnalysisDeps} deps
@@ -958,6 +999,7 @@ function compute(doc, inputs, revision, deps, cacheKey, computedAt) {
         + 'is unavailable until one is.'),
       ...(planResult.warnings ?? []).map((w) => draftFromLegacy('plan', w)),
       ...advisory.drafts,
+      ...forecastAgeDrafts(doc, computedAt),
     ];
     return freezeSnapshot({
       id: `ana_${cacheKey}`,
@@ -1094,6 +1136,7 @@ function compute(doc, inputs, revision, deps, cacheKey, computedAt) {
     ...groundChecks.drafts,
     ...returnEnergyDrafts,
     ...advisory.drafts,
+    ...forecastAgeDrafts(doc, computedAt),
   ];
   if (oneWay) {
     drafts.push(draftConstraint('W-RESERVE-ONE-WAY',
@@ -1161,6 +1204,20 @@ function forecastSignatureOf(doc) {
 }
 
 /**
+ * `'flight-log calibration (3 flights)'` — the count, not just the fact of
+ * calibration, so the brief can print one honest uncertainty line without a
+ * new contract (ADR 0012 §1). Singular below 2 flights: the flight log will
+ * apply a fit starting at one accepted flight (src/calibrate.js's `'show'`
+ * tier), so "1 flights" is a real, reachable case, not a rounding curiosity.
+ * @param {number|null} nFlights
+ * @returns {string}
+ */
+function calibrationLabel(nFlights) {
+  const n = Number.isFinite(nFlights) ? Number(nFlights) : 0;
+  return `flight-log calibration (${n} flight${n === 1 ? '' : 's'})`;
+}
+
+/**
  * Provenance from what the document and the ports actually said. Anything the
  * composition layer knows better is passed in `deps.provenance` and wins.
  * @param {MissionDocumentV1} doc
@@ -1190,12 +1247,15 @@ function buildProvenance(doc, deps, corridor, field, profile, cacheKey, computed
       : `${corridor.samples.length} corridor samples at ${corridor.spacingM} m spacing`);
   return provenanceOf({
     forecastIssue: str(prov.forecastIssue),
-    forecastValid: str(prov.forecastValid),
+    // The fetch bag names its field `validAt` (weather.js); the snapshot names
+    // the same fact `forecastValid` (ADR 0008's typedef, predating the fetch
+    // that would fill it) — this is the one place the two vocabularies meet.
+    forecastValid: str(prov.validAt),
     terrainSource: field?.provenance.source ?? (profile ? str(prov.terrainSource) : null),
     terrainAttribution: field?.provenance.attribution ?? null,
     samplingResolution: sampled,
     calibrationSource: aircraft
-      ? (aircraft.calibrated ? 'flight-log calibration' : str(aircraft.confidence))
+      ? (aircraft.calibrated ? calibrationLabel(aircraft.nFlights) : str(aircraft.confidence))
       : null,
     retrievedAt: env?.capturedAt ?? str(prov.retrievedAt),
     ...deps.provenance,

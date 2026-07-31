@@ -195,17 +195,20 @@ function clamp(n, lo, hi) {
  * @property {ElevationProvider|null} [provider]
  * @property {ElevationCache|null} [cache]
  * @property {() => string} [now]  ISO instant; injected for deterministic tests
+ * @property {AbortSignal} [signal]  cancels an in-flight provider call (ADR 0012 §3)
  */
 
-/** @typedef {(request: AdvisoryGridRequest) => Promise<AdvisoryGridField>} GridSampler */
+/** @typedef {(request: AdvisoryGridRequest, signal?: AbortSignal) => Promise<AdvisoryGridField>} GridSampler */
 
 /**
- * The seam a host wires into the pipeline: deps in, one function out.
+ * The seam a host wires into the pipeline: deps in, one function out. `signal`
+ * (ADR 0012 §3, additive) mirrors sample-corridor.js's own — a superseded
+ * grid sample aborts its request rather than merely discarding the answer.
  * @param {GridSamplerDeps} deps
  * @returns {GridSampler}
  */
 export function createGridSampler(deps = {}) {
-  return (request) => sampleGrid(request, deps);
+  return (request, signal) => sampleGrid(request, { ...deps, signal });
 }
 
 /**
@@ -280,9 +283,12 @@ export async function sampleGrid(request, deps = {}) {
     // batching gives: a keyless, free endpoint stays usable when nothing hits
     // it with every point in one shot or a burst of parallel calls.
     for (let start = 0; start < wanted.length; start += GRID_BATCH_MAX) {
+      // Cancelled: stop asking rather than finish a batch nobody wants any
+      // more (ADR 0012 §3) — the cells left over answer "not sampled".
+      if (deps.signal?.aborted) break;
       const chunk = wanted.slice(start, start + GRID_BATCH_MAX);
       try {
-        const answer = await provider.elevations(chunk.map((w) => w.point));
+        const answer = await provider.elevations(chunk.map((w) => w.point), { signal: deps.signal });
         const values = answer && Array.isArray(answer.elevationsM) ? answer.elevationsM : null;
         const prov = answer?.provenance ?? null;
         if (prov) {
@@ -309,6 +315,10 @@ export async function sampleGrid(request, deps = {}) {
           });
         }
       } catch (err) {
+        // Silence, not failure (ADR 0012 §3): a cancelled batch is not a
+        // provider outage, and stopping here (rather than pressing on to the
+        // next chunk) is what "the caller has moved on" actually means.
+        if (isAbortError(err)) break;
         notes.push(`a batch of ${chunk.length} cell(s) failed: ${errorText(err)}.`);
       }
     }
@@ -359,4 +369,9 @@ export async function sampleGrid(request, deps = {}) {
 function errorText(err) {
   if (err instanceof Error && err.message) return err.message;
   return typeof err === 'string' && err ? err : 'no reason given';
+}
+
+/** True for the error a cancelled fetch/provider call throws. @param {unknown} err @returns {boolean} */
+function isAbortError(err) {
+  return !!err && typeof err === 'object' && /** @type {{ name?: unknown }} */ (err).name === 'AbortError';
 }

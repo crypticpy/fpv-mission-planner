@@ -31,7 +31,7 @@ import {
   renderStats, renderPowerCurve, renderSpeedTradeoff, renderProfile, renderWindSensitivity,
 } from './render/dashboard.js';
 import { renderComparison } from './render/comparison.js';
-import { setupLive, goLive, useMyLocation, updateLiveUI, liveError } from './render/live.js';
+import { setupLive, goLive, useMyLocation, updateLiveUI, liveError, liveProvenance } from './render/live.js';
 import {
   setupForecast, renderForecastStrip, setForecastHour, reapplyForecastHour,
 } from './render/forecast.js';
@@ -238,7 +238,9 @@ function setCruiseAlt(m) {
    reducer refuses returns false and warns on the console; the rail keeps the value
    the pilot typed, and this pass renders it either way. */
 const editLoadout = () => { pushLoadout(); update(); };
-const editEnv = () => { pushEnvironment(); update(); };
+// liveProvenance(): a rail edit that leaves live mode active (the wind-level
+// select) must re-push the live fetch's own bag, not erase it (ADR 0012 §1).
+const editEnv = () => { pushEnvironment(liveProvenance()); update(); };
 const editPolicy = () => { pushPolicy(); update(); };
 
 function bind() {

@@ -37,6 +37,8 @@ test('the constraint code registry is exactly this list', () => {
     'W-ALT-VERTICAL-UNMODELLED',
     'W-ANALYSIS-UNCLASSIFIED',
     'W-DATA-ALTITUDE-UNRESOLVED',
+    'W-DATA-FORECAST-AGE',
+    'W-DATA-FORECAST-STALE',
     'W-DATA-LINK-ABSENT',
     'W-DATA-TERRAIN-ABSENT',
     'W-DATA-TERRAIN-SAMPLE-MISSING',

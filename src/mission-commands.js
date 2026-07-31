@@ -48,14 +48,26 @@ function loadout() {
     // The calibration overlay stamps `calibration` on the record it returns and
     // nothing else in the catalog carries that field, so this is the test for
     // "these numbers are the pilot's own flights rather than the spec sheet's".
-    aircraft: aircraftSnapshot(flying, { calibrated: flying.calibration != null }),
+    aircraft: aircraftSnapshot(flying, {
+      calibrated: flying.calibration != null,
+      nFlights: flying.calibration?.nFlights ?? null,
+    }),
     battery: batt ? batterySnapshot(batt) : null,
     payload: payloadSnapshot(payload(), { extraG: state.extraG }),
   };
 }
 
-/** The rail's weather, in SI, labelled with where it came from. */
-function environmentReference() {
+/**
+ * The rail's weather, in SI, labelled with where it came from.
+ *
+ * `provenance` (ADR 0012 §1) is the fetch bag `fetchLiveEnv`/`fetchArchiveEnv`
+ * stamp on the way in — additive, and null by default: a manual or preset
+ * environment has no fetch to be honest about, so it keeps the null this
+ * function has always written for them.
+ *
+ * @param {{ source: string, retrievedAt: string, validAt: string|null }|null} [provenance]
+ */
+function environmentReference(provenance = null) {
   const env = state.env;
   const source = state.weatherId === 'live' ? 'live'
     : state.weatherId === 'custom' ? 'manual'
@@ -72,7 +84,7 @@ function environmentReference() {
       windFromDeg: env.windFromDeg,
       elevationMslM: U.ftToM(env.elevFt),
     },
-    provenance: null,
+    provenance,
   };
 }
 
@@ -123,9 +135,14 @@ export function pushLoadout() {
   dispatch({ type: 'snapshotLoadout', payload: loadout() }, QUIET);
 }
 
-/** The weather the plan is being flown against, and where it came from. */
-export function pushEnvironment() {
-  dispatch({ type: 'setEnvironmentReference', payload: environmentReference() }, QUIET);
+/**
+ * The weather the plan is being flown against, and where it came from.
+ * @param {{ source: string, retrievedAt: string, validAt: string|null }|null} [provenance]
+ *   the fetch bag from `fetchLiveEnv`/`fetchArchiveEnv`; omitted (null) for a
+ *   manual or preset environment, which have no fetch to be honest about.
+ */
+export function pushEnvironment(provenance = null) {
+  dispatch({ type: 'setEnvironmentReference', payload: environmentReference(provenance) }, QUIET);
 }
 
 /** Reserve floor, gust factor, wind level, radio band. */

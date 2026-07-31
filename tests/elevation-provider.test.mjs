@@ -259,3 +259,68 @@ test('the default clock is a real instant', async () => {
   const out = await provider.elevations(points(1));
   assert.ok(!Number.isNaN(Date.parse(out.provenance.retrievedAt)));
 });
+
+/* ---------- cancellation (ADR 0012 §3) ---------- */
+
+/* A cancelled elevation lookup must never look like a DEM outage: no note,
+ * no thrown exception, nothing a banner could read as a provider failure. It
+ * is simply "we stopped asking", which the caller already knows because it is
+ * the one who asked. */
+
+test('elevations() never asks the network once its signal is already aborted', async () => {
+  const fetchStub = openMeteoFetchStub(flatDem());
+  const provider = createOpenMeteoElevationProvider({ fetch: fetchStub, now: NOW });
+  const controller = new AbortController();
+  controller.abort();
+
+  const out = await provider.elevations(points(5), { signal: controller.signal });
+
+  assert.equal(fetchStub.calls.length, 0, 'an already-cancelled request never reaches the network');
+  assert.deepEqual(out.elevationsM, [null, null, null, null, null]);
+  // The "N point(s) came back without an elevation" note is reserved for a
+  // batch that genuinely answered and still had a hole in it — an aborted
+  // request is not that, and must not be confused with the DEM having no
+  // value there.
+  assert.deepEqual(out.provenance.notes, []);
+  assert.equal(out.provenance.batches, 0);
+});
+
+test('the caller\'s signal reaches the underlying fetch on every batch', async () => {
+  /** @type {(AbortSignal|undefined)[]} */
+  const seenSignals = [];
+  const fetchWithSignal = async (url, opts) => {
+    seenSignals.push(opts?.signal);
+    const n = new URL(url).searchParams.get('latitude')?.split(',').length ?? 0;
+    return { ok: true, status: 200, async json() { return { elevation: Array.from({ length: n }, () => 300) }; } };
+  };
+  const provider = createOpenMeteoElevationProvider({ fetch: fetchWithSignal, now: NOW });
+  const controller = new AbortController();
+
+  await provider.elevations(points(150), { signal: controller.signal }); // 100 + 50: two batches
+
+  assert.equal(seenSignals.length, 2);
+  assert.equal(seenSignals[0], controller.signal);
+  assert.equal(seenSignals[1], controller.signal);
+});
+
+test('a batch that rejects with AbortError stops the remaining batches, silently', async () => {
+  let calls = 0;
+  const fetchAbortsOnSecondBatch = async (url) => {
+    calls++;
+    if (calls === 2) throw Object.assign(new Error('The operation was aborted.'), { name: 'AbortError' });
+    const n = new URL(url).searchParams.get('latitude')?.split(',').length ?? 0;
+    return { ok: true, status: 200, async json() { return { elevation: Array.from({ length: n }, () => 300) }; } };
+  };
+  const provider = createOpenMeteoElevationProvider({ fetch: fetchAbortsOnSecondBatch, now: NOW });
+
+  const out = await provider.elevations(points(250)); // three batches: 100, 100, 50
+
+  assert.equal(calls, 2, 'the third batch never went out once the second was cancelled');
+  assert.ok(out.elevationsM.slice(0, 100).every((v) => v === 300), 'the first, unaborted batch is kept');
+  assert.ok(out.elevationsM.slice(100).every((v) => v === null),
+    'everything from the aborted batch on is unanswered, not fabricated');
+  // Unlike the HTTP-429 case earlier in this file, a cancellation earns no
+  // note at all — that is the whole difference between an outage and a caller
+  // that has moved on.
+  assert.deepEqual(out.provenance.notes, []);
+});

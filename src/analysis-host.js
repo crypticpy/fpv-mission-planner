@@ -103,7 +103,7 @@ const PORTS = Object.freeze({
 
 /** @type {{ update: () => void }|null} */
 let hostDeps = null;
-/** @type {((corridor: CorridorRequest) => Promise<TerrainField>)|null} */
+/** @type {((corridor: CorridorRequest, signal?: AbortSignal) => Promise<TerrainField>)|null} */
 let sampler = null;
 /** @type {TerrainField|null} */
 let field = null;
@@ -116,10 +116,21 @@ let sampleTimer = 0;
 let failedCorridorSig = null;
 /** @type {CorridorRequest|null} */
 let lastCorridor = null;
+/**
+ * The resource layer beside `sampling` (ADR 0012 §3): the controller behind
+ * whichever corridor fetch is actually in flight, and the signature it is
+ * answering. A superseded ask aborts this rather than letting a request run
+ * to completion for a route nobody is asking about any more; the signature
+ * lets a render for the *same* corridor tell "still waiting" from "changed".
+ * @type {AbortController|null}
+ */
+let sampleController = null;
+/** @type {string|null} */
+let inFlightSig = null;
 
 /* ---------- the advisory grid's ground (M5) ---------- */
 
-/** @type {((request: AdvisoryGridRequest) => Promise<AdvisoryGridField>)|null} */
+/** @type {((request: AdvisoryGridRequest, signal?: AbortSignal) => Promise<AdvisoryGridField>)|null} */
 let gridSampler = null;
 /** @type {AdvisoryGridField|null} */
 let advisoryField = null;
@@ -136,6 +147,11 @@ let lastGridRequest = null;
 let gridSampling = false;
 /** @type {ReturnType<typeof setTimeout>|number} */
 let gridTimer = 0;
+/** The grid sampler's own controller/in-flight signature — see sampleController above. */
+/** @type {AbortController|null} */
+let gridController = null;
+/** @type {string|null} */
+let inFlightGridSig = null;
 
 /**
  * Wire the corridor sampler up and hand the host a way to ask for a re-render.
@@ -176,10 +192,19 @@ export function setupAnalysisHost(d) {
   groundLookup = () => null;
   failedCorridorSig = null;
   lastCorridor = null;
+  // A re-wired host is a new composition: a controller from the old one has
+  // no fetch behind it worth keeping alive, but abort it anyway rather than
+  // leaving a dangling reference nothing will ever cancel.
+  sampleController?.abort();
+  sampleController = null;
+  inFlightSig = null;
   // The advisory grid's whole state, including anything already in flight: a
   // re-wired host is a new composition, and a timer armed for the last one would
   // fire into it carrying a request nobody asked for.
   clearTimeout(gridTimer);
+  gridController?.abort();
+  gridController = null;
+  inFlightGridSig = null;
   advisoryField = null;
   heldGridSig = null;
   pendingGridSig = null;
@@ -245,7 +270,16 @@ function refreshField(corridor) {
   // A dead connection is asked once per question, not once per render. The
   // pipeline is already saying "not sampled" for this corridor, which is the
   // honest state to sit in until the question changes.
-  if (sampling || sig === failedCorridorSig) return;
+  if (sig === failedCorridorSig) return;
+  if (sampling) {
+    // A render for the exact corridor already in flight re-arms nothing —
+    // that request already answers this question. A genuinely different one
+    // aborts it (ADR 0012 §3): runSample's own `finally` re-asks for
+    // `lastCorridor` the moment the aborted request lands, so nothing here
+    // has to wait for the old network round trip to finish first.
+    if (sig !== inFlightSig) sampleController?.abort();
+    return;
+  }
   sampleTimer = setTimeout(() => { void runSample(corridor, sig); }, SAMPLE_DEBOUNCE_MS);
 }
 
@@ -264,8 +298,11 @@ async function runSample(corridor, sig) {
   if (!sampler) return;
   const asked = analysisRevision();
   sampling = true;
+  inFlightSig = sig;
+  const controller = new AbortController();
+  sampleController = controller;
   try {
-    const next = await sampler(corridor);
+    const next = await sampler(corridor, controller.signal);
     if (!acceptAsync(asked, 'corridor terrain')) return;
     field = next;
     // Rebuilt with the field, not per lookup: nearestGroundSampler() filters the
@@ -277,12 +314,18 @@ async function runSample(corridor, sig) {
     // common case — the default frame is launch-relative.
     reresolveAltitudes();
   } catch (err) {
-    // Nothing here is expected to throw; if something does, the analysis keeps
-    // its energy, wind and route findings and says the ground is unknown.
+    // Silence, not failure (ADR 0012 §3): a request this host cancelled itself
+    // is not a terrain outage. The sampler already keeps an AbortError from
+    // reaching here in the ordinary case; this is the backstop.
+    if (err?.name === 'AbortError') return;
+    // Nothing else here is expected to throw; if something does, the analysis
+    // keeps its energy, wind and route findings and says the ground is unknown.
     console.warn('analysis: the corridor terrain sample failed.', err);
     failedCorridorSig = sig;
   } finally {
     sampling = false;
+    inFlightSig = null;
+    sampleController = null;
     hostDeps?.update();
     // A corridor that changed while this one was in flight never got its own
     // timer, because `sampling` was true when it came past.
@@ -371,9 +414,14 @@ function refreshGrid(doc) {
   // route is on its way either way, and "no data" is the wrong thing to say
   // about a question that has been asked.
   pendingGridSig = sig;
-  // An in-flight sample picks this up in its own `finally` — arming a second
-  // timer here would put two requests on the wire for one route.
-  if (gridSampling) return;
+  if (gridSampling) {
+    // An in-flight sample for this exact route picks the answer up in its own
+    // `finally` — arming a second timer here would put two requests on the
+    // wire for one route. A genuinely different route aborts the stale one
+    // (ADR 0012 §3) instead of waiting out its round trip first.
+    if (sig !== inFlightGridSig) gridController?.abort();
+    return;
+  }
   gridTimer = setTimeout(() => { void runGridSample(request, sig); }, SAMPLE_DEBOUNCE_MS);
 }
 
@@ -394,20 +442,29 @@ async function runGridSample(request, sig) {
   if (!gridSampler) return;
   const asked = analysisRevision();
   gridSampling = true;
+  inFlightGridSig = sig;
+  const controller = new AbortController();
+  gridController = controller;
   try {
-    const next = await gridSampler(request);
+    const next = await gridSampler(request, controller.signal);
     if (!acceptAsync(asked, 'advisory grid')) return;
     advisoryField = next;
     heldGridSig = sig;
     if (next.provenance.coverage === 'empty') failedGridSig = sig;
   } catch (err) {
-    // Not expected: the sampler catches its own provider failures. If something
-    // else throws, the advisory says "unavailable" and the rest of the analysis
-    // is untouched.
+    // Silence, not failure (ADR 0012 §3): a request this host cancelled itself
+    // is not an advisory outage. The sampler already keeps an AbortError from
+    // reaching here in the ordinary case; this is the backstop.
+    if (err?.name === 'AbortError') return;
+    // Not expected otherwise: the sampler catches its own provider failures. If
+    // something else throws, the advisory says "unavailable" and the rest of
+    // the analysis is untouched.
     console.warn('analysis: the advisory grid sample failed.', err);
     failedGridSig = sig;
   } finally {
     gridSampling = false;
+    inFlightGridSig = null;
+    gridController = null;
     if (pendingGridSig === sig) pendingGridSig = null;
     hostDeps?.update();
     // A route that moved while this one was in flight never got its own timer

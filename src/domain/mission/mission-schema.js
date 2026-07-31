@@ -103,6 +103,7 @@ import { NAME_MAX_LEN, isValidName, checkCameraShape, checkCameraProfile } from 
  * @property {number} parallelPackCdA
  * @property {string|null} confidence   provenance of etaProp/cdA
  * @property {boolean} calibrated       true when a flight-log fit was applied
+ * @property {number|null} nFlights     accepted flights behind the calibration fit, when applied
  */
 
 /**
@@ -350,10 +351,10 @@ const numOrNull = (v) => (isNum(v) ? v : null);
 
 /**
  * @param {Bag} record a catalog or pilot-authored drone
- * @param {{ calibrated?: boolean }} [opts]
+ * @param {{ calibrated?: boolean, nFlights?: number|null }} [opts]
  * @returns {AircraftSnapshot}
  */
-export function aircraftSnapshot(record, { calibrated = false } = {}) {
+export function aircraftSnapshot(record, { calibrated = false, nFlights = null } = {}) {
   return {
     sourceId: String(record.id ?? ''),
     name: String(record.name ?? ''),
@@ -368,6 +369,7 @@ export function aircraftSnapshot(record, { calibrated = false } = {}) {
     parallelPackCdA: numOrNull(record.parallelPackCdA) ?? 0,
     confidence: isStr(record.confidence) ? record.confidence : null,
     calibrated,
+    nFlights: numOrNull(nFlights),
   };
 }
 

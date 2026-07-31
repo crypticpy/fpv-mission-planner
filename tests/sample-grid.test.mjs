@@ -8,7 +8,7 @@ import {
 import { createElevationCache } from '../src/application/terrain/elevation-cache.js';
 import { distanceKm } from '../src/domain/geo.js';
 import {
-  FIXTURE_ORIGIN, demProvider, failingProvider, flatDem, missingTile, pointAt,
+  FIXTURE_ORIGIN, abortingProvider, demProvider, failingProvider, flatDem, missingTile, pointAt,
 } from './fixtures/synthetic-dem.mjs';
 
 /* Two functions, two kinds of test.
@@ -232,6 +232,35 @@ test('sampleGrid turns a provider that throws into a stated absence, never an ex
   assert.ok(field.grid.cells.every((c) => c.elevM === null));
   assert.equal(field.provenance.coverage, 'empty');
   assert.ok(field.provenance.notes.some((n) => n.includes('network is down')), field.provenance.notes.join(' | '));
+});
+
+test('sampleGrid turns a provider that rejects with AbortError into the same empty grid, but no note (ADR 0012 §3)', async () => {
+  const request = gridRequestFor([FIXTURE_ORIGIN]);
+  const provider = abortingProvider();
+  const field = await sampleGrid(request, { provider, now: NOW });
+
+  assert.ok(field.grid.cells.every((c) => c.elevM === null));
+  assert.equal(field.provenance.coverage, 'empty');
+  // A cancelled request is silence, not a stated failure — contrast with the
+  // "network is down" case above, which does earn a note.
+  assert.deepEqual(field.provenance.notes, []);
+});
+
+test('sampleGrid never calls the provider once its signal is already aborted', async () => {
+  // A wide-enough route to need more than one GRID_BATCH_MAX chunk, so this
+  // also proves the loop's abort check runs before the *first* chunk, not
+  // only between chunks.
+  const request = gridRequestFor([FIXTURE_ORIGIN, eastOf(FIXTURE_ORIGIN, 50000)]);
+  assert.ok(request.cells.length > GRID_BATCH_MAX, 'fixture must need at least two batches');
+  const provider = demProvider(flatDem({ elevM: 200 }));
+  const controller = new AbortController();
+  controller.abort();
+  const field = await sampleGrid(request, { provider, signal: controller.signal, now: NOW });
+
+  assert.equal(provider.calls.length, 0, 'an already-cancelled request never reaches the provider');
+  assert.ok(field.grid.cells.every((c) => c.elevM === null));
+  assert.equal(field.provenance.coverage, 'empty');
+  assert.deepEqual(field.provenance.notes, []);
 });
 
 test('sampleGrid treats a misaligned provider answer as unusable, not silently shifted', async () => {

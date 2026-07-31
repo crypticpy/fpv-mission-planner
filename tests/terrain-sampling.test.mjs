@@ -13,8 +13,8 @@ import { resolveMissionAltitudes } from '../src/domain/mission/altitude.js';
 import { createMission } from '../src/domain/mission/mission-schema.js';
 import { missionReduce } from '../src/domain/mission/mission-reducer.js';
 import {
-  FIXTURE_ORIGIN, cliffDem, corridorAlong, corridorThroughOrigin, demProvider, failingProvider,
-  flatDem, missingTile, openMeteoFetchStub, pointAt, ridgeDem, saddleDem, valleyDem,
+  FIXTURE_ORIGIN, abortingProvider, cliffDem, corridorAlong, corridorThroughOrigin, demProvider,
+  failingProvider, flatDem, missingTile, openMeteoFetchStub, pointAt, ridgeDem, saddleDem, valleyDem,
 } from './fixtures/synthetic-dem.mjs';
 
 /* The sampling service: a CorridorRequest in, a frozen TerrainField out.
@@ -145,6 +145,18 @@ test('a provider that falls over produces a field that says so', async () => {
   assert.match(field.provenance.notes.join(' '), /DNS is having a day/);
   assert.ok(field.samples.every((s) => s.groundMslM === null && s.source === 'missing'));
   assert.deepEqual(field.features, []);
+});
+
+test('a provider that rejects with AbortError produces the same empty field, but names no failure (ADR 0012 §3)', async () => {
+  const field = await sampleCorridor(northAcrossRidge(), { provider: abortingProvider(), now: NOW });
+  assert.equal(field.provenance.coverage, 'empty');
+  assert.equal(field.provenance.fetched, 0);
+  assert.equal(field.provenance.missing, field.samples.length);
+  // The one difference from the outage above: a cancelled request is silence,
+  // not a stated failure — "we stopped asking" earns no note, where "DNS is
+  // having a day" gets one.
+  assert.deepEqual(field.provenance.notes, []);
+  assert.ok(field.samples.every((s) => s.groundMslM === null && s.source === 'missing'));
 });
 
 test('no provider at all is a stated absence, not a crash', async () => {

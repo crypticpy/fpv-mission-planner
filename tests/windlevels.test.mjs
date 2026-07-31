@@ -6,7 +6,7 @@ import {
   windAtLevel, levelWindPatch, setWindLevels, windLevels, activeWindAt, activeLevelPatch,
   launchWind, windAtAltitude,
 } from '../src/windprofile.js';
-import { fetchLiveEnv, shapeForecast, envAtHour } from '../src/weather.js';
+import { fetchLiveEnv, fetchArchiveEnv, shapeForecast, envAtHour } from '../src/weather.js';
 import { planMission, U } from '../src/domain/physics.js';
 
 /* Phase 4 item 9: the wind at more than one height.
@@ -320,4 +320,78 @@ test('an altitude the control could never show voids the blob', async () => {
     assert.equal(mod.restoreSession(), null, `${bad} should void the whole blob`);
     assert.equal(mod.state.cruiseAltM, 80, 'and leave the default alone');
   }
+});
+
+/* ---------- 6. provenance and cancellation (ADR 0012 §1, §3) ---------- */
+
+/* Neither fetch used to say where its numbers came from or how old they were —
+ * a preset environment and a freshly-fetched one looked identical once merged
+ * into state.env. provenance is the fix: every caller downstream (starting
+ * with the forecast-age constraints in analysis-pipeline) can now tell the
+ * two apart, and a caller passing a signal can cut either request loose. */
+
+test('fetchLiveEnv stamps who it asked and when the response landed', async () => {
+  const before = Date.now();
+  const res = await withFetch(
+    async () => ({ ok: true, json: async () => apiCurrent }),
+    () => fetchLiveEnv({ lat: 30.2672, lng: -97.7431 }),
+  );
+  assert.equal(res.provenance.source, 'open-meteo-forecast');
+  assert.ok(Date.parse(res.provenance.retrievedAt) >= before, 'retrievedAt is a fresh instant');
+  // apiCurrent's `current` block carries no `time` field of its own — a forecast
+  // hour is never guessed when Open-Meteo did not say which one "current" was.
+  assert.equal(res.provenance.validAt, null);
+});
+
+test('fetchLiveEnv reads validAt off current.time when Open-Meteo publishes one', async () => {
+  const withTime = { ...apiCurrent, current: { ...apiCurrent.current, time: '2026-07-29T12:00' } };
+  const res = await withFetch(
+    async () => ({ ok: true, json: async () => withTime }),
+    () => fetchLiveEnv({ lat: 30.2672, lng: -97.7431 }),
+  );
+  assert.equal(res.provenance.validAt, '2026-07-29T12:00');
+});
+
+test('fetchLiveEnv passes its signal straight through to fetch', async () => {
+  let seenSignal;
+  const controller = new AbortController();
+  await withFetch(
+    async (url, opts) => { seenSignal = opts?.signal; return { ok: true, json: async () => apiCurrent }; },
+    () => fetchLiveEnv({ lat: 30.2672, lng: -97.7431 }, { signal: controller.signal }),
+  );
+  assert.equal(seenSignal, controller.signal);
+});
+
+const archiveFixture = {
+  elevation: 175,
+  hourly: {
+    time: ['2026-07-29T00:00', '2026-07-29T01:00'],
+    wind_speed_100m: [12, 14],
+    wind_direction_100m: [180, 190],
+    temperature_2m: [70, 71],
+    relative_humidity_2m: [55, 50],
+  },
+};
+
+test('fetchArchiveEnv stamps the archive source and the reanalysis hour it actually matched', async () => {
+  const before = Date.now();
+  const res = await withFetch(
+    async () => ({ ok: true, json: async () => archiveFixture }),
+    () => fetchArchiveEnv({ lat: 30.2672, lng: -97.7431 }, '2026-07-29T01:15'),
+  );
+  assert.equal(res.provenance.source, 'open-meteo-archive');
+  assert.ok(Date.parse(res.provenance.retrievedAt) >= before);
+  // validAt names the archive's own hour, not the requested one — a reanalysis
+  // hour a day old is the whole point of this endpoint, never padded to look fresh.
+  assert.equal(res.provenance.validAt, '2026-07-29T01:00');
+});
+
+test('fetchArchiveEnv passes its signal straight through to fetch', async () => {
+  let seenSignal;
+  const controller = new AbortController();
+  await withFetch(
+    async (url, opts) => { seenSignal = opts?.signal; return { ok: true, json: async () => archiveFixture }; },
+    () => fetchArchiveEnv({ lat: 30.2672, lng: -97.7431 }, '2026-07-29T01:15', { signal: controller.signal }),
+  );
+  assert.equal(seenSignal, controller.signal);
 });

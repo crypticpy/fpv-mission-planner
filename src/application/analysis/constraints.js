@@ -284,6 +284,23 @@ export const CONSTRAINT_CODES = Object.freeze(/** @type {Record<string, Constrai
       ['no ground was checked — the ring and the route are energy only'],
     ),
   },
+  'W-DATA-FORECAST-AGE': {
+    code: 'W-DATA-FORECAST-AGE', producer: 'analysis', severity: 'caution', legacyLevel: null,
+    explanation: why(
+      ['the environment reference\'s fetch provenance', 'analysis time'],
+      'a fetched forecast read within the last 6 hours',
+      ['fires only for a fetched source — a manual or preset environment has no fetch time to age'],
+    ),
+  },
+  'W-DATA-FORECAST-STALE': {
+    code: 'W-DATA-FORECAST-STALE', producer: 'analysis', severity: 'warning', legacyLevel: null,
+    explanation: why(
+      ['the environment reference\'s fetch provenance', 'analysis time'],
+      'a fetched forecast read within the last 24 hours',
+      ['the numbers are the last real forecast, not padding — refetch once connectivity returns',
+        'fires only for a fetched source — a manual or preset environment has no fetch time to age'],
+    ),
+  },
   'W-DATA-LINK-ABSENT': {
     code: 'W-DATA-LINK-ABSENT', producer: 'analysis', severity: 'unknown', legacyLevel: null,
     explanation: why(

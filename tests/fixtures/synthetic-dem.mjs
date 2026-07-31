@@ -304,6 +304,23 @@ export function failingProvider(message = 'network is down') {
 }
 
 /**
+ * A provider whose `elevations()` rejects with the same `AbortError` shape a
+ * cancelled `fetch` throws. What the samplers must turn into plain silence —
+ * no note, no exception, the field just answers "not sampled" — rather than
+ * the stated-absence-with-a-reason a genuine outage produces (ADR 0012 §3;
+ * contrast with failingProvider() above, which is the outage this is not).
+ * @param {string} [message]
+ */
+export function abortingProvider(message = 'The operation was aborted.') {
+  return {
+    source: 'synthetic DEM',
+    async elevations() {
+      throw Object.assign(new Error(message), { name: 'AbortError' });
+    },
+  };
+}
+
+/**
  * A `fetch` stand-in that answers Open-Meteo's elevation endpoint from a
  * synthetic surface. This is what lets the real adapter be tested — batching,
  * URL shape, failure handling — with no network anywhere.

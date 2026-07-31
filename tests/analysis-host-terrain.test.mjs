@@ -241,3 +241,98 @@ test('a grid follow-up for a moved route is asked once, however many hands re-ar
   const dupes = [...new Set(net.calls.filter((u, i) => net.calls.indexOf(u) !== i))];
   assert.deepEqual(dupes, [], 'an elevation ask went out twice — two grid timers raced for one route');
 });
+
+/* ADR 0012 §3: the correctness layer above (analysisRevision/acceptAsync,
+ * proven by the four tests above) never lets a stale answer land. What it does
+ * not do is stop the stale request from sitting on the wire until it fails or
+ * times out on its own. The AbortController layer is the resource-hygiene
+ * fix for that: refreshField/refreshGrid hold the controller for whatever
+ * they last asked for, and a genuinely new corridor or grid arriving while
+ * the old one is still in flight cuts it loose immediately rather than
+ * waiting for it to land and be thrown away.
+ *
+ * `stubElevation()` above ignores the options object fetch is called with, so
+ * it cannot see whether a signal was handed through — these two tests use
+ * their own held-open stub that records it. */
+
+test('a corridor that genuinely changes while a sample is in flight aborts the stale request', async () => {
+  const calls = [];
+  const signals = [];
+  const waiting = [];
+  const doFetch = (url, opts) => {
+    calls.push(String(url));
+    signals.push(opts?.signal);
+    const n = (String(url).match(/latitude=([^&]*)/)?.[1] ?? '').split(',').length;
+    const body = { ok: true, status: 200, json: async () => ({ elevation: Array.from({ length: n }, () => 300) }) };
+    return new Promise((resolve) => waiting.push(() => resolve(body)));
+  };
+  const releaseAll = () => { for (const done of waiting.splice(0)) done(); };
+
+  await boot({ doFetch }, { title: 'Corridor abort plumbing' });
+  dispatch({ type: 'addWaypoint', payload: { ...OVER_THERE } }, { render: false });
+  analyzeNow();
+  await settle();
+
+  assert.ok(calls.length >= 1, 'the first corridor sample is in flight (its fetch is held open)');
+  const firstSignal = signals[0];
+  assert.ok(firstSignal, 'the sampler was handed a signal for the first request');
+  assert.equal(firstSignal.aborted, false, 'nothing has changed yet');
+
+  // A re-render of the exact same corridor must not cancel the request
+  // already out for it — only a route that has actually moved earns that.
+  analyzeNow();
+  assert.equal(firstSignal.aborted, false, 're-analysing the same route does not abort its own request');
+
+  // The route changes while the first sample is still out (held). refreshField
+  // sees `sampling` still true and a signature that no longer matches what is
+  // in flight, and must cut the stale request loose right there rather than
+  // let it land on top of whatever answers the new corridor.
+  dispatch({ type: 'addWaypoint', payload: { latitude: 30.35, longitude: -97.80 } }, { render: false });
+  analyzeNow();
+
+  assert.equal(firstSignal.aborted, true, 'a genuinely different corridor aborts the stale in-flight request');
+
+  releaseAll();
+  await sleep(50);
+});
+
+test('a grid request that genuinely changes while a sample is in flight aborts the stale request', async () => {
+  const calls = [];
+  const signals = [];
+  const waiting = [];
+  const doFetch = (url, opts) => {
+    calls.push(String(url));
+    signals.push(opts?.signal);
+    const n = (String(url).match(/latitude=([^&]*)/)?.[1] ?? '').split(',').length;
+    const body = { ok: true, status: 200, json: async () => ({ elevation: Array.from({ length: n }, () => 300) }) };
+    return new Promise((resolve) => waiting.push(() => resolve(body)));
+  };
+  const releaseAll = () => { for (const done of waiting.splice(0)) done(); };
+
+  // No waypoint is ever added in this test, so the corridor stays empty
+  // (samples.length === 0) throughout and refreshField never engages — every
+  // fetch below belongs to the grid alone, which is seeded from the launch
+  // point on its own (gridPointsFor always includes it).
+  await boot({ doFetch }, { title: 'Grid abort plumbing' });
+  analyzeNow();
+  await settle();
+
+  assert.ok(calls.length >= 1, 'the first grid sample is in flight (its fetch is held open)');
+  const firstSignal = signals[0];
+  assert.ok(firstSignal, 'the grid sampler was handed a signal for the first request');
+  assert.equal(firstSignal.aborted, false, 'nothing has changed yet');
+
+  // Re-analysing the same launch point must not cancel the grid's own request.
+  analyzeNow();
+  assert.equal(firstSignal.aborted, false, 're-analysing the same area does not abort its own request');
+
+  // Move the launch far enough that the grid around it is a genuinely
+  // different request while the first is still out (held).
+  dispatch({ type: 'setLaunch', payload: { latitude: 30.35, longitude: -97.80 } }, { render: false });
+  analyzeNow();
+
+  assert.equal(firstSignal.aborted, true, 'a genuinely different grid area aborts the stale in-flight request');
+
+  releaseAll();
+  await sleep(50);
+});
