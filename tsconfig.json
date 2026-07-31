@@ -40,6 +40,7 @@
     "src/application/analysis/constraints.js",
     "src/application/analysis/vertical-flight.js",
     "src/application/analysis/route-checks.js",
+    "src/application/analysis/wind-advisory.js",
     "src/application/analysis/analyze.js",
     // ADR 0004's map seam. The contract and the registry import nothing, and the
     // four layers below them import the contract and (for coordinate maths)

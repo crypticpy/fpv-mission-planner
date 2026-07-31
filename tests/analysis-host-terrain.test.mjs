@@ -69,9 +69,16 @@ function stubElevation({ held = false, groundM = 300 } = {}) {
  * Boot the bridge and the host together over one stubbed endpoint.
  *
  * The corridor sampler's provider takes its fetch injected, so `net.calls`
- * counts corridor requests and nothing else. The legacy single-bearing profile
+ * counts elevation requests the host made. The legacy single-bearing profile
  * still runs beside it off globalThis.fetch — it is wired here only so it does
  * not throw, and its answers are deliberately not what any assertion reads.
+ *
+ * Since M5 the host samples an advisory area grid through that same provider and
+ * that same cache, deliberately (the grid blankets the ground the corridor draws
+ * a line through, so the sharing is most of the point). Its requests land in
+ * `net.calls` too, which is why the assertions below are written as movements in
+ * the count — "another ask went out", "no further ask went out" — rather than as
+ * absolute totals. That is what each of them was ever really asserting.
  */
 async function boot(net, { title = 'Corridor host' } = {}) {
   let renders = 0;
@@ -148,7 +155,8 @@ test('a corridor field for a mission that has moved on is dropped, and the curre
   dispatch({ type: 'addWaypoint', payload: { ...OVER_THERE } }, { render: false });
   analyzeNow();
   await settle();
-  assert.equal(net.calls.length, 1, 'one corridor is in flight');
+  assert.ok(net.calls.length >= 1, 'the corridor sample is in flight');
+  const inFlight = net.calls.length;
   const asked = analysisRevision();
 
   // The route changes while that sample is out. Its answer describes ground
@@ -165,7 +173,7 @@ test('a corridor field for a mission that has moved on is dropped, and the curre
   // …and the question has to be back on the wire, or the route would sit on
   // "not sampled" forever with no fetch outstanding to change it.
   await settle();
-  assert.ok(net.calls.length > 1, 'the dropped sample re-asked for the corridor that is current');
+  assert.ok(net.calls.length > inFlight, 'the dropped sample re-asked for the corridor that is current');
   net.releaseAll();
   await sleep(50);
   assert.ok(terrainField(), 'and the answer for the current route is kept');
@@ -177,7 +185,8 @@ test('a corridor superseded inside the debounce window is never fetched', async 
   dispatch({ type: 'addWaypoint', payload: { ...OVER_THERE } }, { render: false });
   analyzeNow();
   await settle();
-  assert.equal(net.calls.length, 1, 'the first corridor was sampled');
+  const settled = net.calls.length;
+  assert.ok(settled >= 1, 'the first corridor was sampled');
   assert.ok(terrainField(), 'and its field is in hand');
 
   // A second waypoint schedules an ask; removing it again before the debounce
@@ -193,6 +202,6 @@ test('a corridor superseded inside the debounce window is never fetched', async 
   analyzeNow();
 
   await settle();
-  assert.equal(net.calls.length, 1, 'no fetch went out for the corridor that was superseded');
+  assert.equal(net.calls.length, settled, 'no fetch went out for the corridor that was superseded');
   assert.ok(terrainField(), 'the field in hand still answers the route');
 });

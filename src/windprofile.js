@@ -103,6 +103,7 @@ export function activeLevelPatch(altM) { return levelWindPatch(levels, altM, gus
 // untouched and keep working exactly as before; this is a second, independent
 // setter, not a new parameter on that one.
 let sounding = [];
+let soundingWhere = null;  // the { lat, lng } that sounding was fetched for
 
 /**
  * Hand over a fresh fetch's sounding — lowest-first
@@ -110,13 +111,29 @@ let sounding = [];
  * soundingFrom(). Anything that is not an array clears it to `[]`, the same
  * "a failed refetch is an empty answer, not a stale one" rule setWindLevels()
  * follows for `null`.
+ *
+ * `at` is *where the fetch was for*, not where the mission is now, and that is
+ * the whole point of latching it: a pilot who moves the launch after the sky
+ * has been fetched still has a sounding, and it is a sounding about the old
+ * place. M5's stability regime compares this against the current launch and
+ * says so (W-WIND-STALE) rather than quietly describing somewhere else.
+ * Omitted, it clears — an unlocated sounding is not claimed to be about here.
+ *
+ * @param {unknown} next
+ * @param {{ lat: number, lng: number }|null} [at]
  */
-export function setSounding(next) {
+export function setSounding(next, at = null) {
   sounding = Array.isArray(next) ? next : [];
+  soundingWhere = at && Number.isFinite(at.lat) && Number.isFinite(at.lng)
+    ? { lat: at.lat, lng: at.lng }
+    : null;
 }
 
 /** The latched sounding, or `[]` when none has been fetched yet. */
 export function windSounding() { return sounding; }
+
+/** Where the latched sounding was fetched for, or null when nobody said. */
+export function soundingAt() { return soundingWhere; }
 
 /**
  * What the pilot stands in for the launch and the landing, in mph, and whether

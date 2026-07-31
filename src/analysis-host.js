@@ -39,6 +39,7 @@ import { hashKey, stableStringify } from './application/analysis/analysis-contra
 import { usableField } from './application/analysis/route-checks.js';
 import { createElevationCache } from './application/terrain/elevation-cache.js';
 import { createTerrainSampler, nearestGroundSampler } from './application/terrain/sample-corridor.js';
+import { createGridSampler, gridRequestFor } from './application/terrain/sample-grid.js';
 import {
   OPEN_METEO_ATTRIBUTION, createOpenMeteoElevationProvider,
 } from './infrastructure/elevation/open-meteo-elevation.js';
@@ -46,7 +47,7 @@ import { missionDocument, reresolveAltitudes } from './mission-bridge.js';
 import { state, battery, missionInputs } from './state.js';
 import { activeProfile, setTurnaroundKm } from './terrain.js';
 import { linkBand } from './rf.js';
-import { windLevels } from './windprofile.js';
+import { soundingAt, windLevels, windSounding } from './windprofile.js';
 import { zeroRadiusNote } from './render/dashboard.js';
 import { linkStats, linkWarnings, refreshTerrain, terrainWarnings } from './render/terrain.js';
 
@@ -54,6 +55,8 @@ import { linkStats, linkWarnings, refreshTerrain, terrainWarnings } from './rend
 /** @typedef {import('./application/analysis/analysis-contracts.js').AnalysisSnapshot} AnalysisSnapshot */
 /** @typedef {import('./application/analysis/analysis-contracts.js').CorridorRequest} CorridorRequest */
 /** @typedef {import('./application/terrain/terrain-contracts.js').TerrainField} TerrainField */
+/** @typedef {import('./application/terrain/terrain-contracts.js').AdvisoryGridField} AdvisoryGridField */
+/** @typedef {import('./application/terrain/terrain-contracts.js').AdvisoryGridRequest} AdvisoryGridRequest */
 
 /** Who supplies the ground when a profile is on hand. */
 const TERRAIN_SOURCE = 'Open-Meteo elevation API';
@@ -114,6 +117,26 @@ let failedCorridorSig = null;
 /** @type {CorridorRequest|null} */
 let lastCorridor = null;
 
+/* ---------- the advisory grid's ground (M5) ---------- */
+
+/** @type {((request: AdvisoryGridRequest) => Promise<AdvisoryGridField>)|null} */
+let gridSampler = null;
+/** @type {AdvisoryGridField|null} */
+let advisoryField = null;
+/** Which request `advisoryField` answers. */
+let heldGridSig = /** @type {string|null} */ (null);
+/** The request a sample is scheduled or in flight for. */
+let pendingGridSig = /** @type {string|null} */ (null);
+/** A request that came back with nothing, asked once and not again. */
+let failedGridSig = /** @type {string|null} */ (null);
+/** The request this render pass is about, settled before the analysis runs. */
+let currentGridSig = /** @type {string|null} */ (null);
+/** @type {AdvisoryGridRequest|null} */
+let lastGridRequest = null;
+let gridSampling = false;
+/** @type {ReturnType<typeof setTimeout>|number} */
+let gridTimer = 0;
+
 /**
  * Wire the corridor sampler up and hand the host a way to ask for a re-render.
  *
@@ -129,22 +152,41 @@ let lastCorridor = null;
  */
 export function setupAnalysisHost(d) {
   hostDeps = d;
+  const provider = createOpenMeteoElevationProvider({
+    ...(d.fetch ? { fetch: d.fetch } : null),
+    ...(d.now ? { now: d.now } : null),
+  });
+  // One cache for the life of the tab, owned here rather than inside the
+  // sampler: a corridor that shifts by one waypoint re-asks about ground it
+  // already knows, and the DEM under a fixed lat/lng does not change.
+  //
+  // Both samplers share it, and that is the point. The advisory grid (M5) blankets
+  // the area the corridor runs a line through, so a good fraction of what one asks
+  // for the other has already paid for — and the cache keys on the rounded
+  // coordinate, not on who is asking.
+  const cache = createElevationCache();
   sampler = createTerrainSampler({
-    provider: createOpenMeteoElevationProvider({
-      ...(d.fetch ? { fetch: d.fetch } : null),
-      ...(d.now ? { now: d.now } : null),
-    }),
-    // One cache for the life of the tab, owned here rather than inside the
-    // sampler: a corridor that shifts by one waypoint re-asks about ground it
-    // already knows, and the DEM under a fixed lat/lng does not change.
-    cache: createElevationCache(),
+    provider,
+    cache,
     crossTrackOffsetM: CROSS_TRACK_OFFSET_M,
     ...(d.now ? { now: d.now } : null),
   });
+  gridSampler = createGridSampler({ provider, cache, ...(d.now ? { now: d.now } : null) });
   field = null;
   groundLookup = () => null;
   failedCorridorSig = null;
   lastCorridor = null;
+  // The advisory grid's whole state, including anything already in flight: a
+  // re-wired host is a new composition, and a timer armed for the last one would
+  // fire into it carrying a request nobody asked for.
+  clearTimeout(gridTimer);
+  advisoryField = null;
+  heldGridSig = null;
+  pendingGridSig = null;
+  failedGridSig = null;
+  currentGridSig = null;
+  lastGridRequest = null;
+  gridSampling = false;
 }
 
 /** The newest accepted field, for the pipeline's accessor port. */
@@ -246,6 +288,179 @@ async function runSample(corridor, sig) {
     // timer, because `sampling` was true when it came past.
     if (lastCorridor && lastCorridor !== corridor) refreshField(lastCorridor);
   }
+}
+
+/* ---------- the advisory grid's lifecycle ---------- */
+
+/**
+ * The points the advisory grid is built around: the launch and every waypoint
+ * on the document, in the `{ lat, lng }` shape sample-grid.js speaks.
+ *
+ * Every waypoint, not only the ones a segment references — the grid is an area
+ * around what the pilot is looking at, and an orphan waypoint is still drawn on
+ * the map.
+ *
+ * @param {import('./domain/mission/mission-schema.js').MissionDocumentV1} doc
+ * @returns {{ lat: number, lng: number }[]}
+ */
+function gridPointsFor(doc) {
+  const pts = [{ lat: doc.launch.latitude, lng: doc.launch.longitude }];
+  for (const w of doc.route.waypoints ?? []) {
+    if (Number.isFinite(w.latitude) && Number.isFinite(w.longitude)) {
+      pts.push({ lat: w.latitude, lng: w.longitude });
+    }
+  }
+  return pts;
+}
+
+/**
+ * What identifies an advisory grid request. A deep compare of the cell list
+ * without walking it: the request is a regular lattice, so its dimensions, its
+ * cell size and its two corner centres determine every cell in it. Two requests
+ * with this signature are the same request, cell for cell.
+ *
+ * @param {AdvisoryGridRequest} request
+ * @returns {string}
+ */
+function gridSignature(request) {
+  const first = request.cells[0];
+  const last = request.cells[request.cells.length - 1];
+  return hashKey(stableStringify({
+    rows: request.rows,
+    cols: request.cols,
+    cell: request.cellSizeM.toFixed(1),
+    nw: [first.lat.toFixed(6), first.lng.toFixed(6)],
+    se: [last.lat.toFixed(6), last.lng.toFixed(6)],
+  }));
+}
+
+/**
+ * Settle which grid this pass is about, and ask for it if nobody has.
+ *
+ * Called *before* analyzeMission, where refreshField is called after — and the
+ * difference is not an inconsistency. The corridor is the analysis's own output:
+ * it exists once the snapshot publishes it, so sampling it any earlier would be
+ * sampling a route the analysis has not agreed to. The advisory grid is built
+ * from the launch and the waypoints alone, which are inputs, so it can be
+ * settled first — and it has to be, or the pass that arms the fetch would report
+ * "no data" for the grid it is at that moment asking for. Settled first, the
+ * pipeline reads `pending` and says nothing alarming while it waits.
+ *
+ * @param {import('./domain/mission/mission-schema.js').MissionDocumentV1} doc
+ */
+function refreshGrid(doc) {
+  clearTimeout(gridTimer);
+  currentGridSig = null;
+  if (!gridSampler) return;
+  let request;
+  try {
+    request = gridRequestFor(gridPointsFor(doc));
+  } catch {
+    // A document with no usable launch. Nothing to ask about, and the pipeline
+    // says so through the unwired-looking reading below rather than throwing.
+    return;
+  }
+  const sig = gridSignature(request);
+  currentGridSig = sig;
+  lastGridRequest = request;
+  // Already answered, or already asked and refused — a dead connection is asked
+  // once per question, not once per render.
+  if (sig === heldGridSig || sig === failedGridSig) return;
+  // Marked pending before the timer is armed, and marked pending even when an
+  // older sample is still in flight: from the pilot's side the answer for this
+  // route is on its way either way, and "no data" is the wrong thing to say
+  // about a question that has been asked.
+  pendingGridSig = sig;
+  // An in-flight sample picks this up in its own `finally` — arming a second
+  // timer here would put two requests on the wire for one route.
+  if (gridSampling) return;
+  gridTimer = setTimeout(() => { void runGridSample(request, sig); }, SAMPLE_DEBOUNCE_MS);
+}
+
+/**
+ * Sample one advisory grid and keep the answer — unless the mission moved on.
+ *
+ * The sampler never rejects: a provider that fell over comes back as a grid of
+ * null elevations with a note saying why. That field is kept, because a grid of
+ * holes is what lets the map hatch the area as missing rather than leave it
+ * blank, and the advisory pass turns it into a stated W-WIND-NODATA. What the
+ * `coverage: 'empty'` check buys is only that the same dead question is not
+ * asked twice.
+ *
+ * @param {AdvisoryGridRequest} request
+ * @param {string} sig
+ */
+async function runGridSample(request, sig) {
+  if (!gridSampler) return;
+  const asked = analysisRevision();
+  gridSampling = true;
+  try {
+    const next = await gridSampler(request);
+    if (!acceptAsync(asked, 'advisory grid')) return;
+    advisoryField = next;
+    heldGridSig = sig;
+    if (next.provenance.coverage === 'empty') failedGridSig = sig;
+  } catch (err) {
+    // Not expected: the sampler catches its own provider failures. If something
+    // else throws, the advisory says "unavailable" and the rest of the analysis
+    // is untouched.
+    console.warn('analysis: the advisory grid sample failed.', err);
+    failedGridSig = sig;
+  } finally {
+    gridSampling = false;
+    if (pendingGridSig === sig) pendingGridSig = null;
+    hostDeps?.update();
+    // A route that moved while this one was in flight never got its own timer,
+    // because `gridSampling` was true when it came past.
+    if (lastGridRequest && lastGridRequest !== request) {
+      const nextSig = gridSignature(lastGridRequest);
+      if (nextSig !== heldGridSig && nextSig !== failedGridSig) {
+        pendingGridSig = nextSig;
+        const pending = lastGridRequest;
+        gridTimer = setTimeout(() => { void runGridSample(pending, nextSig); }, SAMPLE_DEBOUNCE_MS);
+      }
+    }
+  }
+}
+
+/**
+ * What the pipeline reads for the advisory grid: the field, but only when it is
+ * the field for *this* route, and whether one is on its way.
+ *
+ * Holding back a grid sampled for the previous route is the whole discipline
+ * here. It would draw yesterday's hills under today's plan, and every colour on
+ * them would be wrong in a way nothing on screen could tell you about.
+ *
+ * @returns {{ field: AdvisoryGridField|null, pending: boolean }}
+ */
+function advisoryGridReading() {
+  const sig = currentGridSig;
+  return {
+    field: sig && sig === heldGridSig ? advisoryField : null,
+    pending: !!sig && sig === pendingGridSig,
+  };
+}
+
+/**
+ * Which advisory grid data is on hand, as a string — the same job
+ * terrainSignature() does for the corridor, and folded into the same memo key.
+ * `pending` is in it because a pass that is waiting and a pass that has given up
+ * produce different snapshots from identical inputs.
+ * @returns {string|null}
+ */
+function advisorySignature() {
+  const sig = currentGridSig;
+  if (!sig) return null;
+  if (sig === heldGridSig && advisoryField) {
+    const p = advisoryField.provenance;
+    return `${sig}/${p.coverage}:${p.missing}:${p.retrievedAt ?? '-'}`;
+  }
+  return `${sig}/${sig === pendingGridSig ? 'pending' : 'none'}`;
+}
+
+/** The sounding and where it was fetched for, for the pipeline's port. */
+function soundingReading() {
+  return { levels: windSounding(), at: soundingAt() };
 }
 
 /**
@@ -385,6 +600,11 @@ export function analyzeNow() {
   const revision = analysisRevision();
   guard.begin(revision);
 
+  // Settle the advisory grid before the analysis rather than after it — see
+  // refreshGrid. The corridor below is the other way round for a reason that
+  // does not apply here.
+  refreshGrid(doc);
+
   const profile = activeProfile();
   const snapshot = analyzeMission({
     doc,
@@ -399,6 +619,16 @@ export function analyzeNow() {
     // not answered yet" and must never read as clear ground.
     terrainField: sampler ? currentField : null,
     windLevels,
+    // M5's advisory ports, read the same way and gated the same way: an unwired
+    // grid sampler is "nobody asked" (W-WIND-NODATA), a wired one with nothing
+    // back yet is `pending`, and neither ever reads as clear air.
+    advisorySignature: advisorySignature(),
+    advisoryGrid: gridSampler ? advisoryGridReading : null,
+    sounding: soundingReading,
+    // Which height the planning wind was read at — but only when a live profile
+    // supplied it. On a preset the env's wind is the preset's own figure and
+    // belongs to no level, and saying "80 m" about it would be an invention.
+    windLevelM: windLevels() ? state.cruiseAltM : null,
     // The band the pilot picked, so the route-wide sightline check runs the same
     // wavelength as the card. linkBand() falls back to the default band rather
     // than answering null, so this is always a number.

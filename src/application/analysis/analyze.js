@@ -35,6 +35,7 @@
 
 import { destination, distanceKm, bearingTo } from '../../domain/geo.js';
 import { HOLD_INTENTS } from '../../domain/mission/mission-schema.js';
+import { U } from '../../domain/physics.js';
 import {
   ANALYSIS_MODEL_VERSION, CORRIDOR_MAX_SAMPLES, CORRIDOR_MIN_SPACING_M,
   CORRIDOR_SAMPLE_TARGET, CORRIDOR_WIDTH_M,
@@ -43,6 +44,7 @@ import {
 import { draftConstraint, draftFromLegacy, finalizeConstraints } from './constraints.js';
 import { returnEnergyChecks, routeWideChecks } from './route-checks.js';
 import { legVerticalFlight, verticalFlightDrafts } from './vertical-flight.js';
+import { windAdvisory } from './wind-advisory.js';
 
 /**
  * @typedef {import('../../domain/mission/mission-schema.js').MissionDocumentV1} MissionDocumentV1
@@ -64,7 +66,11 @@ import { legVerticalFlight, verticalFlightDrafts } from './vertical-flight.js';
  * @typedef {import('./analysis-contracts.js').SegmentAnalysis} SegmentAnalysis
  * @typedef {import('./analysis-contracts.js').SegmentClearance} SegmentClearance
  * @typedef {import('./analysis-contracts.js').SolvedPlan} SolvedPlan
+ * @typedef {import('./analysis-contracts.js').AdvisoryField} AdvisoryField
+ * @typedef {import('./analysis-contracts.js').AdvisoryGridReading} AdvisoryGridReading
+ * @typedef {import('./analysis-contracts.js').SoundingReading} SoundingReading
  * @typedef {import('./constraints.js').ConstraintDraft} ConstraintDraft
+ * @typedef {import('../terrain/terrain-contracts.js').AdvisoryGridField} AdvisoryGridField
  * @typedef {import('../terrain/terrain-contracts.js').TerrainField} TerrainField
  * @typedef {import('./vertical-flight.js').TaggedLegFlight} TaggedLegFlight
  */
@@ -110,7 +116,16 @@ import { legVerticalFlight, verticalFlightDrafts } from './vertical-flight.js';
  *   snapshot carries `footprint: null` rather than half a ring
  * @property {(() => TerrainField|null)|null} [terrainField] the corridor's ground
  * @property {(() => unknown)|null} [windLevels] the forecast's published wind levels
+ * @property {(() => AdvisoryGridReading)|null} [advisoryGrid] M5's area grid, read
+ *   the same way and for the same reason `terrainField` is: the host samples it
+ *   asynchronously and this pass reads whatever has landed. It answers with the
+ *   field *and* whether a sample for this route is still in flight, because
+ *   "not yet" and "there is none" are different statements to the pilot
+ * @property {(() => SoundingReading)|null} [sounding] the pressure-level sounding
+ *   and the point it was fetched for
+ * @property {number|null} [windLevelM] the height the planning wind was read at
  * @property {number|null} [linkGhz] the band the pilot selected
+ * @property {string|null} [advisorySignature] identifies the active area grid
  * @property {string|null} [terrainSignature] identifies the active terrain data
  * @property {string|null} [forecastSignature] overrides the document's own
  * @property {Partial<AnalysisProvenance>} [provenance] what the callers know
@@ -606,6 +621,65 @@ function footprintOf(inputs, launch, plannedCourseDeg, deps) {
   return footprint;
 }
 
+/* ---------- the mountain-flow advisory (M5) ---------- */
+
+/**
+ * The wind the advisory runs on, labelled. The pass takes the wind the plan
+ * actually flies in — `plan.wind.planningMs` is the figure the solver used,
+ * gust policy and all — and falls back to the env's own average when there is
+ * no plan to have solved anything. Both are one wind for the whole area; the
+ * label says which, and rides into `advisories.provenance`.
+ *
+ * @param {SolvedPlan|null} plan
+ * @param {AnalysisInputs} inputs
+ * @param {number|null} levelM
+ * @returns {{ windMph: number|null, source: string }}
+ */
+function advisoryWindOf(plan, inputs, levelM) {
+  const env = inputs.env ?? {};
+  const planningMs = plan && Number.isFinite(plan.wind?.planningMs)
+    ? Number(plan.wind.planningMs)
+    : null;
+  const envMs = Number.isFinite(env.windAvgMs) ? Number(env.windAvgMs) : null;
+  const ms = planningMs ?? envMs;
+  const from = planningMs != null ? 'planning-wind' : 'mission-env';
+  return {
+    windMph: ms == null ? null : U.msToMph(ms),
+    source: levelM == null ? from : `${from}@${levelM}m`,
+  };
+}
+
+/**
+ * Run the advisory pass for this snapshot. Every branch of `compute` calls this
+ * — a mission with no pack still flies through the same air, and the absence of
+ * a battery is no reason to stop stating what the terrain does to the wind.
+ *
+ * @param {MissionDocumentV1} doc
+ * @param {AnalysisInputs} inputs
+ * @param {SolvedPlan|null} plan
+ * @param {AnalysisDeps} deps
+ * @returns {{ advisories: AdvisoryField, drafts: ConstraintDraft[] }}
+ */
+function advisoryOf(doc, inputs, plan, deps) {
+  const reading = deps.advisoryGrid ? deps.advisoryGrid() : null;
+  const sounding = deps.sounding ? deps.sounding() : null;
+  const levelM = Number.isFinite(deps.windLevelM) ? Number(deps.windLevelM) : null;
+  const wind = advisoryWindOf(plan, inputs, levelM);
+  const env = inputs.env ?? {};
+  return windAdvisory({
+    launch: { lat: doc.launch.latitude, lng: doc.launch.longitude },
+    field: reading?.field ?? null,
+    portWired: !!deps.advisoryGrid,
+    pending: reading?.pending ?? false,
+    windMph: wind.windMph,
+    windFromDeg: Number.isFinite(env.windFromDeg) ? Number(env.windFromDeg) : null,
+    windLevelM: levelM,
+    windSource: wind.source,
+    sounding: sounding?.levels ?? [],
+    soundingAt: sounding?.at ?? null,
+  });
+}
+
 /* ---------- the pipeline ---------- */
 
 /**
@@ -647,12 +721,21 @@ export function analyzeMission(request, deps) {
       stranded: !!deps.strandedNote,
       field: !!deps.terrainField,
       footprint: !!deps.sweepKit,
+      advisoryGrid: !!deps.advisoryGrid,
+      sounding: !!deps.sounding,
     },
     // Not a provider flag but an input: the band decides the Fresnel radius, and
     // the wind levels decide what the legs are flying in. Both are read straight
     // out of `deps` — neither is in the document or in `missionInputs()`.
     linkGhz: deps.linkGhz ?? null,
     windLevels: deps.windLevels ? deps.windLevels() : null,
+    // M5's two async inputs, keyed the way the corridor's field is: the host
+    // derives a signature from what it is holding, so a landed grid is a new
+    // question rather than a cache hit on the pass that was still waiting for
+    // it. The sounding is small enough to key on directly.
+    advisory: deps.advisorySignature ?? null,
+    sounding: deps.sounding ? deps.sounding() : null,
+    windLevelM: deps.windLevelM ?? null,
     provenance: deps.provenance ?? null,
   }));
   const hit = CACHE.get(cacheKey);
@@ -681,11 +764,16 @@ function compute(doc, inputs, revision, deps, cacheKey, computedAt) {
    * worth stating — a terrain fetch does not need a battery. */
   if ('code' in planResult) {
     const corridor = buildCorridor(doc, legs, bearingDeg, 0);
+    /* The air over the terrain does not depend on the pack, so the advisory
+     * runs here too: a pilot with no battery selected still gets to see what
+     * the wind does to the hills they are looking at. */
+    const advisory = advisoryOf(doc, inputs, null, deps);
     const drafts = [
       draftConstraint('W-ENERGY-NO-PACK',
         'No battery is selected, so there is nothing to plan: every energy, range and time figure here '
         + 'is unavailable until one is.'),
       ...(planResult.warnings ?? []).map((w) => draftFromLegacy('plan', w)),
+      ...advisory.drafts,
     ];
     return freezeSnapshot({
       id: `ana_${cacheKey}`,
@@ -699,6 +787,7 @@ function compute(doc, inputs, revision, deps, cacheKey, computedAt) {
       // fly. The absence is the same statement W-ENERGY-NO-PACK already makes.
       footprint: null,
       segments: {},
+      advisories: advisory.advisories,
       constraints: finalizeConstraints(drafts),
       provenance: buildProvenance(doc, deps, corridor,
         deps.terrainField ? deps.terrainField() : null, null, cacheKey, computedAt),
@@ -809,6 +898,7 @@ function compute(doc, inputs, revision, deps, cacheKey, computedAt) {
 
   const profile = deps.elevationProfile ? deps.elevationProfile() : null;
   const { link, drafts: linkConstraintDrafts } = linkDrafts(plan, deps);
+  const advisory = advisoryOf(doc, inputs, plan, deps);
 
   /** @type {ConstraintDraft[]} */
   const drafts = [
@@ -819,6 +909,7 @@ function compute(doc, inputs, revision, deps, cacheKey, computedAt) {
     ...segmentDrafts,
     ...groundChecks.drafts,
     ...returnEnergyDrafts,
+    ...advisory.drafts,
   ];
   if (oneWay) {
     drafts.push(draftConstraint('W-RESERVE-ONE-WAY',
@@ -836,6 +927,7 @@ function compute(doc, inputs, revision, deps, cacheKey, computedAt) {
     link,
     footprint: footprintOf(inputs, launch, bearingDeg, deps),
     segments,
+    advisories: advisory.advisories,
     constraints: finalizeConstraints(drafts),
     provenance: buildProvenance(doc, deps, corridor, field, profile, cacheKey, computedAt),
   });

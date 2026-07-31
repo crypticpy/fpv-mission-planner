@@ -62,14 +62,21 @@ test('the constraint code registry is exactly this list', () => {
     'W-SPEED-POLICY-UNSUPPORTED',
     'W-TERR-CLEARANCE',
     'W-TERR-CLEARANCE-LOW',
+    'W-WIND-ACCEL',
     'W-WIND-GUST-AUTHORITY',
+    'W-WIND-LEE',
     'W-WIND-LEVEL-MISMATCH',
     'W-WIND-NO-CLOSE',
+    'W-WIND-NODATA',
+    'W-WIND-REGIME',
+    'W-WIND-SENSITIVE',
+    'W-WIND-STALE',
+    'W-WIND-UPLIFT',
   ]);
 });
 
 test('every registry entry is complete and well formed', () => {
-  const producers = new Set(['plan', 'terrain', 'link', 'analysis']);
+  const producers = new Set(['plan', 'terrain', 'link', 'analysis', 'wind']);
   for (const [key, entry] of Object.entries(CONSTRAINT_CODES)) {
     assert.equal(entry.code, key, `${key} disagrees with its own code field`);
     assert.ok(key.startsWith('W-'), `${key} is not namespaced`);

@@ -47,8 +47,15 @@ export const LEGACY_SEVERITY = Object.freeze({
   info: 'advisory',
 });
 
-/** Which part of the system authored a constraint. */
-/** @typedef {'plan'|'terrain'|'link'|'analysis'} ConstraintProducer */
+/**
+ * Which part of the system authored a constraint. `wind` is M5's mountain-flow
+ * advisory: a producer of its own rather than another `analysis` code, because
+ * everything it emits rests on two model baselines (B1 terrain forcing, B2
+ * stability regime) that the rest of the pipeline knows nothing about, and a
+ * reader deciding how much weight to put on a finding is entitled to see that
+ * in the record.
+ */
+/** @typedef {'plan'|'terrain'|'link'|'analysis'|'wind'} ConstraintProducer */
 
 /**
  * @typedef {object} ConstraintCode
@@ -86,6 +93,20 @@ const BARE_EARTH = 'the DEM is bare earth — trees, towers and wires are not in
 const CLIMB_BOUND = 'climb energy is the potential energy gained over the drivetrain efficiency, '
   + 'which is an upper bound on the rotor model rather than a measurement';
 const NO_REGEN = 'a descent never returns energy to the pack in this model';
+
+/* M5's mountain-flow advisory, stated once for all seven W-WIND-* codes below.
+ * These are the milestone's prohibited claims written as their opposites, and
+ * every advisory constraint carries the ones that bear on it — a pilot reading
+ * "lee side" has to meet "this cannot locate a rotor" in the same breath, not
+ * three panels away. */
+const W_PROXY = 'w* is a relative terrain-forcing proxy (V·∇h), not a forecast vertical velocity';
+const NO_ROTOR = 'no rotor, separation or turbulence physics is modelled — this cannot say '
+  + 'where a rotor is, only which flank the flow is descending';
+const SURFACE_FLOW = 'the forcing is computed from the ground the wind crosses, and describes '
+  + 'that, not the air at flight altitude';
+const NOT_SAFE = 'this is a relative picture: an area with no modelled forcing has not been '
+  + 'found safe, it has only produced no signal in a proxy that models very little';
+const ONE_WIND = 'one wind, from one coarse forecast cell, is applied across the whole area';
 
 /**
  * Every code this tool can emit, frozen. The tests assert this object's shape,
@@ -406,6 +427,100 @@ export const CONSTRAINT_CODES = Object.freeze(/** @type {Record<string, Constrai
       'every waypoint on the route still affording the flight home from it',
       ['the return is direct and level — a climb to clear terrain on the way back is not costed',
         NO_VERTICAL],
+    ),
+  },
+
+  /* ---- the mountain-flow advisory (M5) ----
+   *
+   * Aggregate, not per-cell. The forcing field classifies every cell of an area
+   * grid, and the map draws all of them; the constraints below say once, for the
+   * whole mission, which of those classes turned up around this route. One
+   * constraint per lee cell would be four hundred sentences saying the same
+   * thing, and a warning list nobody reads is a warning list that does not work.
+   */
+  'W-WIND-LEE': {
+    code: 'W-WIND-LEE', producer: 'wind', severity: 'warning', legacyLevel: null,
+    explanation: why(
+      ['area elevation grid around the route', 'the wind at the level the plan flies',
+        'the terrain-forcing proxy w* = V·∇h'],
+      'B1 terrain forcing: cells on a downwind slope, where the modelled flow is being '
+      + 'driven down the ground rather than over it — the setting descending air and '
+      + 'rotors are associated with',
+      [W_PROXY, NO_ROTOR, SURFACE_FLOW, ONE_WIND, BARE_EARTH],
+    ),
+  },
+  'W-WIND-UPLIFT': {
+    code: 'W-WIND-UPLIFT', producer: 'wind', severity: 'advisory', legacyLevel: null,
+    explanation: why(
+      ['area elevation grid around the route', 'the wind at the level the plan flies',
+        'the terrain-forcing proxy w* = V·∇h'],
+      'B1 terrain forcing: cells on a windward slope, where the modelled flow is being '
+      + 'driven up the ground',
+      [W_PROXY, SURFACE_FLOW,
+        'relative uplift potential is not lift you can plan on, and the same terrain that '
+        + 'lifts on one bearing sinks on the reciprocal',
+        ONE_WIND, BARE_EARTH],
+    ),
+  },
+  'W-WIND-ACCEL': {
+    code: 'W-WIND-ACCEL', producer: 'wind', severity: 'caution', legacyLevel: null,
+    explanation: why(
+      ['area elevation grid around the route', 'the wind at the level the plan flies',
+        'local relief across each cell'],
+      'B1 terrain forcing: crest and gap cells — ground that stands above its surroundings '
+      + 'or confines the flow between higher ground, the geometry where a wind speeds up',
+      [W_PROXY, SURFACE_FLOW,
+        'the speed-up itself is not computed: this reports the geometry, not a wind figure',
+        NO_ROTOR, ONE_WIND, BARE_EARTH],
+    ),
+  },
+  'W-WIND-REGIME': {
+    code: 'W-WIND-REGIME', producer: 'wind', severity: 'caution', legacyLevel: null,
+    explanation: why(
+      ['forecast pressure-level sounding', 'the wind crossing the barrier',
+        'the relief of the terrain around the route'],
+      'B2 stability regime: the Froude-like ratio Fr = U/(N·h), which says whether the air '
+      + 'has the momentum to climb the terrain or is more likely to be blocked by it and '
+      + 'divert around',
+      ['a single bulk number for a whole area — real flow splits, and this cannot say where',
+        'the sounding is a coarse forecast column, not a measured ascent, and the layer it '
+        + 'spans is the forecast\'s vertical resolution rather than the barrier\'s',
+        'a low Fr says the flow may be blocked; it does not locate the lee eddy or the '
+        + 'hydraulic jump that blocking is associated with',
+        NOT_SAFE],
+    ),
+  },
+  'W-WIND-SENSITIVE': {
+    code: 'W-WIND-SENSITIVE', producer: 'wind', severity: 'caution', legacyLevel: null,
+    explanation: why(
+      ['the classified forcing field', 'a ±20° / ±30% envelope around the forecast wind'],
+      'B1 re-run across that envelope: the share of classified cells that change class '
+      + 'under any member, against the bound the baseline was validated to',
+      ['above the bound the picture is describing the forecast\'s uncertainty as much as '
+        + 'the terrain — the classes are not wrong, they are not settled',
+        'the envelope is a fixed spread, not the forecast\'s own stated error',
+        W_PROXY, NOT_SAFE],
+    ),
+  },
+  'W-WIND-STALE': {
+    code: 'W-WIND-STALE', producer: 'wind', severity: 'unknown', legacyLevel: null,
+    explanation: why(
+      ['where the sounding was fetched for', 'where this mission launches'],
+      'a stability regime computed from air over the launch point',
+      ['the sounding on hand was fetched for somewhere else, so the regime describes that '
+        + 'place and not this one — refetch the sky for this launch',
+        'the forcing field and its wind are unaffected; this is about the regime only'],
+    ),
+  },
+  'W-WIND-NODATA': {
+    code: 'W-WIND-NODATA', producer: 'wind', severity: 'unknown', legacyLevel: null,
+    explanation: why(
+      ['the elevation provider\'s coverage over the area grid'],
+      'an elevation for every cell of the area around the route',
+      ['a cell with no elevation is classified against nothing — it is not low-forcing, '
+        + 'it is unknown, and it is drawn as missing rather than left blank',
+        'per ADR 0008 missing data is a stated warning, never silence',
+        SAMPLED_GROUND, NOT_SAFE],
     ),
   },
 }));

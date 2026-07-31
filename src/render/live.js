@@ -6,7 +6,9 @@ import {
   fetchLiveEnv, launchPoint, isDefaultLaunch, DEFAULT_LAUNCH_NAME,
 } from '../weather.js';
 import { state, units } from '../state.js';
-import { setWindLevels, activeWindAt, activeLevelPatch, launchWind } from '../windprofile.js';
+import {
+  setWindLevels, setSounding, activeWindAt, activeLevelPatch, launchWind,
+} from '../windprofile.js';
 import { f0, compass } from './format.js';
 import { $ } from './dom.js';
 import { populateControls } from './controls.js';
@@ -128,13 +130,17 @@ export async function goLive(pt) {
   };
   let stale = false;
   try {
-    const { patch, gust10Mph, levels, forecast } = await fetchLiveEnv(where);
+    const { patch, gust10Mph, levels, sounding, forecast } = await fetchLiveEnv(where);
     if (seq !== liveSeq || state.weatherId !== 'live') return; // superseded meanwhile
     stale = moved() || !deps.accept(asked, 'live weather fetch');
     if (stale) return;
     // The whole wind profile, latched before the patch is applied so the level the
     // pilot picked is the one that lands on the rail (Phase 4 item 9).
     setWindLevels(levels, gust10Mph);
+    // …and the pressure-level sounding beside it, with the point it was fetched
+    // for. `where`, not launchPoint(): this is a record of what was asked, and
+    // M5's regime check compares it against wherever the mission launches now.
+    setSounding(sounding, where);
     const planned = { ...patch, ...(activeLevelPatch(state.cruiseAltM) || {}) };
     state.env = { ...state.env, ...planned };
     // The fetch resolves the elevation of the spot it was made for, and the
@@ -156,8 +162,10 @@ export async function goLive(pt) {
     if (stale) return;
     liveErr = err.message;
     // A failed refetch must not leave the previous point's wind profile behind as
-    // if it described this one — the same rule the forecast strip follows.
+    // if it described this one — the same rule the forecast strip follows. The
+    // sounding goes with it, and for the same reason.
     setWindLevels(null, null);
+    setSounding(null, null);
   } finally {
     if (seq === liveSeq) {
       liveFetching = false;

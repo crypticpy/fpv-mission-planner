@@ -18,9 +18,11 @@
 //     segment is the same id on every recompute — which is what lets the UI
 //     keep a dismissal, a scroll position, or a highlight across a re-plan.
 //
-//   *Nothing carried here is impure.* This file has no imports at all, and the
-//     application layer that builds these records reaches its providers through
-//     injected ports (ADR 0007), never by importing them.
+//   *Nothing carried here is impure.* This file has no runtime imports at all,
+//     and the application layer that builds these records reaches its providers
+//     through injected ports (ADR 0007), never by importing them. M5's advisory
+//     typedefs name domain shapes through JSDoc `import(…)` references, which
+//     are comments — nothing is loaded and no layer edge is created.
 
 /* ---------- identity of the model itself ---------- */
 
@@ -533,6 +535,221 @@ export function provenanceOf(overrides = {}) {
  * @property {string[]} explanations     X-* codes; see EXPLANATION_CODES
  */
 
+/* ---------- the mountain-flow advisory (M5) ---------- */
+
+/*
+ * The domain shapes the advisory carries, named through JSDoc `import(…)` type
+ * references. Those are comments: nothing is loaded at runtime, so this file
+ * keeps its "no imports at all" property and no layer edge is created (ADR
+ * 0009 — the application layer may name domain types either way, but a type
+ * reference costs nothing and keeps this module inert).
+ */
+/**
+ * @typedef {import('../terrain/terrain-contracts.js').AdvisoryGrid} AdvisoryGrid
+ * @typedef {import('../terrain/terrain-contracts.js').AdvisoryGridField} AdvisoryGridField
+ * @typedef {import('../../domain/wind/terrain-forcing.js').ForcingClassId} ForcingClassId
+ * @typedef {import('../../domain/wind/terrain-forcing.js').ForcingField} ForcingField
+ * @typedef {import('../../domain/wind/terrain-forcing.js').SensitivityReport} SensitivityReport
+ * @typedef {import('../../domain/wind/regime.js').RegimeResult} RegimeResult
+ * @typedef {import('../../domain/wind/regime.js').Sounding} Sounding
+ */
+
+/**
+ * What the advisory pass managed to say this pass.
+ *
+ *   'ready'       — a grid is in hand and the forcing field was computed off it;
+ *   'pending'     — the area grid for this route is still being sampled. Nothing
+ *                   is wrong; the answer is not here yet, and the map draws
+ *                   nothing rather than drawing a stale answer for a different
+ *                   route;
+ *   'unavailable' — terminal for this route: no provider, or a grid that came
+ *                   back with nothing classifiable. Stated, never silent — see
+ *                   W-WIND-NODATA.
+ * @typedef {'ready'|'pending'|'unavailable'} AdvisoryStatus
+ */
+
+/**
+ * The frozen classId → constraint-code meaning. This is the contract wave 4's
+ * map layer and the brief share: a cell coloured for `lee` and the mission-level
+ * W-WIND-LEE constraint are the same finding said twice, so the two surfaces can
+ * never disagree about what a colour means (M5 exit gate: "mission brief and map
+ * use the same warning identifiers").
+ *
+ * Two classes map to null on purpose:
+ *   `low`     — low modelled terrain forcing is not a finding and above all is
+ *               not "safe"; it is the absence of a modelled signal in a proxy
+ *               that models very little. It colours a cell and says nothing;
+ *   `unknown` — a cell with no elevation is reported by W-WIND-NODATA and by the
+ *               coverage in the provenance, not by a per-cell constraint.
+ *
+ * Per-cell classes are RENDER data. Constraints are aggregate: one W-WIND-LEE
+ * for a route with lee cells, not one per cell.
+ * @type {Readonly<Record<ForcingClassId, string|null>>}
+ */
+export const ADVISORY_CLASS_CODE = Object.freeze({
+  uplift: 'W-WIND-UPLIFT',
+  lee: 'W-WIND-LEE',
+  ridge: 'W-WIND-ACCEL',
+  gap: 'W-WIND-ACCEL',
+  low: null,
+  unknown: null,
+});
+
+/**
+ * The share of classified cells that may change class across the wind
+ * perturbation envelope before the classification is reported as sensitive.
+ *
+ * 0.25 is wave 1's documented bound, asserted in tests/wind-forcing.test.mjs
+ * ("a quarter of the classified cells"; the measured figure for that ridge
+ * fixture is ≈0.10). Above it, the picture is telling you more about the
+ * forecast's uncertainty than about the hill — which is a finding in itself
+ * (W-WIND-SENSITIVE), not a reason to hide the field.
+ */
+export const ADVISORY_SENSITIVITY_BOUND = 0.25;
+
+/**
+ * How far the sounding's fetch point may sit from the launch before the
+ * stability regime is reported as being about somewhere else. ~1e-3° is roughly
+ * 110 m of latitude — tighter than any pressure-level model cell, so this fires
+ * on a moved mission and not on rounding.
+ */
+export const SOUNDING_STALE_EPSILON_DEG = 1e-3;
+
+/**
+ * The wind the advisory actually ran on, and which level it came off. Recorded
+ * because "the wind" is ambiguous the moment a plan climbs: the pass uses the
+ * wind the plan flies in, and the pilot is owed the height that means.
+ * @typedef {object} AdvisoryWind
+ * @property {number} windMph
+ * @property {number} windFromDeg
+ * @property {number|null} levelM   height AGL the figure was read at, null when
+ *                                  the wind came off the env block unlevelled
+ * @property {string} source        e.g. 'forecast-80m', 'preset', 'manual'
+ */
+
+/**
+ * ADR 0008's explanation block for the advisory, plus everything a panel needs
+ * to date and bound the answer. Every field is always present; null means
+ * "nothing supplied this", which is not the same as a default.
+ * @typedef {object} AdvisoryProvenance
+ * @property {readonly string[]} baselines   the model baselines that ran
+ * @property {readonly string[]} inputs
+ * @property {readonly string[]} limitations
+ * @property {AdvisoryWind|null} wind
+ * @property {number} soundingLevels         pressure levels the regime saw
+ * @property {{ lat: number, lng: number }|null} soundingAt  where it was fetched for
+ * @property {number|null} soundingOffsetKm  how far that is from this launch
+ * @property {boolean} soundingStale         true when that offset is real enough
+ *                                           to matter — see W-WIND-STALE
+ * @property {string|null} gridSource
+ * @property {string|null} gridDataset
+ * @property {string|null} gridAttribution
+ * @property {string|null} retrievedAt
+ * @property {string|null} coverage          the DEM coverage of the area grid
+ * @property {number|null} cellSizeM
+ * @property {number|null} rows
+ * @property {number|null} cols
+ * @property {number} unknownCells           cells with no elevation to classify
+ * @property {number|null} changedFraction   the sensitivity figure actually measured
+ * @property {number} sensitivityBound       ADVISORY_SENSITIVITY_BOUND, echoed so
+ *                                           a panel need not import it
+ * @property {readonly string[]} notes
+ */
+
+/**
+ * The advisory block on the snapshot. `grid`, `forcing`, `regime` and
+ * `sensitivity` are all independently nullable, and null means "not
+ * established" — no grid yet, no sounding for a regime, nothing classifiable to
+ * measure sensitivity over. None of them ever carries a zero standing in for an
+ * absence.
+ *
+ * Read `status` first. A 'pending' or 'unavailable' advisory still carries its
+ * provenance, because "we could not look" is an answer that has inputs and
+ * limitations of its own.
+ * @typedef {object} AdvisoryField
+ * @property {AdvisoryStatus} status
+ * @property {AdvisoryGrid|null} grid
+ * @property {ForcingField|null} forcing
+ * @property {RegimeResult|null} regime
+ * @property {SensitivityReport|null} sensitivity
+ * @property {AdvisoryProvenance} provenance
+ */
+
+/**
+ * What the host answers when the pipeline asks for the area grid. `field` is
+ * non-null only when the grid in hand was sampled for *this* route: a grid for
+ * the previous route is not this route's answer, and handing it over would draw
+ * yesterday's hills under today's plan. `pending` distinguishes "the sample is
+ * in flight" from "there is none", which are different sentences to a pilot.
+ * @typedef {{ field: AdvisoryGridField|null, pending: boolean }} AdvisoryGridReading
+ */
+
+/**
+ * The latched sounding and the point it was fetched for. The location rides
+ * along because a mission moved after the sky was fetched still has a sounding —
+ * it is just a sounding about somewhere else, which is W-WIND-STALE rather than
+ * an absence.
+ * @typedef {{ levels: Sounding, at: { lat: number, lng: number }|null }} SoundingReading
+ */
+
+/** The two model baselines behind the advisory, named the way the domain names them. */
+const ADVISORY_BASELINES = Object.freeze([
+  'B1-terrain-forcing', 'B2-stability-regime',
+]);
+
+/** @type {readonly string[]} */
+const ADVISORY_INPUTS = Object.freeze([
+  'launch and waypoints', 'area elevation grid (bare earth)',
+  'forecast wind at the planned level', 'forecast pressure-level sounding',
+]);
+
+/**
+ * The limitations that ride on every advisory, whatever it found. These are the
+ * prohibited claims stated as their opposites, and they travel with the data
+ * rather than being retyped by each surface that draws it.
+ * @type {readonly string[]}
+ */
+const ADVISORY_LIMITATIONS = Object.freeze([
+  'w* is a relative terrain-forcing proxy (V·∇h), not a forecast vertical velocity',
+  'surface-driven: it describes flow forced by the ground, not the air at flight altitude',
+  'no rotor, separation or turbulence physics — it cannot locate a rotor',
+  'low modelled forcing is not a statement that an area is safe',
+  'bare-earth DEM: no trees, buildings or towers',
+  'one wind for the whole area, from a coarse forecast cell',
+]);
+
+/**
+ * An advisory provenance block with every field present. Overrides are applied
+ * over the nulls, so a caller states only what it actually knows.
+ * @param {Partial<AdvisoryProvenance>} [overrides]
+ * @returns {AdvisoryProvenance}
+ */
+export function advisoryProvenanceOf(overrides = {}) {
+  return Object.freeze({
+    baselines: ADVISORY_BASELINES,
+    inputs: ADVISORY_INPUTS,
+    limitations: ADVISORY_LIMITATIONS,
+    wind: null,
+    soundingLevels: 0,
+    soundingAt: null,
+    soundingOffsetKm: null,
+    soundingStale: false,
+    gridSource: null,
+    gridDataset: null,
+    gridAttribution: null,
+    retrievedAt: null,
+    coverage: null,
+    cellSizeM: null,
+    rows: null,
+    cols: null,
+    unknownCells: 0,
+    changedFraction: null,
+    sensitivityBound: ADVISORY_SENSITIVITY_BOUND,
+    notes: Object.freeze([]),
+    ...overrides,
+  });
+}
+
 /**
  * Everything one analysis pass knows, as one immutable record. This is what
  * M2b's `update()` will hand the renderers, and what M6 will export.
@@ -546,6 +763,7 @@ export function provenanceOf(overrides = {}) {
  * @property {LinkResult|null} link
  * @property {MissionFootprint|null} footprint
  * @property {Record<string, SegmentAnalysis>} segments
+ * @property {AdvisoryField} advisories
  * @property {Constraint[]} constraints
  * @property {AnalysisProvenance} provenance
  */
