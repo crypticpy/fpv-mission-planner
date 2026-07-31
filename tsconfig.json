@@ -29,6 +29,8 @@
     "src/catalog/payloads.js",
     "src/catalog/scenarios.js",
     "src/catalog/weather.js",
+    "src/domain/wind/terrain-forcing.js",
+    "src/domain/wind/regime.js",
     "src/domain/mission/mission-schema.js",
     "src/domain/mission/mission-migrations.js",
     "src/domain/mission/mission-reducer.js",
