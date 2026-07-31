@@ -7,6 +7,13 @@ hover power from disc loading and air density, optimizes cruise speed per leg
 against the wind, simulates the battery discharge with sag, and charts how far
 out you can push before you have to turn around.
 
+The app is organized as four destinations, one per question a pilot actually
+asks: **Field** (day-of — how long do the packs in your bag keep you flying
+here), **Plan** (the workspace — weather, mission, verdict, charts, map),
+**Library** (saved missions), and **Aircraft** (your fleet and its physics).
+A wind ribbon under the masthead keeps the current wind, its gust, and the
+data's freshness on screen in every destination.
+
 ## Run it
 
 ```bash
@@ -37,9 +44,10 @@ input ranges are centralized in [src/domain/units.js](src/domain/units.js).
 
 ### On a phone or tablet
 
-The layout switches automatically below tablet-landscape width: the view tabs
-become a bottom dock (Planner · Map · Loadout), and the control rail opens as a
-bottom sheet from the Loadout button. Touch devices get bigger tap targets and
+The layout switches automatically below tablet-landscape width: the left
+destination rail becomes a bottom dock (Field · Plan · Library · Aircraft),
+and Plan's control rail opens as a bottom sheet from its **Conditions** button.
+Touch devices get bigger tap targets and
 tap-to-inspect chart tooltips regardless of size — an iPad in landscape keeps
 the desktop layout with touch-sized controls. No user-agent sniffing; it's all
 CSS media queries (width for layout, `pointer: coarse` for ergonomics).
