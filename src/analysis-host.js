@@ -34,7 +34,7 @@
 import { planMission } from './domain/physics.js';
 import { planRoute } from './domain/route.js';
 import { adaptiveHalfSweep, radiusAtAlpha, fullCircle, polarAreaKm2 } from './sweep.js';
-import { analyzeMission, newestOnly } from './application/analysis/analyze.js';
+import { analyzeMission, msUntilForecastBoundary, newestOnly } from './application/analysis/analyze.js';
 import { hashKey, stableStringify } from './application/analysis/analysis-contracts.js';
 import { usableField } from './application/analysis/route-checks.js';
 import { createElevationCache } from './application/terrain/elevation-cache.js';
@@ -154,6 +154,46 @@ let gridTimer = 0;
 let gridController = null;
 /** @type {string|null} */
 let inFlightGridSig = null;
+
+/* ---------- forecast age (ADR 0012 §1) ---------- */
+
+/**
+ * Grace past a threshold before the re-analysis runs, in ms. The timer's whole
+ * job is to land on the far side of the boundary it waited for, and firing
+ * exactly at it would race millisecond rounding between the armed delay and
+ * the clock the pass then reads.
+ */
+const FORECAST_AGE_SLACK_MS = 1000;
+/** @type {ReturnType<typeof setTimeout>|number} */
+let forecastAgeTimer = 0;
+
+/**
+ * Arm one wake-up for the instant the open mission's forecast age next crosses
+ * a threshold (6 h / 24 h from the fetch instant — ADR 0012 §1). The app only
+ * re-analyses when an input moves, and a forecast ages while nothing else
+ * does: without this, a planner left open in the field never escalated from
+ * caution to warning, and a boot under 6 h never gained the caution at all.
+ *
+ * Coarse on purpose — at most two firings per fetch, never a per-minute
+ * recompute. The fired timer only asks for a render; analyzeNow() runs on that
+ * pass, and the pipeline's memo key carries the age bucket, so the crossing is
+ * a fresh compute rather than a cache hit. Re-armed on every pass, which is
+ * what re-anchors it after a refetch or a mission switch, and disarmed when no
+ * boundary lies ahead (manual/preset environments, or already past 24 h).
+ *
+ * @param {import('./domain/mission/mission-schema.js').MissionDocumentV1} doc
+ */
+function armForecastAgeTimer(doc) {
+  clearTimeout(forecastAgeTimer);
+  forecastAgeTimer = 0;
+  const wait = msUntilForecastBoundary(doc, nowFn());
+  if (wait === null) return;
+  const timer = setTimeout(() => { hostDeps?.update(); }, wait + FORECAST_AGE_SLACK_MS);
+  // Under Node (the test runner) an armed Timeout holds the process open for
+  // hours; in the browser setTimeout returns a number and this is a no-op.
+  if (typeof timer === 'object') timer.unref?.();
+  forecastAgeTimer = timer;
+}
 
 /* ---------- evidence (ADR 0012 §2) ---------- */
 
@@ -311,6 +351,10 @@ export function setupAnalysisHost(d) {
   clearTimeout(evidenceSaveTimer);
   pendingEvidenceSave = null;
   pendingRestore = null;
+  // …and the forecast-age wake-up, for the same reason as the grid timer
+  // below: one armed for the last composition would fire into this one.
+  clearTimeout(forecastAgeTimer);
+  forecastAgeTimer = 0;
   field = null;
   groundLookup = () => null;
   failedCorridorSig = null;
@@ -878,6 +922,10 @@ export function analyzeNow() {
   // publishes it — sampling before this point would be sampling a route the
   // analysis had not yet agreed to.
   refreshField(snapshot.corridor);
+  // The forecast ages while every other input holds still, so the next
+  // re-analysis cannot wait on an edit: wake once at the next 6 h / 24 h
+  // boundary (ADR 0012 §1), and not at all when none lies ahead.
+  armForecastAgeTimer(doc);
   // Consumed either way: refreshGrid and refreshField above each had their one
   // look at whatever was restored for this mission. Admitted or declined, a
   // stale reference sitting in module state forever is only confusing —
