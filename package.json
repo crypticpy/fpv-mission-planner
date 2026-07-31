@@ -8,8 +8,9 @@
     "lint": "eslint .",
     "build": "vite build && node scripts/generate-sw.mjs",
     "arch": "node scripts/arch-check.mjs",
+    "sw:check": "node scripts/generate-dev-sw.mjs --check",
     "smoke": "playwright test",
-    "check": "npm run typecheck && npm run lint && npm test && npm run build && npm run arch && npm run smoke",
+    "check": "npm run typecheck && npm run lint && npm test && npm run build && npm run arch && npm run sw:check && npm run smoke",
     "spike:occlusion:build": "node spike/occlusion/generate-tiles.mjs && vite build --config spike/occlusion/vite.config.js",
     "spike:occlusion:measure": "node spike/occlusion/measure.mjs",
     "spike:occlusion": "npm run spike:occlusion:build && playwright test --config playwright.spike.config.js && npm run spike:occlusion:measure"

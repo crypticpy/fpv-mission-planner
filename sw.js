@@ -10,8 +10,8 @@
 // so caching and offline behaviour still have exactly one source of truth.
 //
 // Editing rules: change the fetch/install/activate logic here and the build
-// inherits it. Adding an asset means adding a line to PRECACHE_URLS *for the
-// dev path only*; forgetting to is no longer a production bug.
+// inherits it. The PRECACHE_URLS list below is generated too (see the comment
+// above it), so this file no longer carries a hand-maintained asset list.
 // ============================================================================
 //
 // Stale-while-revalidate app shell: the tool still opens instantly at a
@@ -26,8 +26,24 @@
 // Paths are relative to this file's scope (the app can live at "/" locally
 // or at a GitHub Pages subpath) — never use a leading "/".
 
-const CACHE_NAME = 'fpv-shell-v10';
+const CACHE_NAME = 'fpv-shell-v11';
 
+/* GENERATED LIST — do not edit between the brackets by hand.
+   scripts/generate-dev-sw.mjs derives it from the static shell (index.html,
+   the manifest, css/, vendor/, icons/) plus the ESM import graph of
+   src/app.js, static and dynamic imports both; `npm run check` fails when it
+   drifts, and re-running the script fixes it. M6's lazily imported compiler +
+   adapters (ADR 0010) are therefore included: ~40 kB gzip of pure text
+   handling, exactly what a pilot at a trailhead needs to hand a mission to a
+   radio's own app with no signal.
+
+   Nothing from src/presentation/map/scene3d/ — deliberately, and the generated
+   production worker excludes its built chunk for the same reason (ADR 0004).
+   The 3D scene is MapLibre and deck.gl, ~442 kB gzip against the ~150 kB of
+   everything else, and it exists behind a button most pilots will never press.
+   Precaching it would spend the whole offline budget on the one feature that
+   cannot work offline anyway — the terrain and imagery it draws are network
+   tiles. The 2D map modules are precached and are the fallback. */
 const PRECACHE_URLS = [
   '.',
   'index.html',
@@ -35,30 +51,6 @@ const PRECACHE_URLS = [
   'css/style.css',
   'src/analysis-host.js',
   'src/app.js',
-  'src/brief.js',
-  'src/calibrate.js',
-  'src/charts.js',
-  'src/data.js',
-  'src/drift.js',
-  'src/flightlog.js',
-  'src/forms.js',
-  'src/interop.js',
-  'src/mission-bridge.js',
-  'src/mission-commands.js',
-  'src/packinstances.js',
-  'src/registry.js',
-  'src/rf.js',
-  'src/schema.js',
-  'src/share.js',
-  'src/shell.js',
-  'src/state.js',
-  'src/store.js',
-  'src/sweep.js',
-  'src/terrain.js',
-  'src/themes.js',
-  'src/thrust.js',
-  'src/weather.js',
-  'src/windprofile.js',
   'src/application/analysis/analysis-contracts.js',
   'src/application/analysis/analyze.js',
   'src/application/analysis/constraints.js',
@@ -69,28 +61,39 @@ const PRECACHE_URLS = [
   'src/application/terrain/sample-corridor.js',
   'src/application/terrain/sample-grid.js',
   'src/application/terrain/terrain-contracts.js',
+  'src/brief.js',
+  'src/calibrate.js',
+  'src/catalog/batteries.js',
+  'src/catalog/cameras.js',
+  'src/catalog/classes.js',
+  'src/catalog/drones.js',
+  'src/catalog/manufacturers.js',
+  'src/catalog/payloads.js',
+  'src/catalog/scenarios.js',
+  'src/catalog/weather.js',
+  'src/charts.js',
+  'src/data.js',
   'src/domain/camera.js',
   'src/domain/fresnel.js',
   'src/domain/geo.js',
-  'src/domain/physics.js',
-  'src/domain/route.js',
-  'src/domain/units.js',
-  'src/domain/vertical.js',
   'src/domain/mission/altitude.js',
   'src/domain/mission/compile.js',
   'src/domain/mission/mission-migrations.js',
   'src/domain/mission/mission-reducer.js',
   'src/domain/mission/mission-schema.js',
-  'src/domain/mission/scene-schema.js',
   'src/domain/mission/scene-commands.js',
+  'src/domain/mission/scene-schema.js',
+  'src/domain/physics.js',
+  'src/domain/route.js',
   'src/domain/terrain/terrain-features.js',
+  'src/domain/units.js',
+  'src/domain/vertical.js',
   'src/domain/wind/regime.js',
   'src/domain/wind/terrain-forcing.js',
+  'src/drift.js',
+  'src/flightlog.js',
+  'src/forms.js',
   'src/infrastructure/elevation/open-meteo-elevation.js',
-  /* M6's compiler + adapters (ADR 0010). In production these are one lazy chunk
-     the generated worker picks up from its dist/ walk automatically — unlike
-     scene3d it is ~40 kB gzip of pure text handling, exactly what a pilot at a
-     trailhead needs to hand a mission to a radio's own app with no signal. */
   'src/infrastructure/export/adapter-contracts.js',
   'src/infrastructure/export/ardupilot-wpl.js',
   'src/infrastructure/export/gpx.js',
@@ -103,14 +106,26 @@ const PRECACHE_URLS = [
   'src/infrastructure/persistence/indexeddb-store.js',
   'src/infrastructure/persistence/memory-store.js',
   'src/infrastructure/persistence/mission-repository.js',
-  'src/catalog/cameras.js',
-  'src/catalog/classes.js',
-  'src/catalog/drones.js',
-  'src/catalog/manufacturers.js',
-  'src/catalog/batteries.js',
-  'src/catalog/payloads.js',
-  'src/catalog/weather.js',
-  'src/catalog/scenarios.js',
+  'src/interop.js',
+  'src/mission-bridge.js',
+  'src/mission-commands.js',
+  'src/packinstances.js',
+  'src/presentation/map/advisory-panel.js',
+  'src/presentation/map/footprint-panel.js',
+  'src/presentation/map/layer-registry.js',
+  'src/presentation/map/layers/advisory-layer.js',
+  'src/presentation/map/layers/footprint-layer.js',
+  'src/presentation/map/layers/launch-layer.js',
+  'src/presentation/map/layers/route-layer.js',
+  'src/presentation/map/layers/spots-layer.js',
+  'src/presentation/map/layers/subject-layer.js',
+  'src/presentation/map/layers/wind-layer.js',
+  'src/presentation/map/leaflet-adapter.js',
+  'src/presentation/map/map-view.js',
+  'src/presentation/map/segment-editor.js',
+  'src/presentation/map/segment-inspector.js',
+  'src/presentation/map/tile-sources.js',
+  'src/registry.js',
   'src/render/batterychecks.js',
   'src/render/brief.js',
   'src/render/calibration.js',
@@ -132,43 +147,32 @@ const PRECACHE_URLS = [
   'src/render/terrain.js',
   'src/render/thrustfield.js',
   'src/render/update-notice.js',
-  'src/presentation/map/map-adapter.js',
-  'src/presentation/map/leaflet-adapter.js',
-  'src/presentation/map/layer-registry.js',
-  'src/presentation/map/map-view.js',
-  'src/presentation/map/segment-inspector.js',
-  'src/presentation/map/segment-editor.js',
-  'src/presentation/map/footprint-panel.js',
-  'src/presentation/map/advisory-panel.js',
-  'src/presentation/map/tile-sources.js',
-  /* Nothing from src/presentation/map/scene3d/ — deliberately, and the generated
-     worker excludes its built chunk for the same reason (ADR 0004). The 3D scene
-     is MapLibre and deck.gl, ~442 kB gzip against the ~150 kB of everything else,
-     and it exists behind a button most pilots will never press. Precaching it
-     would spend the whole offline budget on the one feature that cannot work
-     offline anyway — the terrain and imagery it draws are network tiles. The
-     files below it in this list are the 2D map, which is the fallback. */
-  'src/presentation/map/layers/launch-layer.js',
-  'src/presentation/map/layers/route-layer.js',
-  'src/presentation/map/layers/footprint-layer.js',
-  'src/presentation/map/layers/spots-layer.js',
-  'src/presentation/map/layers/subject-layer.js',
-  'src/presentation/map/layers/wind-layer.js',
-  'src/presentation/map/layers/advisory-layer.js',
+  'src/rf.js',
+  'src/schema.js',
+  'src/share.js',
+  'src/shell.js',
+  'src/state.js',
+  'src/store.js',
+  'src/sweep.js',
+  'src/terrain.js',
+  'src/themes.js',
+  'src/thrust.js',
+  'src/weather.js',
+  'src/windprofile.js',
   'vendor/leaflet/leaflet-src.esm.js',
-  'vendor/leaflet/leaflet.css',
-  'vendor/leaflet/images/layers.png',
-  'vendor/leaflet/images/layers-2x.png',
-  'vendor/leaflet/images/marker-icon.png',
-  'vendor/leaflet/images/marker-icon-2x.png',
-  'vendor/leaflet/images/marker-shadow.png',
   'vendor/fonts/fonts.css',
   'vendor/fonts/ibm-plex-sans-latin.woff2',
   'vendor/fonts/space-grotesk-latin.woff2',
-  'icons/icon.svg',
+  'vendor/leaflet/images/layers-2x.png',
+  'vendor/leaflet/images/layers.png',
+  'vendor/leaflet/images/marker-icon-2x.png',
+  'vendor/leaflet/images/marker-icon.png',
+  'vendor/leaflet/images/marker-shadow.png',
+  'vendor/leaflet/leaflet.css',
+  'icons/apple-touch-icon.png',
   'icons/icon-192.png',
   'icons/icon-512.png',
-  'icons/apple-touch-icon.png',
+  'icons/icon.svg',
 ];
 
 self.addEventListener('install', (event) => {
