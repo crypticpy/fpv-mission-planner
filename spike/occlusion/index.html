@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ADR 0004 rendering spike — terrain occlusion</title>
+  <style>
+    html, body { margin: 0; padding: 0; height: 100%; background: #8fb8de; }
+    #map { position: absolute; inset: 0; }
+    /*
+      The probes read raw pixels, so the attribution bar and logo must go — but
+      ONLY those. In overlaid mode MapboxOverlay returns its canvas wrapper from
+      IControl.onAdd, so MapLibre mounts deck's canvas inside a control corner:
+      `display: none` on .maplibregl-ctrl-top-right (the default corner) hides
+      the deck canvas along with the controls, deck's canvas never leaves its
+      300x150 default size, and the overlay silently renders nothing at all.
+    */
+    .maplibregl-ctrl-attrib, .maplibregl-ctrl-logo { display: none !important; }
+    #status {
+      position: absolute; left: 0; top: 0; width: 1px; height: 1px;
+      overflow: hidden; opacity: 0; pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <div id="status" data-ready="0"></div>
+  <script type="module" src="./main.js"></script>
+</body>
+</html>

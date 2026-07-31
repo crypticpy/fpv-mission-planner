@@ -17,6 +17,10 @@ const BASE_URL = `http://localhost:${PORT}/`;
 
 export default defineConfig({
   testDir: 'tests/browser',
+  // The ADR 0004 rendering spike keeps its spec alongside these, but it needs a
+  // different build, a different port and about a minute of WebGL. It runs from
+  // playwright.spike.config.js via `npm run spike:occlusion`, on demand.
+  testIgnore: ['**/spike-*.spec.js'],
   // The service-worker assertions install a worker at the preview origin, so
   // the specs must not race each other over one registration.
   fullyParallel: false,

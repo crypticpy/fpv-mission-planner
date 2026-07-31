@@ -9,14 +9,21 @@
     "build": "vite build && node scripts/generate-sw.mjs",
     "arch": "node scripts/arch-check.mjs",
     "smoke": "playwright test",
-    "check": "npm run typecheck && npm run lint && npm test && npm run build && npm run arch && npm run smoke"
+    "check": "npm run typecheck && npm run lint && npm test && npm run build && npm run arch && npm run smoke",
+    "spike:occlusion:build": "node spike/occlusion/generate-tiles.mjs && vite build --config spike/occlusion/vite.config.js",
+    "spike:occlusion:measure": "node spike/occlusion/measure.mjs",
+    "spike:occlusion": "npm run spike:occlusion:build && playwright test --config playwright.spike.config.js && npm run spike:occlusion:measure"
   },
   "devDependencies": {
+    "@deck.gl/core": "9.3.7",
+    "@deck.gl/layers": "9.3.7",
+    "@deck.gl/mapbox": "9.3.7",
     "@eslint/js": "10.0.1",
     "@playwright/test": "1.62.1",
     "eslint": "10.8.0",
     "fake-indexeddb": "6.2.5",
     "globals": "17.8.0",
+    "maplibre-gl": "5.24.0",
     "typescript": "7.0.2",
     "vite": "8.2.0"
   }
