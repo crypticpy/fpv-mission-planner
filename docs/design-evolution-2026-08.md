@@ -129,7 +129,14 @@ big ones). No epic branch.
   azimuth, exaggeration, contours); failure keeps the pilot on the tab with a
   system-state card over the live 2D map (Retry is a document reload — a
   failed dynamic import is cached for the document's lifetime).
-- [ ] **M13 — Field + onboarding.** O-01…O-03, F-01, H-03; sunlight mode.
+- [x] **M13 — Field + onboarding.** *(landed 2026-08-01, main @ 3bcff0a)*
+  F-01 Field home card off the shared analysis pass (verdict at field scale,
+  radius and turn-home tiles, wall-clock flight timer that survives a reload,
+  sunlight theme latch); O-01/O-02 first-run tour (welcome chooser + location
+  step, shown only when no session has ever been saved, every exit latches it
+  off); O-03 offline readiness card — six honest rows, basemap stated as
+  never stored, Check-for-updates reports the real registration outcome;
+  H-03 cached-freshness wiring in the ribbon chip.
 - [ ] **M14 — Library + versions.** L-01…L-04, H-04; autosave + version-history
   persistence; RecoveryEntry.
 - [ ] **M15 — Aircraft.** E-01…E-04 reframe with ConfidenceBadge; ΔIR
