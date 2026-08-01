@@ -36,6 +36,7 @@ import {
 } from './render/dashboard.js';
 import { renderComparison } from './render/comparison.js';
 import { renderAircraftCards } from './render/aircraftcards.js';
+import { renderPackCards } from './render/packcards.js';
 import { setupLive, goLive, useMyLocation, updateLiveUI, liveError, liveProvenance } from './render/live.js';
 import {
   setupForecast, renderForecastStrip, setForecastHour, reapplyForecastHour,
@@ -300,6 +301,7 @@ function update() {
         renderSpeedTradeoff(r);
       }
     } else if (state.acPage === 'batteries') {
+      renderPackCards();
       renderComparison();
       renderBatteryNote();
     } else if (state.acPage === 'calibration') {

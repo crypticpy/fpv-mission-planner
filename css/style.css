@@ -821,6 +821,50 @@ tr.row-invalid td:nth-child(12) { color: var(--status-critical); font-weight: 60
   letter-spacing: 0.08em;
 }
 
+/* E-02: the pack shelf reuses the card grid; its own pieces are the
+   resistance-provenance chip, the tired-pack line, and the pairing strip. */
+.packcard-chip {
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.packcard-chip.measured { border-color: var(--accent); color: var(--accent); }
+.packcard-warn { color: var(--status-warning); font-size: 11.5px; }
+
+.pairstrip { margin-bottom: var(--sp-3); }
+.pairstrip h3 { margin-bottom: var(--sp-2); }
+.pairrow {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  padding: 6px 0;
+  border-top: 1px solid var(--border);
+  color: var(--ink-2);
+  font-size: 12.5px;
+}
+.pairrow:first-child { border-top: none; padding-top: 0; }
+.pairverdict {
+  flex: none;
+  padding: 2px 8px;
+  border: 1px solid currentcolor;
+  border-radius: 999px;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.pairverdict.ready { color: var(--status-good); }
+.pairverdict.caution { color: var(--status-warning); }
+.pairverdict.avoid { color: var(--status-serious); }
+.pairverdict.unknown { color: var(--muted); }
+
 /* ---------- map view ---------- */
 
 /* The stage (M10): one positioned box the engines fill and the map chrome —

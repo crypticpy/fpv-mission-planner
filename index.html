@@ -898,6 +898,16 @@
 
     <!-- E-02: the pack shelf — models, physical copies, and the comparison. -->
     <div id="acpage-batteries" role="tabpanel" aria-labelledby="actab-batteries" hidden>
+      <!-- E-02: the physical packs on the shelf. The cards are the face of the
+           hidden #sel-pack-instance select in the fold below — Fly writes the
+           select and fires its change event, so the fold's own handler runs.
+           The pairing strip surfaces pairingCheck(): a verdict only when both
+           packs carry a measured IR. -->
+      <div id="pack-cards" class="accards full-only"></div>
+      <section id="pack-pairing" class="card pairstrip full-only" hidden>
+        <h3>Parallel pairing</h3>
+        <div id="pack-pairing-rows"></div>
+      </section>
       <div class="hangar">
       <section class="rail-group">
         <h2>Packs</h2>
