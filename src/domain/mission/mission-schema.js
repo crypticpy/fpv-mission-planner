@@ -40,7 +40,7 @@
 // scene-schema.js owns the shape of the M7 cinematic bags (ADR 0011 §2) and
 // imports nothing; this file wires its checks into validateMission's report so
 // its own growth stays wiring rather than a second copy of the shape rules.
-import { NAME_MAX_LEN, isValidName, checkCameraShape, checkCameraProfile } from './scene-schema.js';
+import { NAME_MAX_LEN, isValidName, checkCameraShape, checkCameraProfile, checkDive } from './scene-schema.js';
 
 /** @typedef {'launchRelative'|'agl'|'msl'} AltitudeReference */
 /** @typedef {'transit'|'reveal'|'orbit'|'hold'|'pass'|'return'|'approach'} SegmentIntent */
@@ -198,7 +198,36 @@ import { NAME_MAX_LEN, isValidName, checkCameraShape, checkCameraProfile } from 
  * @property {SegmentCamera|null} camera
  */
 
-/** @typedef {{ subjects: Subject[], cameraProfile: CameraProfile|null, templates: SceneTemplate[] }} Scene */
+/**
+ * One gate of the mountain-dive plan (M16). `kind` is its identity — a plan
+ * carries at most one gate of each kind (scene-schema.js's `checkDive`), so
+ * "the recovery gate" always names exactly one thing. `altitudeMslM` is
+ * required, not optional-nullable like a subject's elevation: a gate is an
+ * altitude with a place attached. `radiusM` is the corridor half-width the
+ * 3D scene draws, nothing the physics reads.
+ * @typedef {object} DiveGate
+ * @property {string} id
+ * @property {'approach'|'dive'|'recovery'|'abort'} kind
+ * @property {number} latitude
+ * @property {number} longitude
+ * @property {number} altitudeMslM
+ * @property {number|null} radiusM
+ */
+
+/** Where the pilot walks out to if the run is abandoned mid-line. */
+/** @typedef {{ name: string, latitude: number, longitude: number, elevationMslM: number|null }} DiveBailout */
+
+/**
+ * `scene.dive` — the mountain-dive plan (M16, screens 3D-05…08). Nullable as a
+ * whole: `null` (or, pre-M16, no key at all) means this mission has no dive
+ * plan, the same "missing reads as empty" rule `scene.templates` follows.
+ * @typedef {object} DivePlan
+ * @property {DiveGate[]} gates in flight order: approach, dive, recovery, abort
+ * @property {DiveBailout|null} bailout
+ * @property {number|null} rthAltitudeMslM the lost-link/RTH altitude plane
+ */
+
+/** @typedef {{ subjects: Subject[], cameraProfile: CameraProfile|null, templates: SceneTemplate[], dive?: DivePlan|null }} Scene */
 
 /**
  * Where this document came from — not the provenance of the evidence inside it,
@@ -237,9 +266,10 @@ export const MISSION_SCHEMA_VERSION = 1;
 /** The one node in the route graph that is not a waypoint. */
 export const LAUNCH_NODE = 'launch';
 
-/** ADR 0002's id prefixes, by what they name. ADR 0011 §2 adds `template`. */
+/** ADR 0002's id prefixes, by what they name. ADR 0011 §2 adds `template`;
+ * M16 adds `gate`. */
 export const ID_PREFIXES = Object.freeze({
-  mission: 'msn', waypoint: 'wpt', segment: 'seg', constraint: 'con', subject: 'sub', template: 'tpl',
+  mission: 'msn', waypoint: 'wpt', segment: 'seg', constraint: 'con', subject: 'sub', template: 'tpl', gate: 'gat',
 });
 
 /** @type {readonly string[]} */
@@ -469,7 +499,7 @@ export function createMission(opts, deps = {}) {
     environmentReference: opts.environmentReference ?? defaultEnvironmentReference(),
     route: { waypoints: [], segments: [], returnPolicy: opts.returnPolicy ?? defaultReturnPolicy() },
     planningPolicy: { ...defaultPlanningPolicy(), ...opts.planningPolicy },
-    scene: { subjects: [], cameraProfile: null, templates: [] },
+    scene: { subjects: [], cameraProfile: null, templates: [], dive: null },
     provenance: { ...defaultProvenance(), ...opts.provenance },
   };
 }
@@ -623,6 +653,9 @@ function checkScene(scene, err, warn) {
   });
 
   checkCameraProfile(scene.cameraProfile, 'scene.cameraProfile', err);
+
+  // Missing entirely (a pre-M16 document) reads as null — no dive plan.
+  checkDive(scene.dive, 'scene.dive', err);
 
   // Missing entirely (an old, pre-M7 document) reads as [] — only a present,
   // non-list value is a structural error.

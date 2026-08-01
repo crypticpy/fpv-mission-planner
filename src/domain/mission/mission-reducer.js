@@ -48,6 +48,8 @@ import {
 // twice: `missionReduce`'s catch below needs the one class identity every
 // handler's rejection is an instance of, native or scene alike.
 import { Rejection, reject, SCENE_HANDLERS } from './scene-commands.js';
+// The M16 dive-plan commands (`scene.dive`), filed the same way.
+import { DIVE_HANDLERS } from './dive-commands.js';
 
 /** @typedef {import('./mission-schema.js').MissionDocumentV1} MissionDocumentV1 */
 /** @typedef {import('./mission-schema.js').Altitude} Altitude */
@@ -98,6 +100,8 @@ export const MISSION_COMMANDS = Object.freeze([
   'addSubject', 'moveSubject', 'removeSubject',
   'setSegmentCamera', 'setSegmentSubject', 'setSegmentHold',
   'setCameraProfile', 'saveSceneTemplate', 'applySceneTemplate', 'removeSceneTemplate',
+  // M16 — the mountain-dive plan's own commands.
+  'setDiveGate', 'removeDiveGate', 'setDiveBailout', 'setDiveRthAltitude',
 ]);
 
 /* ---------- handlers ---------- */
@@ -446,6 +450,7 @@ const HANDLERS = {
 
   // ADR 0011 §2 (M7 wave B): subjects, shot geometry, templates — scene-commands.js.
   ...SCENE_HANDLERS,
+  ...DIVE_HANDLERS,
 };
 
 /* ---------- the reducer ---------- */

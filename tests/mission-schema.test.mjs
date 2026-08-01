@@ -50,7 +50,7 @@ test('createMission mints a complete, valid v1 document', () => {
   assert.deepEqual(doc.planningPolicy, {
     reserve: { landFloorPct: 20 }, gustFactor: 0.35, windLevel: 80, radioBand: '5g8',
   });
-  assert.deepEqual(doc.scene, { subjects: [], cameraProfile: null, templates: [] });
+  assert.deepEqual(doc.scene, { subjects: [], cameraProfile: null, templates: [], dive: null });
   assert.equal(doc.provenance.origin, 'authored');
   assert.equal(validateMission(doc).ok, true);
 });
@@ -391,7 +391,7 @@ test('migrateMission does not write back into the record it was handed', () => {
 
 test('the id prefixes are the ones ADR 0002 names', () => {
   assert.deepEqual(ID_PREFIXES, {
-    mission: 'msn', waypoint: 'wpt', segment: 'seg', constraint: 'con', subject: 'sub', template: 'tpl',
+    mission: 'msn', waypoint: 'wpt', segment: 'seg', constraint: 'con', subject: 'sub', template: 'tpl', gate: 'gat',
   });
 });
 
@@ -544,6 +544,62 @@ test('a template camera follows exactly the segment camera rules', () => {
   assert.equal(verdict.ok, false);
   assert.ok(codes(verdict.errors).includes('E-TPL-CAMERA-ORBIT'));
 });
+
+/* -- scene.dive -- */
+
+/** A full, well-formed dive plan — the M16 mockup's own line, in metres. */
+const VALID_DIVE = () => ({
+  gates: [
+    { id: 'gat_1', kind: 'approach', latitude: 30.60, longitude: -98.10, altitudeMslM: 3460, radiusM: 40 },
+    { id: 'gat_2', kind: 'dive', latitude: 30.61, longitude: -98.11, altitudeMslM: 2758, radiusM: 30 },
+    { id: 'gat_3', kind: 'recovery', latitude: 30.62, longitude: -98.12, altitudeMslM: 2560, radiusM: 30 },
+    { id: 'gat_4', kind: 'abort', latitude: 30.61, longitude: -98.11, altitudeMslM: 2804, radiusM: null },
+  ],
+  bailout: { name: 'Valley meadow', latitude: 30.63, longitude: -98.13, elevationMslM: 2410 },
+  rthAltitudeMslM: 3780,
+});
+
+test('a valid scene.dive validates clean, and its absence reads as no plan', () => {
+  const doc = routedMission();
+  doc.scene.dive = VALID_DIVE();
+  assert.deepEqual(validateMission(doc).errors, []);
+  doc.scene.dive = null;
+  assert.deepEqual(validateMission(doc).errors, []);
+  delete doc.scene.dive; // a pre-M16 document never carried the key
+  assert.deepEqual(validateMission(doc).errors, []);
+});
+
+/** @type {[string, (d: ReturnType<typeof VALID_DIVE>) => unknown, string][]} */
+const BAD_DIVES = [
+  ['a dive block that is not an object', () => 'steep', 'E-DIVE-TYPE'],
+  ['an unknown dive key', (d) => ({ ...d, thermalModel: {} }), 'E-DIVE-KEY'],
+  ['gates that are not a list', (d) => ({ ...d, gates: {} }), 'E-DIVE-GATES'],
+  ['a gate that is not an object', (d) => ({ ...d, gates: [7] }), 'E-DIVE-GATE-TYPE'],
+  ['an unknown gate key', (d) => { d.gates[0].speedMph = 58; return d; }, 'E-DIVE-KEY'],
+  ['a gate with no id', (d) => { delete d.gates[0].id; return d; }, 'E-ID-MISSING'],
+  ['two gates sharing an id', (d) => { d.gates[1].id = 'gat_1'; return d; }, 'E-ID-DUPLICATE'],
+  ['a gate kind outside the vocabulary', (d) => { d.gates[0].kind = 'plunge'; return d; }, 'E-DIVE-GATE-KIND'],
+  ['a second gate of one kind', (d) => { d.gates[1].kind = 'approach'; return d; }, 'E-DIVE-GATE-DUP'],
+  ['a gate off the map', (d) => { d.gates[0].latitude = 95; return d; }, 'E-GEO-RANGE'],
+  ['a gate with no altitude', (d) => { d.gates[0].altitudeMslM = null; return d; }, 'E-DIVE-GATE-ALT'],
+  ['a gate with a negative corridor', (d) => { d.gates[0].radiusM = -5; return d; }, 'E-DIVE-GATE-RADIUS'],
+  ['a bailout that is not an object', (d) => ({ ...d, bailout: 'meadow' }), 'E-DIVE-BAILOUT-TYPE'],
+  ['a bailout with an empty name', (d) => { d.bailout.name = '  '; return d; }, 'E-DIVE-BAILOUT-NAME'],
+  ['a bailout off the map', (d) => { d.bailout.longitude = -190; return d; }, 'E-GEO-RANGE'],
+  ['a bailout with a text elevation', (d) => { d.bailout.elevationMslM = 'low'; return d; }, 'E-DIVE-BAILOUT-ELEV'],
+  ['a text RTH altitude', (d) => ({ ...d, rthAltitudeMslM: '12400 ft' }), 'E-DIVE-RTH'],
+];
+
+for (const [what, mutate, code] of BAD_DIVES) {
+  test(`scene.dive rejects ${what}`, () => {
+    const doc = routedMission();
+    doc.scene.dive = mutate(VALID_DIVE());
+    const verdict = validateMission(doc);
+    assert.equal(verdict.ok, false);
+    assert.ok(codes(verdict.errors).includes(code),
+      `expected ${code}, got ${JSON.stringify(codes(verdict.errors))}`);
+  });
+}
 
 /* -- subjects: name/elevation/radius tightening -- */
 

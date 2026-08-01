@@ -21,6 +21,7 @@
     "src/domain/units.js",
     "src/domain/geo.js",
     "src/domain/vertical.js",
+    "src/domain/dive.js",
     "src/domain/fresnel.js",
     "src/store.js",
     "src/catalog/batteries.js",
@@ -141,6 +142,7 @@
     "src/catalog/cameras.js",
     "src/domain/mission/scene-schema.js",
     "src/domain/mission/scene-commands.js",
+    "src/domain/mission/dive-commands.js",
     // M7 wave D's 2D subject layer — pre-seeded the same way; it reaches only
     // the map contract and domain/geo.js, both above. Its 3D siblings stay out
     // on deck.gl's account, like the rest of scene3d/.

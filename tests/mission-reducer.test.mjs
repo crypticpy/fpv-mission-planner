@@ -460,6 +460,7 @@ test('every command in MISSION_COMMANDS actually changes something', () => {
   const doc = run(routed(deps), [
     { type: 'addSubject', payload: { latitude: 30.35, longitude: -97.85, name: 'Windmill' } },
     { type: 'saveSceneTemplate', payload: { name: 'Flyby', intent: 'transit' } },
+    { type: 'setDiveGate', payload: { kind: 'approach', latitude: 30.6, longitude: -98.1, altitudeMslM: 3460 } },
     wp(30.7, -98.2, { intent: 'hold', holdS: 15 }),
   ], deps);
   const [subject] = doc.scene.subjects;
@@ -491,6 +492,10 @@ test('every command in MISSION_COMMANDS actually changes something', () => {
     saveSceneTemplate: { name: 'Orbit', intent: 'orbit', holdS: 20 },
     applySceneTemplate: { templateId: template.id, segmentId: 'seg_3' },
     removeSceneTemplate: { id: template.id },
+    setDiveGate: { kind: 'dive', latitude: 30.62, longitude: -98.12, altitudeMslM: 2760 },
+    removeDiveGate: { kind: 'approach' },
+    setDiveBailout: { bailout: { latitude: 30.63, longitude: -98.13, name: 'Valley meadow' } },
+    setDiveRthAltitude: { altitudeMslM: 3780 },
   };
   assert.deepEqual(Object.keys(exercised).sort(), [...MISSION_COMMANDS].sort(),
     'the exported command list and this test agree on what exists');
