@@ -303,7 +303,7 @@ print dialog, so it works offline once the page is up.
 ## Terrain along the outbound leg
 
 A mission over hill country climbs, and the model plans at one elevation. The
-Map tab profiles the **ground under the outbound leg** — one batched Open-Meteo
+Analyze mode profiles the **ground under the outbound leg** — one batched Open-Meteo
 elevation request, 28 samples along the course the plan actually flies (into the
 wind, downwind, or the cross leg, whichever the relative wind mode says) — and
 plans the air at the **turnaround**, not at the launch point. That is where the
@@ -389,7 +389,8 @@ of drawn, which is a warning rather than a picture.
 Everything above treats the wind as one smooth number. Over ground with a shape
 to it that is the wrong picture: the same 15 mph pushes air *up* one flank of a
 ridge and drags it *down* the other, and the far side is where a hover turns
-into a descent you did not ask for. The Map tab shades that difference.
+into a descent you did not ask for. The map shades that difference, and
+Analyze explains it.
 
 Around the route the planner samples an **elevation grid** — up to 24 × 24 cells
 around the mission's own bounding box, fetched from Open-Meteo 100 points at a
@@ -445,7 +446,7 @@ light), and a clock plan lays the flight against them: *launch 7:41 PM → turn
 7:49 → land 7:56 · sunset 8:21*, with a warning when the landing runs out of
 light.
 
-**Saved spots** (Map tab) turn the single launch pin into a named list: each
+**Saved spots** (on the 2D map) turn the single launch pin into a named list: each
 spot keeps its location, cached elevation, notes, and a snapshot of the loadout
 you saved it with. *Fly here* re-aims the pin, restores that rig, and refetches
 live weather — so "which of my spots is flyable Saturday" is two clicks and a
@@ -636,7 +637,7 @@ from one they typed in.
 
 ## Handing missions to other tools
 
-A mission plan is only useful if it can leave. The mission fold on the Map tab
+A mission plan is only useful if it can leave. The mission fold in Plan
 exports the open mission to the formats the rest of the ecosystem actually
 speaks — **GPX 1.1** (any GIS or track viewer), **KML** (Google Earth),
 **QGroundControl `.plan`**, **ArduPilot/MAVLink `.waypoints`**, and **INAV
