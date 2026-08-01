@@ -51,6 +51,10 @@ test.describe('the first-run tour', () => {
     await page.locator('#onboard-field').click();
     await expect(page.locator('#onboard-welcome')).toBeHidden();
     await expect(page.locator('#onboard-location')).toBeVisible();
+    // The dialog's accessible name follows the step — a screen reader must
+    // hear the visible heading, not the hidden welcome title behind it.
+    await expect(page.locator('#onboard'))
+      .toHaveAttribute('aria-labelledby', 'onboard-title-location');
     // The honesty note: until the pilot allows it, the pin is the default spot.
     await expect(page.locator('.onboard-note')).toContainText('Austin');
 

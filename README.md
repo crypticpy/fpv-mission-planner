@@ -20,6 +20,16 @@ button lands on the Plan 2D map, where a grid of arrows shows the wind over
 the route (the legend names the height the figure was read at — only when a
 live profile actually read it at one).
 
+Field opens on the day-of home card: the plan's verdict writ large, the
+radius and turn-home numbers beside it, and a flight timer counted against
+the turn-home mark — the start instant is persisted, so a reload resumes the
+clock instead of resetting it. A **Sunlight** button latches the max-contrast
+sun-glare theme for direct sun, and one press puts back whatever theme was
+set before. The very first launch (no saved session, ever) gets a one-time
+tour: pick a starting door — quick field check, plan a mission, or open a
+saved one — and optionally hand the launch pin your location; every exit,
+including Escape, latches the tour off for good.
+
 ## Run it
 
 ```bash
@@ -85,6 +95,16 @@ it's making at any given moment.
   mid-edit never loses work to a deploy landing behind their back. The notice
   never appears on the very first visit, when there was no older build to have
   updated *from*.
+- **Field says what still works out there, row by row.** An **Offline
+  readiness** card on the Field destination states, per store, what survives
+  losing coverage at the spot: the connection as the browser reports it, the
+  app shell's cache, the weather's age and whether it can refresh, the
+  terrain sampled with the mission, and where missions are saved (with the
+  browser's own usage figure when it will give one — no claim when it
+  won't). The last row states plainly that map imagery is **never** stored —
+  the basemap needs coverage; the verdict, the numbers and the clock do not.
+  A **Check for updates** button asks the service worker for a newer build
+  right now and reports what actually happened.
 - **The mission brief carries its own evidence.** An **Evidence** section on
   the brief states, from the analysis snapshot's own provenance and nothing
   recomputed — the forecast's source and age (or *manual — authored by the

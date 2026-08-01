@@ -34,6 +34,9 @@ function toLocation(t) {
   target = t;
   $('onboard-welcome').hidden = true;
   $('onboard-location').hidden = false;
+  // The dialog's accessible name must follow the visible step — accname
+  // resolution still reads the welcome title through its hidden parent.
+  $('onboard').setAttribute('aria-labelledby', 'onboard-title-location');
 }
 
 function locate() {
