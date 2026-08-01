@@ -82,12 +82,21 @@ const SAVE_DEBOUNCE_MS = 300;
 /** At or above this fraction of quota, the banner warns before writes start failing (ADR 0012 §5). */
 const STORAGE_NEAR_FULL_RATIO = 0.8;
 
+/**
+ * How much editing an auto checkpoint is allowed to cover (M14, H-04). The
+ * debounced save keeps the live record current; the history only needs a
+ * trail of restore points, and one every five minutes bounds what a bad edit
+ * session can cost to five minutes of work.
+ */
+const CHECKPOINT_INTERVAL_MS = 5 * 60_000;
+
 /** @type {BridgeDeps|null} */ let deps = null;
 /** @type {MissionRepository|null} */ let repo = null;
 /** @type {MissionDocumentV1|null} */ let doc = null;
 /** @type {Promise<void>|null} */ let inflight = null;
 let dirty = false;
 let saveTimer = 0;
+let lastCheckpointAt = 0; // wall-clock ms of the last checkpoint attempt
 
 /** @type {MissionStorageState} */
 let storage = { adapter: null, durable: false, persisted: null, save: 'idle', message: '', nearFull: null };
@@ -146,6 +155,23 @@ function onWarning(w) {
 
 /* ---------- persistence ---------- */
 
+/**
+ * Ask the repository to record a version checkpoint, without waiting and
+ * without letting a refusal become a storage failure: the checkpoint API
+ * answers in data, and the only audience for a refused one is the console.
+ * The `typeof` guard keeps older injected test repositories (which predate
+ * versioning) valid doubles.
+ * @param {MissionDocumentV1} snapshot
+ * @param {import('./infrastructure/persistence/mission-repository.js').VersionKind} kind
+ */
+function recordCheckpoint(snapshot, kind) {
+  if (!repo || typeof repo.checkpoint !== 'function') return;
+  lastCheckpointAt = Date.now();
+  void repo.checkpoint(snapshot, kind).then((res) => {
+    if (!res.ok) console.warn(`mission: checkpoint not recorded — ${res.message}`);
+  });
+}
+
 /** @param {MissionDocumentV1} snapshot */
 async function writeNow(snapshot) {
   if (!repo) return;
@@ -163,6 +189,9 @@ async function writeNow(snapshot) {
     void refreshStorageEstimate(); // especially worth knowing right after a failure
     return;
   }
+  // The auto-checkpoint cadence rides the save receipts: only a confirmed
+  // write can be worth remembering, and between writes there is nothing new.
+  if (Date.now() - lastCheckpointAt >= CHECKPOINT_INTERVAL_MS) recordCheckpoint(snapshot, 'auto');
   if (dirty) scheduleSave(); // a new edit landed while the write was in flight
   void refreshStorageEstimate(); // after every save receipt (ADR 0012 §5)
 }
@@ -313,9 +342,9 @@ export function clearRoute() {
  * Put the map pin and the rail where the open mission says the launch is —
  * and tell analysis-host.js a document just became the open one, which is
  * also the moment its evidence restore (ADR 0012 §2) has something to ask
- * about. Called at exactly the four places a document changes identity:
- * boot's loaded branch, openMission, importMission's applied branch, and
- * deleteMission's reseed branch.
+ * about. Called at exactly the five places a document changes identity:
+ * boot's loaded branch, openMission, importMission's applied branch,
+ * deleteMission's reseed branch, and restoreMissionVersion's applied branch.
  */
 function launchRestored() {
   if (!doc || !deps) return;
@@ -365,6 +394,10 @@ export async function openMissionBridge() {
     doc = resolveMissionAltitudes(loaded, deps.terrainSampler ?? null).doc;
     launchRestored();
     report('saved');
+    // The session-start restore point (H-04): whatever this session does to
+    // the mission, the state it opened at stays reachable. Deduped against
+    // the newest version, so an untouched reopen records nothing.
+    recordCheckpoint(doc, 'auto');
   } else {
     doc = seededMission();
     if (doc) scheduleSave();
@@ -400,6 +433,7 @@ export async function openMission(id) {
   doc = resolveMissionAltitudes(next, deps?.terrainSampler ?? null).doc;
   launchRestored();
   report('saved');
+  recordCheckpoint(doc, 'auto'); // the open-moment restore point, deduped
   deps?.onMissionChanged?.();
   deps?.requestRender();
   return true;
@@ -420,6 +454,9 @@ export async function saveMissionCopy() {
   if (!copy) return null;
   doc = copy;
   report('saved');
+  // "Save a copy" is the one deliberate save gesture this app has; the copy's
+  // history starts with it as a manual checkpoint.
+  recordCheckpoint(copy, 'manual');
   deps?.onMissionChanged?.();
   deps?.requestRender();
   return copy;
@@ -490,9 +527,60 @@ export async function exportMission(id) {
 export async function importMission(text) {
   await flushMission();
   if (!repo) return null;
+  // The document being navigated away from gets a restore point before the
+  // import replaces it as the open one (deduped, so usually a no-op).
+  if (doc) recordCheckpoint(doc, 'auto');
   const result = await repo.importJson(text);
   if (result.ok) {
     doc = resolveMissionAltitudes(result.doc, deps?.terrainSampler ?? null).doc;
+    launchRestored();
+    report('saved');
+    // The import itself is an event worth a named version: the file's
+    // contents as they arrived, before this session edits them.
+    recordCheckpoint(doc, 'import');
+    deps?.onMissionChanged?.();
+    deps?.requestRender();
+  }
+  return result;
+}
+
+/* ---------- version history (M14, L-04/H-04) ---------- */
+
+/**
+ * The stored history of one mission, newest first.
+ * @param {string} id
+ * @returns {Promise<import('./infrastructure/persistence/mission-repository.js').VersionSummary[]>}
+ */
+export async function listMissionVersions(id) {
+  await flushMission();
+  if (!repo || typeof repo.versions !== 'function') return [];
+  return repo.versions(id);
+}
+
+/**
+ * Make a stored version the live document and open it. The repository records
+ * the restore as a new checkpoint — the version restored from is never
+ * deleted, so a restore can itself be undone by restoring past it.
+ * @param {string} id @param {string} versionId
+ * @returns {Promise<Awaited<ReturnType<MissionRepository['restoreVersion']>>|null>}
+ */
+export async function restoreMissionVersion(id, versionId) {
+  await flushMission();
+  if (!repo || typeof repo.restoreVersion !== 'function') return null;
+  /** @type {Awaited<ReturnType<MissionRepository['restoreVersion']>>} */
+  let result;
+  try {
+    result = await repo.restoreVersion(id, versionId);
+  } catch (e) {
+    // The restore's save failed the same way any save can (full disk, …);
+    // the open document is untouched and the banner explains.
+    report('failed', reason(e));
+    return { ok: false, errors: [{ path: '', code: 'E-VERSION-WRITE', message: reason(e) }] };
+  }
+  if (result.ok) {
+    doc = resolveMissionAltitudes(result.doc, deps?.terrainSampler ?? null).doc;
+    dirty = false; // the repository just wrote exactly this document
+    lastCheckpointAt = Date.now(); // the repository just recorded the restore
     launchRestored();
     report('saved');
     deps?.onMissionChanged?.();

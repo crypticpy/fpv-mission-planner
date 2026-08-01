@@ -37,10 +37,17 @@
 /** @typedef {{ key: string, value: unknown }} RawRecord */
 
 export const DATABASE_NAME = 'fpv-planner';
-export const DATABASE_VERSION = 1;
+// v2 (M14): the `versions` store. The bump is the one F9 allows for: additive,
+// with `onversionchange` handlers below so a tab on this build closes its
+// connection instead of blocking the next upgrade. A tab still on v1 has no
+// such handler — if one is open during the one-time 1→2 upgrade, the new tab's
+// open is blocked, falls back to the memory adapter for that session, and says
+// so through `durable: false`.
+export const DATABASE_VERSION = 2;
 export const MISSION_STORE = 'missions';
 export const QUARANTINE_STORE = 'quarantine';
 export const EVIDENCE_STORE = 'evidence';
+export const VERSION_STORE = 'versions';
 
 /** Errors that mean "the connection is gone", not "the data is bad". */
 const RECONNECT_ERRORS = new Set(['InvalidStateError', 'UnknownError', 'AbortError', 'NotFoundError']);
@@ -78,7 +85,7 @@ function openDatabase(factory, name) {
       const db = req.result;
       // Additive only, forever: an upgrade that drops or renames a store can
       // strand a tab still running the previous build (R-OFFLINE F9).
-      for (const store of [MISSION_STORE, QUARANTINE_STORE, EVIDENCE_STORE]) {
+      for (const store of [MISSION_STORE, QUARANTINE_STORE, EVIDENCE_STORE, VERSION_STORE]) {
         if (!db.objectStoreNames.contains(store)) db.createObjectStore(store, { keyPath: 'id' });
       }
     };
@@ -104,17 +111,30 @@ export async function openIndexedDbStore(options = {}) {
   const name = options.databaseName ?? DATABASE_NAME;
 
   /** @type {IDBDatabase|null} */
-  let db = await openDatabase(factory, name);
+  let db = null;
   let closed = false;
-  db.onclose = () => { db = null; };
+
+  /**
+   * Track the live connection and give it the two exit handlers: `onclose` for
+   * a connection the browser dropped, `onversionchange` so this tab yields the
+   * database instead of blocking a newer build's upgrade in another tab (F9).
+   * @param {IDBDatabase} connection
+   */
+  function adopt(connection) {
+    db = connection;
+    connection.onclose = () => { if (db === connection) db = null; };
+    connection.onversionchange = () => {
+      connection.close();
+      if (db === connection) db = null;
+    };
+    return connection;
+  }
+
+  adopt(await openDatabase(factory, name));
 
   async function ensureDb() {
     if (closed) throw new Error('mission store is closed');
-    if (!db) {
-      db = await openDatabase(factory, name);
-      db.onclose = () => { db = null; };
-    }
-    return db;
+    return db ?? adopt(await openDatabase(factory, name));
   }
 
   /**
@@ -265,6 +285,64 @@ export async function openIndexedDbStore(options = {}) {
       return withDb(async (database) => {
         const tx = database.transaction(EVIDENCE_STORE, 'readwrite');
         tx.objectStore(EVIDENCE_STORE).delete(id);
+        await transactionDone(tx);
+      });
+    },
+
+    /**
+     * The versions trio (M14). Shaped like the evidence trio — plain put, no
+     * read-back — because a checkpoint is best-effort by design: the
+     * repository tolerates a failed one, and the live mission record above
+     * keeps the verified path. Filtering by mission happens in the
+     * repository; at ≤ ~20 versions per mission an index would be ceremony.
+     * @returns {Promise<unknown[]>}
+     */
+    readVersions() {
+      return withDb(async (database) => {
+        const tx = database.transaction(VERSION_STORE, 'readonly');
+        const values = await requestDone(tx.objectStore(VERSION_STORE).getAll());
+        await transactionDone(tx);
+        return values;
+      });
+    },
+
+    /** @param {{ id: string }} record @returns {Promise<void>} */
+    writeVersion(record) {
+      return withDb(async (database) => {
+        const tx = database.transaction(VERSION_STORE, 'readwrite');
+        try {
+          tx.objectStore(VERSION_STORE).put(record); // DataCloneError throws synchronously (F12)
+        } catch (e) {
+          try { tx.abort(); } catch { /* already dead */ }
+          throw e;
+        }
+        await transactionDone(tx);
+      });
+    },
+
+    /** @param {string} id @returns {Promise<void>} */
+    removeVersion(id) {
+      return withDb(async (database) => {
+        const tx = database.transaction(VERSION_STORE, 'readwrite');
+        tx.objectStore(VERSION_STORE).delete(id);
+        await transactionDone(tx);
+      });
+    },
+
+    /**
+     * Drop every version belonging to one mission, in one transaction, so a
+     * deleted mission never leaves a partial history behind.
+     * @param {string} missionId @returns {Promise<void>}
+     */
+    removeVersionsFor(missionId) {
+      return withDb(async (database) => {
+        const tx = database.transaction(VERSION_STORE, 'readwrite');
+        const store = tx.objectStore(VERSION_STORE);
+        const values = await requestDone(store.getAll());
+        for (const value of values) {
+          const record = /** @type {{ id?: unknown, missionId?: unknown }} */ (value);
+          if (record?.missionId === missionId && typeof record.id === 'string') store.delete(record.id);
+        }
         await transactionDone(tx);
       });
     },

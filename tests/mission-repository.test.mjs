@@ -5,10 +5,10 @@ import { IDBFactory } from 'fake-indexeddb';
 import { createMission, validateMission } from '../src/domain/mission/mission-schema.js';
 import { missionReduce } from '../src/domain/mission/mission-reducer.js';
 import {
-  MissionRepositoryError, openMissionRepository,
+  MissionRepositoryError, VERSION_KEEP, openMissionRepository,
 } from '../src/infrastructure/persistence/mission-repository.js';
 import {
-  DATABASE_NAME, DATABASE_VERSION, MISSION_STORE, QUARANTINE_STORE, EVIDENCE_STORE,
+  DATABASE_NAME, DATABASE_VERSION, MISSION_STORE, QUARANTINE_STORE, EVIDENCE_STORE, VERSION_STORE,
 } from '../src/infrastructure/persistence/indexeddb-store.js';
 
 /* One contract, two adapters. Everything under "the contract" runs identically
@@ -70,7 +70,7 @@ function rawOpen(factory) {
   return new Promise((resolve, reject) => {
     const req = factory.open(DATABASE_NAME, DATABASE_VERSION);
     req.onupgradeneeded = () => {
-      for (const name of [MISSION_STORE, QUARANTINE_STORE, EVIDENCE_STORE]) {
+      for (const name of [MISSION_STORE, QUARANTINE_STORE, EVIDENCE_STORE, VERSION_STORE]) {
         if (!req.result.objectStoreNames.contains(name)) req.result.createObjectStore(name, { keyPath: 'id' });
       }
     };
@@ -441,11 +441,153 @@ for (const makeEnv of ENVIRONMENTS) {
     assert.deepEqual(await repo.get('msn_corrupt'), repaired);
     assert.equal((await repo.quarantined()).length, 1, 'the quarantined copy is kept for comparison');
   });
+
+  /* ---------- version history (M14, L-04/H-04) ---------- */
+
+  test(`[${kind}] checkpoints are listed newest first with what a timeline needs`, async (t) => {
+    const { repo, deps } = await openRepo(t);
+    const doc = makeMission(deps);
+    await repo.save(doc);
+    const first = await repo.checkpoint(doc, 'manual');
+    assert.deepEqual({ ok: first.ok, seq: first.seq, skipped: first.skipped }, { ok: true, seq: 1, skipped: false });
+
+    const edited = missionReduce(doc, { type: 'removeWaypoint', payload: { id: doc.route.waypoints[0].id } }, deps);
+    await repo.save(edited);
+    const second = await repo.checkpoint(edited, 'auto');
+    assert.equal(second.seq, 2);
+
+    const versions = await repo.versions(doc.id);
+    assert.deepEqual(versions.map((v) => v.seq), [2, 1], 'newest first');
+    assert.deepEqual(versions.map((v) => v.kind), ['auto', 'manual']);
+    assert.deepEqual(versions.map((v) => v.waypoints), [1, 2]);
+    assert.equal(versions[0].title, doc.title);
+    assert.equal(versions[0].missionId, doc.id);
+    assert.ok(!Number.isNaN(Date.parse(versions[0].savedAt)));
+    assert.deepEqual(Object.keys(versions[0]).sort(),
+      ['id', 'kind', 'missionId', 'savedAt', 'seq', 'title', 'waypoints'],
+      'summaries, not full documents');
+  });
+
+  test(`[${kind}] unchanged content is not a new version — a clock bump has nothing to say`, async (t) => {
+    const { repo, deps } = await openRepo(t);
+    const doc = makeMission(deps);
+    await repo.checkpoint(doc, 'manual');
+    const touched = { ...doc, updatedAt: deps.now() };
+    const again = await repo.checkpoint(touched, 'auto');
+    assert.deepEqual({ ok: again.ok, seq: again.seq, skipped: again.skipped }, { ok: true, seq: 1, skipped: true },
+      'it answers with the version already covering this content');
+    assert.equal((await repo.versions(doc.id)).length, 1);
+  });
+
+  test(`[${kind}] a restore or import checkpoint is an event, recorded even when content matches`, async (t) => {
+    const { repo, deps } = await openRepo(t);
+    const doc = makeMission(deps);
+    await repo.checkpoint(doc, 'manual');
+    const imported = await repo.checkpoint({ ...doc, updatedAt: deps.now() }, 'import');
+    assert.deepEqual({ seq: imported.seq, skipped: imported.skipped }, { seq: 2, skipped: false });
+    assert.deepEqual((await repo.versions(doc.id)).map((v) => v.kind), ['import', 'manual']);
+  });
+
+  test(`[${kind}] the history caps at ${VERSION_KEEP} without renumbering the survivors`, async (t) => {
+    const { repo, deps } = await openRepo(t);
+    let doc = makeMission(deps);
+    await repo.save(doc);
+    for (let i = 1; i <= VERSION_KEEP + 3; i++) {
+      doc = missionReduce(doc, { type: 'setTitle', payload: { title: `Rev ${i}` } }, deps);
+      assert.equal((await repo.checkpoint(doc, 'manual')).skipped, false);
+    }
+    const versions = await repo.versions(doc.id);
+    assert.equal(versions.length, VERSION_KEEP);
+    assert.equal(versions[0].seq, VERSION_KEEP + 3, 'seq keeps counting past pruned versions');
+    assert.equal(versions.at(-1).seq, 4, 'the oldest fell off the end');
+  });
+
+  test(`[${kind}] restore makes the version live and records the restore as a new version`, async (t) => {
+    const { repo, deps } = await openRepo(t);
+    const doc = makeMission(deps);
+    await repo.save(doc);
+    await repo.checkpoint(doc, 'manual');
+    const edited = missionReduce(doc, { type: 'removeWaypoint', payload: { id: doc.route.waypoints[0].id } }, deps);
+    await repo.save(edited);
+    await repo.checkpoint(edited, 'auto');
+
+    const v1 = (await repo.versions(doc.id)).find((v) => v.seq === 1);
+    const result = await repo.restoreVersion(doc.id, v1.id);
+    assert.equal(result.ok, true);
+    assert.equal(result.doc.route.waypoints.length, 2, 'the older route is back');
+    assert.notEqual(result.doc.updatedAt, doc.updatedAt, 'restored now, not then');
+    assert.deepEqual(await repo.get(doc.id), result.doc, 'and it is the live record');
+
+    assert.deepEqual((await repo.versions(doc.id)).map((v) => [v.seq, v.kind]),
+      [[3, 'restore'], [2, 'auto'], [1, 'manual']],
+      'the restore is a new version; the version restored from is still here');
+  });
+
+  test(`[${kind}] restoring a version that is not there fails as data, not a throw`, async (t) => {
+    const { repo, deps } = await openRepo(t);
+    const doc = makeMission(deps);
+    await repo.save(doc);
+    await repo.checkpoint(doc, 'manual');
+
+    const missing = await repo.restoreVersion(doc.id, 'ver_nope');
+    assert.equal(missing.ok, false);
+    assert.equal(missing.errors[0].code, 'E-VERSION-MISSING');
+
+    const argless = await repo.restoreVersion('', '');
+    assert.equal(argless.ok, false);
+    assert.equal(argless.errors[0].code, 'E-VERSION-ARG');
+    assert.deepEqual(await repo.get(doc.id), doc, 'the live record is untouched either way');
+  });
+
+  test(`[${kind}] a version belongs to its mission — another mission's id cannot reach it`, async (t) => {
+    const { repo, deps } = await openRepo(t);
+    const mine = makeMission(deps, 'Mine');
+    const theirs = makeMission(deps, 'Theirs');
+    await repo.save(mine);
+    await repo.save(theirs);
+    await repo.checkpoint(mine, 'manual');
+    const [version] = await repo.versions(mine.id);
+
+    const crossed = await repo.restoreVersion(theirs.id, version.id);
+    assert.equal(crossed.ok, false);
+    assert.equal(crossed.errors[0].code, 'E-VERSION-MISSING');
+    assert.deepEqual(await repo.versions(theirs.id), []);
+  });
+
+  test(`[${kind}] deleting a mission takes its history with it, and only its history`, async (t) => {
+    const { repo, deps } = await openRepo(t);
+    const doomed = makeMission(deps, 'Doomed');
+    const kept = makeMission(deps, 'Kept');
+    await repo.save(doomed);
+    await repo.save(kept);
+    await repo.checkpoint(doomed, 'manual');
+    await repo.checkpoint(kept, 'manual');
+
+    assert.equal(await repo.remove(doomed.id), true);
+    assert.deepEqual(await repo.versions(doomed.id), []);
+    assert.equal((await repo.versions(kept.id)).length, 1, 'the other mission keeps its history');
+  });
+
+  test(`[${kind}] checkpoint answers bad input as data and defaults to the deliberate kind`, async (t) => {
+    const { repo, deps } = await openRepo(t);
+    const doc = makeMission(deps);
+
+    const badKind = await repo.checkpoint(doc, 'hourly');
+    assert.equal(badKind.ok, false);
+    assert.match(badKind.message, /checkpoint kind/);
+    const noDoc = await repo.checkpoint(null, 'manual');
+    assert.equal(noDoc.ok, false);
+    assert.deepEqual(await repo.versions(doc.id), [], 'neither refusal wrote anything');
+    assert.deepEqual(await repo.versions(''), []);
+
+    assert.equal((await repo.checkpoint(doc)).ok, true);
+    assert.equal((await repo.versions(doc.id))[0].kind, 'manual', 'the default kind is the deliberate one');
+  });
 }
 
 /* ---------- the database ADR 0005 describes ---------- */
 
-test('[indexeddb] the database is fpv-planner, with missions, quarantine and evidence', async (t) => {
+test('[indexeddb] the database is fpv-planner, with missions, quarantine, evidence and versions', async (t) => {
   const indexedDB = new IDBFactory();
   const repo = await openMissionRepository({ adapter: 'indexeddb', indexedDB, ...harness() });
   t.after(() => repo.close());
@@ -454,9 +596,42 @@ test('[indexeddb] the database is fpv-planner, with missions, quarantine and evi
   t.after(() => db.close());
   assert.equal(db.name, DATABASE_NAME);
   assert.equal(db.version, DATABASE_VERSION);
-  assert.deepEqual([...db.objectStoreNames].sort(), ['evidence', 'missions', 'quarantine'],
-    'evidence exists from version 1 so M2 never has to bump the version on a running tab');
+  assert.deepEqual([...db.objectStoreNames].sort(), ['evidence', 'missions', 'quarantine', 'versions'],
+    'evidence existed from v1 so M2 never bumped the version; versions is the one additive v2 store (M14)');
   assert.equal(db.transaction(MISSION_STORE).objectStore(MISSION_STORE).keyPath, 'id');
+  assert.equal(db.transaction(VERSION_STORE).objectStore(VERSION_STORE).keyPath, 'id');
+});
+
+test('[indexeddb] a v1 database is upgraded in place, additively', async (t) => {
+  const deps = harness();
+  const indexedDB = new IDBFactory();
+
+  // A database exactly as the previous build left it: version 1, three stores,
+  // a mission already saved.
+  const v1 = await new Promise((resolve, reject) => {
+    const req = indexedDB.open(DATABASE_NAME, 1);
+    req.onupgradeneeded = () => {
+      for (const name of [MISSION_STORE, QUARANTINE_STORE, EVIDENCE_STORE]) {
+        req.result.createObjectStore(name, { keyPath: 'id' });
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+  const doc = makeMission(deps);
+  await new Promise((resolve, reject) => {
+    const tx = v1.transaction(MISSION_STORE, 'readwrite');
+    tx.objectStore(MISSION_STORE).put(doc);
+    tx.oncomplete = () => resolve(undefined);
+    tx.onerror = () => reject(tx.error);
+  });
+  v1.close();
+
+  const repo = await openMissionRepository({ adapter: 'indexeddb', indexedDB, ...deps });
+  t.after(() => repo.close());
+  assert.deepEqual(await repo.get(doc.id), doc, 'the mission written before the upgrade is intact');
+  assert.equal((await repo.checkpoint(doc, 'manual')).ok, true, 'and the new store is there to write to');
+  assert.equal((await repo.versions(doc.id)).length, 1);
 });
 
 test('[indexeddb] the mission is stored whole, under its own id', async (t) => {

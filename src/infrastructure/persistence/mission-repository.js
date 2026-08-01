@@ -44,6 +44,40 @@ import { openMemoryStore } from './memory-store.js';
 
 /** @typedef {{ id: string, title: string, updatedAt: string }} MissionSummary */
 
+/** @typedef {'manual'|'auto'|'restore'|'import'} VersionKind */
+
+/**
+ * One stored checkpoint: the whole document at a moment, plus why the moment
+ * mattered. `seq` is per-mission and only ever grows — pruning old versions
+ * never renumbers the survivors, so "v8" stays v8 for as long as it exists.
+ * @typedef {object} VersionRecord
+ * @property {string} id
+ * @property {string} missionId
+ * @property {number} seq
+ * @property {VersionKind} kind
+ * @property {string} savedAt
+ * @property {MissionDocumentV1} doc
+ */
+
+/**
+ * What a history timeline needs without hauling every full document out of the
+ * store's raw records unexamined.
+ * @typedef {object} VersionSummary
+ * @property {string} id
+ * @property {string} missionId
+ * @property {number} seq
+ * @property {VersionKind} kind
+ * @property {string} savedAt
+ * @property {string} title
+ * @property {number} waypoints
+ */
+
+/** Versions kept per mission. Old ones fall off the end, newest-first. */
+export const VERSION_KEEP = 20;
+
+/** The four moments worth a checkpoint; anything else is a caller bug. */
+const VERSION_KINDS = new Set(['manual', 'auto', 'restore', 'import']);
+
 /**
  * @typedef {object} QuarantineEnvelope
  * @property {string} id
@@ -64,6 +98,10 @@ import { openMemoryStore } from './memory-store.js';
  * @property {(id: string) => Promise<boolean>} remove
  * @property {(id: string, envelope: QuarantineEnvelope) => Promise<void>} quarantine
  * @property {() => Promise<unknown[]>} readQuarantine
+ * @property {() => Promise<unknown[]>} readVersions
+ * @property {(record: { id: string }) => Promise<void>} writeVersion
+ * @property {(id: string) => Promise<void>} removeVersion
+ * @property {(missionId: string) => Promise<void>} removeVersionsFor
  * @property {() => void} close
  */
 
@@ -91,6 +129,7 @@ export class MissionRepositoryError extends Error {
  * @property {string} [databaseName]
  * @property {Map<string, unknown>} [backing]     memory adapter's mission map
  * @property {Map<string, unknown>} [quarantine]  memory adapter's quarantine map
+ * @property {Map<string, unknown>} [versions]    memory adapter's version map
  * @property {MissionStore} [store]               a ready-made adapter, used as-is
  * @property {StorageManager} [storage]           defaults to navigator.storage
  * @property {(prefix: string) => string} [idgen]
@@ -137,6 +176,31 @@ function writeFailure(e) {
       + 'The previous version is intact.', { cause: e });
   }
   return new MissionRepositoryError('write-failed', `The mission could not be saved: ${message}`, { cause: e });
+}
+
+/**
+ * Structural equality, because a checkpoint that only re-stores the same
+ * document is noise in a 20-slot history. JSON-shaped data only — mission
+ * documents are plain data by contract (the store enforces it at write time).
+ * @param {unknown} a @param {unknown} b @returns {boolean}
+ */
+function deepEquals(a, b) {
+  if (Object.is(a, b)) return true;
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  const keysA = Object.keys(a);
+  if (keysA.length !== Object.keys(b).length) return false;
+  return keysA.every((k) => Object.hasOwn(b, k)
+    && deepEquals(/** @type {Record<string, unknown>} */ (a)[k], /** @type {Record<string, unknown>} */ (b)[k]));
+}
+
+/**
+ * Same mission content, ignoring the write clock: a flush that changed nothing
+ * but `updatedAt` has nothing to say to the history.
+ * @param {MissionDocumentV1} a @param {MissionDocumentV1} b
+ */
+function sameDoc(a, b) {
+  return deepEquals({ ...a, updatedAt: '' }, { ...b, updatedAt: '' });
 }
 
 /**
@@ -204,6 +268,70 @@ export async function openMissionRepository(deps = {}) {
     };
   }
 
+  /**
+   * Every stored version of one mission, newest first. Filtering happens here
+   * rather than in the adapter because "which records belong to a mission" is
+   * a repository semantic, and at ≤ VERSION_KEEP records it costs nothing.
+   * @param {string} missionId
+   * @returns {Promise<VersionRecord[]>}
+   */
+  async function versionRecords(missionId) {
+    const raws = await store.readVersions();
+    return /** @type {VersionRecord[]} */ (raws
+      .filter((r) => /** @type {{ missionId?: unknown }} */ (r)?.missionId === missionId))
+      .sort((a, b) => (b.seq ?? 0) - (a.seq ?? 0));
+  }
+
+  /**
+   * Record one checkpoint. Best-effort by design: the live mission record is
+   * the verified copy and a history that could veto a save would invert that,
+   * so every failure here comes back as data, never a throw.
+   *
+   * The `updatedAt`-blind dedup applies only to `manual` and `auto` — a
+   * `restore` or `import` is an *event*, and the mockup rule is explicit that
+   * restoring creates a new version even when its content matches the newest.
+   *
+   * @param {MissionDocumentV1} doc
+   * @param {VersionKind} kind
+   * @returns {Promise<{ ok: true, id: string, seq: number, skipped: boolean }
+   *   | { ok: false, message: string }>}
+   */
+  async function recordCheckpoint(doc, kind) {
+    if (!doc || typeof doc.id !== 'string' || !doc.id) {
+      return { ok: false, message: 'A checkpoint needs a mission document with an id.' };
+    }
+    if (!VERSION_KINDS.has(kind)) {
+      return { ok: false, message: `"${kind}" is not a checkpoint kind.` };
+    }
+    try {
+      const existing = await versionRecords(doc.id);
+      const newest = existing[0];
+      if (newest && (kind === 'manual' || kind === 'auto') && sameDoc(newest.doc, doc)) {
+        return { ok: true, id: newest.id, seq: newest.seq, skipped: true };
+      }
+      /** @type {VersionRecord} */
+      const record = {
+        // 'ver' stays out of ID_PREFIXES on purpose: version identity is a
+        // storage concern, not part of the mission document schema.
+        id: idgen('ver'),
+        missionId: doc.id,
+        seq: (newest?.seq ?? 0) + 1,
+        kind,
+        savedAt: now(),
+        doc,
+      };
+      await store.writeVersion(record);
+      // Prune past the cap, oldest first. A failed prune is tolerated the same
+      // way a failed write is: the checkpoint that mattered already landed.
+      for (const old of existing.slice(VERSION_KEEP - 1)) {
+        try { await store.removeVersion(old.id); } catch { /* prune is best-effort */ }
+      }
+      return { ok: true, id: record.id, seq: record.seq, skipped: false };
+    } catch (e) {
+      return { ok: false, message: writeFailure(e).message };
+    }
+  }
+
   return {
     /** Which adapter this repository ended up on — surfaced, not hidden. */
     adapter: store.kind,
@@ -253,7 +381,11 @@ export async function openMissionRepository(deps = {}) {
     /** @param {string} id @returns {Promise<boolean>} true when something was there */
     async remove(id) {
       if (typeof id !== 'string' || !id) return false;
-      return store.remove(id);
+      const existed = await store.remove(id);
+      // The history goes with the mission — unconditionally, so a version
+      // orphaned by an earlier partial delete is swept on the next attempt.
+      try { await store.removeVersionsFor(id); } catch { /* best-effort cleanup */ }
+      return existed;
     },
 
     /**
@@ -380,6 +512,73 @@ export async function openMissionRepository(deps = {}) {
      */
     async quarantined() {
       return /** @type {QuarantineEnvelope[]} */ (await store.readQuarantine());
+    },
+
+    /**
+     * Record the document as a version checkpoint (M14, L-04/H-04). Never
+     * throws: the live record is the guarantee, the history is the net under
+     * it, and a net must not be able to fail the save it protects.
+     * @param {MissionDocumentV1} doc
+     * @param {VersionKind} [kind]
+     */
+    checkpoint(doc, kind = 'manual') {
+      return recordCheckpoint(doc, kind);
+    },
+
+    /**
+     * The history of one mission, newest first, as timeline-ready summaries.
+     * @param {string} missionId
+     * @returns {Promise<VersionSummary[]>}
+     */
+    async versions(missionId) {
+      if (typeof missionId !== 'string' || !missionId) return [];
+      const records = await versionRecords(missionId);
+      return records.map((r) => ({
+        id: r.id,
+        missionId: r.missionId,
+        seq: r.seq,
+        kind: r.kind,
+        savedAt: r.savedAt,
+        title: typeof r.doc?.title === 'string' ? r.doc.title : 'Untitled mission',
+        waypoints: Array.isArray(r.doc?.route?.waypoints) ? r.doc.route.waypoints.length : 0,
+      }));
+    },
+
+    /**
+     * Make a stored version the live document again. The restored document is
+     * saved through the same validated, verified path as any other save (and
+     * throws the same typed errors when that fails), and the restore itself is
+     * recorded as a new checkpoint — the version being restored is never
+     * deleted or rewound, so the history only ever moves forward.
+     * @param {string} missionId @param {string} versionId
+     * @returns {Promise<{ ok: true, doc: MissionDocumentV1 }
+     *   | { ok: false, errors: ValidationIssue[] }>}
+     */
+    async restoreVersion(missionId, versionId) {
+      if (typeof missionId !== 'string' || !missionId || typeof versionId !== 'string' || !versionId) {
+        return {
+          ok: false,
+          errors: [{ path: '', code: 'E-VERSION-ARG', message: 'A restore needs a mission id and a version id.' }],
+        };
+      }
+      const record = (await versionRecords(missionId)).find((r) => r.id === versionId);
+      if (!record) {
+        return {
+          ok: false,
+          errors: [{ path: '', code: 'E-VERSION-MISSING', message: 'That version is no longer in the history.' }],
+        };
+      }
+      // Migrate on read, exactly like `get`: a version written by an older
+      // build must come forward before it can become the live document.
+      const migrated = migrateMission(record.doc);
+      if (!migrated.ok || !migrated.doc) {
+        return { ok: false, errors: migrated.errors ?? [] };
+      }
+      /** @type {MissionDocumentV1} */
+      const restored = { ...migrated.doc, id: missionId, updatedAt: now() };
+      await persist(restored);
+      await recordCheckpoint(restored, 'restore');
+      return { ok: true, doc: restored };
     },
 
     close() { store.close(); },

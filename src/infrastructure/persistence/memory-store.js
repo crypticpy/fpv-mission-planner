@@ -27,6 +27,7 @@
  * @property {Map<string, unknown>} [backing]    missions, keyed by id
  * @property {Map<string, unknown>} [quarantine] quarantined records, keyed by id
  * @property {Map<string, unknown>} [evidence]   evidence records, keyed by mission id
+ * @property {Map<string, unknown>} [versions]   version checkpoints, keyed by version id
  */
 
 /**
@@ -36,6 +37,7 @@ export function openMemoryStore(options = {}) {
   const missions = options.backing ?? new Map();
   const quarantine = options.quarantine ?? new Map();
   const evidence = options.evidence ?? new Map();
+  const versions = options.versions ?? new Map();
   let open = true;
 
   const assertOpen = () => {
@@ -122,6 +124,37 @@ export function openMemoryStore(options = {}) {
     async removeEvidence(id) {
       assertOpen();
       evidence.delete(id);
+    },
+
+    /**
+     * The versions trio (M14), parity with the indexeddb adapter: keyed by
+     * version id, filtered by mission in the repository.
+     * @returns {Promise<unknown[]>}
+     */
+    async readVersions() {
+      assertOpen();
+      return [...versions.values()].map((v) => structuredClone(v));
+    },
+
+    /** @param {{ id: string }} record @returns {Promise<void>} */
+    async writeVersion(record) {
+      assertOpen();
+      const stored = structuredClone(record); // throws before the Map is touched
+      versions.set(record.id, stored);
+    },
+
+    /** @param {string} id @returns {Promise<void>} */
+    async removeVersion(id) {
+      assertOpen();
+      versions.delete(id);
+    },
+
+    /** @param {string} missionId @returns {Promise<void>} */
+    async removeVersionsFor(missionId) {
+      assertOpen();
+      for (const [id, value] of versions) {
+        if (/** @type {{ missionId?: unknown }} */ (value)?.missionId === missionId) versions.delete(id);
+      }
     },
 
     close() { open = false; },

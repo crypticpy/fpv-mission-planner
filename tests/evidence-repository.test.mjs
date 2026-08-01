@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { IDBFactory } from 'fake-indexeddb';
 
 import { openEvidenceRepository } from '../src/infrastructure/persistence/evidence-repository.js';
-import { EVIDENCE_STORE } from '../src/infrastructure/persistence/indexeddb-store.js';
+import { DATABASE_VERSION, EVIDENCE_STORE } from '../src/infrastructure/persistence/indexeddb-store.js';
 
 /* One contract, two adapters — the same posture mission-repository.test.mjs
  * takes, for the same reason: a fallback that behaves differently from the
@@ -85,9 +85,9 @@ async function plantMemory(deps, record) {
 
 async function plantIndexedDb(env, record) {
   const db = await new Promise((resolve, reject) => {
-    const req = env.indexedDB.open('fpv-planner', 1);
+    const req = env.indexedDB.open('fpv-planner', DATABASE_VERSION);
     req.onupgradeneeded = () => {
-      for (const name of ['missions', 'quarantine', 'evidence']) {
+      for (const name of ['missions', 'quarantine', 'evidence', 'versions']) {
         if (!req.result.objectStoreNames.contains(name)) req.result.createObjectStore(name, { keyPath: 'id' });
       }
     };
