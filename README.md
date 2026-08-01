@@ -306,6 +306,30 @@ coming home with reserve." It forces black-on-white whatever theme you fly the
 app in (sunlight is the enemy), and `Print / save PDF` is the browser's own
 print dialog, so it works offline once the page is up.
 
+## The 3D planner
+
+The Plan workspace's **3D** tab stands the mission up on a real terrain mesh.
+The default view is the **orthographic planner**: terrain decoded from the same
+elevation tiles the analysis reads, drawn in local meters with no perspective —
+so a kilometer near the camera is the same length as a kilometer at the back,
+and comparing leg lengths by eye actually works. A viewbar along the foot of
+the map holds its controls: projection (**Ortho**, a gentle **Persp** for
+depth, **Top** for a straight-down plate), an azimuth latch (**North up**,
+**Route up**, or free orbit), vertical **exaggeration** in quarter steps up to
+2.5×, **contour lines**, and a reset. The same waypoint editing works here as
+in 2D — it is the same mission, drawn taller.
+
+The viewbar's **Satellite** button swaps the engine for the photographic
+terrain view (MapLibre) with the imagery draped over the DEM; **Terrain**
+swaps back. The camera position carries across the swap; the viewbar knobs are
+each host's own and return to their defaults.
+
+3D is a download-on-first-use extra, and it fails honestly: no WebGL2, an
+unreachable download, or an area with no usable elevation each put a card over
+the **still-working 2D map** that names the cause and offers the way out —
+retry, the other engine, or 2D. Nothing about the plan, the analysis, or the
+brief needs 3D to be available.
+
 ## Terrain along the outbound leg
 
 A mission over hill country climbs, and the model plans at one elevation. The

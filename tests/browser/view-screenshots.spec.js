@@ -265,13 +265,12 @@ test.describe('view screenshots', () => {
     });
   }
 
-  /* The fallback is a *product* behaviour, not an error path: app.js disables
-   * the 3D tab where WebGL2 is missing and puts the reason on it, because
-   * "offering a button that cannot work is worse than not offering it, and a
-   * button that vanishes without explanation is worse than both" — the tab
-   * stays on screen, unpressable, saying why. This is the only view class that
-   * cannot be reached by resizing a window, and the only one whose screenshot
-   * is of something a developer never sees on their own machine. */
+  /* The fallback is a *product* behaviour, not an error path. Since M12 the 3D
+   * tab is offered to everyone — a boot-time disable was a greyed-out mystery —
+   * and a device without WebGL2 finds out on press, from a system-state card
+   * over a 2D map that still works. This is the only view class that cannot be
+   * reached by resizing a window, and the only one whose screenshot is of
+   * something a developer never sees on their own machine. */
   test('without WebGL2 the app stays in 2D and says so', async ({ context, page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await stubExternals(context, { elevationM: GROUND_M });
@@ -293,21 +292,31 @@ test.describe('view screenshots', () => {
     const errors = watchConsole(page);
     await boot(page);
 
-    // ---- the tab is still there, unpressable, and the reason rides it ----
+    // ---- the tab is offered, and pressing it is how the device answers ----
     const tab3d = page.locator('#tab-3d');
     await expect(tab3d).toBeVisible();
-    await expect(tab3d).toBeDisabled();
-    await expect(tab3d).toHaveAttribute('title',
-      '3D needs WebGL2, which this browser or device does not provide.');
+    await expect(tab3d).toBeEnabled();
+    await tab3d.click();
 
-    // ---- and the 2D map is unharmed, which is the actual promise ----
+    // The press stays on the tab; the reason is a card, not a bounce.
+    await expect(tab3d).toHaveAttribute('aria-selected', 'true');
+    const card = page.locator('#scene-state');
+    await expect(card).toBeVisible();
+    await expect(card.locator('.sysstate-title')).toHaveText('3D unavailable');
+    await expect(card.locator('.sysstate-body')).toContainText('WebGL2');
+
+    // ---- and the 2D map is unharmed underneath, which is the actual promise ----
     await expect(page.locator('#map-canvas.leaflet-container')).toBeVisible();
     await expect(page.locator('#map-canvas .leaflet-tile').first()).toBeAttached();
     await expect(page.locator('#map-canvas .leaflet-overlay-pane path').first()).toBeAttached();
     await expect(page.locator('#map-3d')).toBeHidden();
-    // Every control, the withdrawn one included, still lays out.
     await expectLaidOut(page, [...MAP_LANDMARKS, '#tab-2d', '#tab-3d'], 1280);
     await shoot(page, 'fallback-no-webgl2', '.map-card');
+
+    // The card's one action walks back to 2D and takes the card with it.
+    await page.locator('#scene-state .sysstate-action').click();
+    await expect(page.locator('#tab-2d')).toHaveAttribute('aria-selected', 'true');
+    await expect(card).toBeHidden();
 
     expect(errors, `console errors:\n${errors.join('\n')}`).toEqual([]);
   });

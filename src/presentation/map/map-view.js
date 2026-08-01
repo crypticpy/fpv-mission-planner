@@ -81,7 +81,9 @@ const $ = (/** @type {string} */ id) => document.getElementById(id);
  * this view reads and edits a route it does not own. `onLaunchChanged` raises the
  * launch onto the mission document; `onLaunchMove` is the weather rail's cue to
  * refetch for the new spot; `exit3d` walks the Plan tabs back to 2D — the system
- * state cards' way out, owned by app.js because the tabs are.
+ * state cards' way out, owned by app.js because the tabs are. `flushMission`
+ * writes the open mission now — the offline card's Retry reloads the document
+ * and must not leave a dirty document behind.
  */
 let deps = null;
 /** @type {MapAdapter|null} */
@@ -590,7 +592,20 @@ function sceneFailCard(err) {
     kind: 'offline',
     title: '3D needs a connection',
     body: 'The 3D engine and its terrain download on first use and were unreachable. The 2D map underneath still works.',
-    action: { label: 'Retry 3D', onClick: () => { void activate3d(); } },
+    /* A failed dynamic import() is cached as failed in the document's module
+       map, so re-calling activate3d() here can never re-fetch the chunk — only
+       a fresh document can. The session (view included) is already saved, so
+       boot re-engages 3D and the reload *is* the retry. The flush first: a
+       document whose debounced save failed stays dirty with no timer armed,
+       and this button must not be the thing that loses those edits. */
+    action: {
+      label: 'Retry 3D',
+      onClick: () => {
+        void Promise.resolve(deps.flushMission?.())
+          .catch(() => { /* still dirty — the storage banner already says so */ })
+          .finally(() => window.location.reload());
+      },
+    },
     secondary: { label: 'Use 2D map', onClick: () => deps.exit3d?.() },
   });
 }

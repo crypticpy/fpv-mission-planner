@@ -209,10 +209,12 @@ test.describe('performance budgets', () => {
 
     /* ---- 3D comes up ----
      *
-     * From the press to `aria-pressed="true"`, which the app only sets once the
-     * chunk has arrived, MapLibre has booted, the DEM is on and the deck overlay
-     * has gone on against a settled view (ADR 0004's ordering). A software
-     * rasteriser on CI does all of that far slower than a GPU, hence the room. */
+     * From the press to the tab re-enabling, which the app only allows once the
+     * chunk has arrived and `scene.ready` resolved. The engine measured is the
+     * ortho host — the one the tab starts by default since M12 — so this is
+     * deck booting and the first terrain tiles decoding, and it is the cost the
+     * default press actually pays. A software rasteriser on CI does all of that
+     * far slower than a GPU, hence the room. */
     const SCENE_BUDGET_MS = 20_000;
     const started3d = Date.now();
     await activate3d(page);

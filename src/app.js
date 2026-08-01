@@ -46,7 +46,7 @@ import { renderRouteCard } from './render/route.js';
 import {
   setupMissionBridge, openMissionBridge, missionWaypoints,
   addWaypoint, moveWaypoint, removeWaypoint, clearRoute,
-  missionDocument, importMission,
+  missionDocument, importMission, flushMission,
 } from './mission-bridge.js';
 import { setupInterop } from './interop.js';
 import {
@@ -518,7 +518,7 @@ function bind() {
     // The conditions-sheet button rides in the same row but is not a tab.
     if (!(e.target instanceof HTMLElement) || !e.target.classList.contains('view-tab')) return;
     e.preventDefault();
-    // Cycle the enabled tabs only — 3D drops out on a device without WebGL2.
+    // Cycle the enabled tabs only — 3D sits out while its chunk downloads.
     const open = MODES.filter(m => !$(`tab-${m}`).disabled);
     const step = e.key === 'ArrowRight' ? 1 : -1;
     const next = open[(open.indexOf(state.view) + step + open.length) % open.length];
@@ -825,6 +825,9 @@ setupMapView({
   onLaunchChanged: pushLaunch,
   // The 3D system-state cards' way back to the 2D tab — the tabs live here.
   exit3d: () => setView('2d'),
+  // The offline card's Retry reloads the document; the mission is flushed
+  // through here first so the reload can never drop a dirty document.
+  flushMission,
   // The route belongs to the mission document now (ADR 0002): the map draws what
   // it reads back through here, and every edit it makes is a command.
   routeWaypoints: missionWaypoints,

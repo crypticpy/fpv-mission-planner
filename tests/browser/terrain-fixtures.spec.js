@@ -33,7 +33,7 @@ import { expect, test } from '@playwright/test';
 import { FIXTURE_ORIGIN, pointAt, ridgeDem, valleyDem } from '../fixtures/synthetic-dem.mjs';
 import {
   activate3d, attachJson, columnExtent, cssColors, importMissionFile, missionDoc,
-  seedTheme, settledScan, stubExternals, stubImagery, stubTerrain,
+  seedTheme, settledScan, stubExternals, stubImagery, stubTerrain, use3dHost,
 } from './harness.js';
 
 /* ---------- the two surfaces, and the three heights across them ---------- */
@@ -138,6 +138,10 @@ test.describe('explicit-elevation routes over terrain', () => {
         launch: LAUNCH, waypoints: WAYPOINTS, altitudeMslM: ABOVE_M, title: `${name} above`,
       }));
       await activate3d(page);
+      /* The occlusion question is asked of the satellite host: MapLibre's DEM
+       * is the surface doing the hiding, and Field view is its control. The
+       * ortho host answers the tab first now (M12) — switch past it. */
+      await use3dHost(page, 'maplibre');
       const canvas = page.locator('#map-3d canvas.maplibregl-canvas');
       await page.locator('#btn-scene3d-field').click();
 

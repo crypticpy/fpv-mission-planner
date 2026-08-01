@@ -7,12 +7,18 @@
 // runs on every `npm run check`, so it asks only what a build can break:
 //
 //   * is the 3D mode tab offered at all?
-//   * does selecting it fetch the lazy chunk, start MapLibre, and get all the way
-//     through the terrain-then-overlay handshake that the ADR says fails
-//     silently when it is done in the wrong order?
-//   * are the two controls that only exist in 3D really there?
+//   * does selecting it fetch a lazy chunk and start the ortho planner — the
+//     host the tab answers with by default since M12?
+//   * does the viewbar's host toggle fetch the *other* chunk and get MapLibre
+//     all the way through the terrain-then-overlay handshake that the ADR says
+//     fails silently when it is done in the wrong order?
+//   * are the two controls that only exist in satellite 3D really there?
 //   * does going back leave the 2D map intact rather than a dead container?
 //   * and is the console clean through all of it?
+//
+// The ortho host's own controls — projection, azimuth, exaggeration, contours,
+// and the system-state cards behind them — have their own gate in
+// ortho-viewbar.spec.js; this spec only proves both engines come up.
 //
 // Nothing here probes a pixel. If this passes and the picture is wrong, the
 // spike spec is the instrument for finding out why.
@@ -85,7 +91,7 @@ function watchConsole(page) {
 }
 
 test.describe('the 3D scene', () => {
-  test('the 3D tab starts MapLibre, and coming back leaves 2D intact', async ({ context, page }) => {
+  test('the 3D tab starts the ortho planner, the host toggle reaches MapLibre, and coming back leaves 2D intact', async ({ context, page }) => {
     await stubTiles(context);
     const errors = watchConsole(page);
 
@@ -93,54 +99,76 @@ test.describe('the 3D scene', () => {
     await expect(page.locator('#view-map')).toBeVisible();
 
     // ---- the mode tab is offered ----
-    // Disabled where WebGL2 is missing, which headless Chromium has (SwiftShader).
-    // If this ever fails on a CI image, the fallback is the thing to check, not
-    // this assertion.
     const tab3d = page.locator('#tab-3d');
     await expect(tab3d).toBeEnabled();
     await expect(tab3d).toHaveAttribute('aria-selected', 'false');
-    // 2D first, always: nothing of the 442 kB engine has been fetched yet.
+    // 2D first, always: nothing of either lazy engine has been fetched yet.
     await expect(page.locator('#map-3d')).toBeHidden();
 
-    // ---- selecting it gets all the way through the init handshake ----
+    // ---- selecting it gets all the way through the ortho init handshake ----
     await tab3d.click();
 
     /* The tab disables the moment the click lands and re-enables only after
-     * `scene.ready` resolves, and that promise is resolved inside
-     * `map.once('idle')` *following* setTerrain — the exact ordering ADR 0004
-     * says is load-bearing and fails silently when it is wrong. So
-     * enabled-while-still-selected proves the chunk was fetched, MapLibre
-     * booted, the style and DEM loaded, the map went idle, and the deck overlay
-     * was added against a settled view state — the failure path deselects the
-     * tab back to 2D instead. A visible canvas alone would prove much less. The
-     * timeout is generous because this is a cold 1.7 MB chunk plus a software
-     * GPU. */
+     * `scene.ready` resolves — for the ortho host that is deck's own `onLoad`
+     * plus the first terrain fetch decoding. Enabled-while-still-selected
+     * therefore proves the chunk was fetched and the planner came up; since
+     * M12 the failure path stays on the tab and renders a system-state card
+     * instead, which the canvas assertion below would catch. The timeout is
+     * generous because this is a cold chunk plus a software GPU. */
     await expect(tab3d).toBeEnabled({ timeout: 30_000 });
     await expect(tab3d).toHaveAttribute('aria-selected', 'true');
 
-    const canvas = page.locator('#map-3d canvas.maplibregl-canvas');
-    await expect(canvas).toBeVisible();
-    const box = await canvas.boundingBox();
-    expect(box?.height ?? 0, 'the 3D canvas has no height — its CSS did not apply')
+    // deck.gl's canvas, which carries no engine class — MapLibre's is the one
+    // that tags its own, and it must not be the engine answering the tab.
+    const orthoCanvas = page.locator('#map-3d canvas:not(.maplibregl-canvas)');
+    await expect(orthoCanvas.first()).toBeVisible();
+    const orthoBox = await orthoCanvas.first().boundingBox();
+    expect(orthoBox?.height ?? 0, 'the ortho canvas has no height — its CSS did not apply')
       .toBeGreaterThan(100);
 
     // Both engines are never on screen at once.
     await expect(page.locator('#map-canvas')).toBeHidden();
 
+    // The viewbar is the ortho host's chrome: up, wearing the host it serves,
+    // with the toggle offering the other engine by name.
+    const viewbar = page.locator('#scene-viewbar');
+    await expect(viewbar).toBeVisible();
+    await expect(viewbar).toHaveAttribute('data-host', 'ortho');
+    await expect(page.locator('#vb-host')).toHaveText('Satellite');
+    await expect(page.locator('#vb-proj-ortho')).toHaveAttribute('aria-pressed', 'true');
+
+    // …and the control that means nothing in any 3D: both engines draw their
+    // own ground, so the base-layer toggle is disabled rather than ignored.
+    await expect(page.locator('#btn-baselayer')).toBeDisabled();
+    await expect(page.locator('#btn-baselayer')).toHaveAttribute('title', 'Base layer — 2D only');
+
+    // ---- the host toggle fetches the other chunk and starts MapLibre ----
+    /* This is the handshake ADR 0004 calls load-bearing: `scene.ready` resolves
+     * inside `map.once('idle')` *following* setTerrain, so a satellite view on
+     * screen proves the style and DEM loaded and the deck overlay went on
+     * against a settled view state. */
+    await page.locator('#vb-host').click();
+    await expect(viewbar).toHaveAttribute('data-host', 'maplibre', { timeout: 30_000 });
+    const canvas = page.locator('#map-3d canvas.maplibregl-canvas');
+    await expect(canvas).toBeVisible({ timeout: 30_000 });
+    const box = await canvas.boundingBox();
+    expect(box?.height ?? 0, 'the 3D canvas has no height — its CSS did not apply')
+      .toBeGreaterThan(100);
+
+    // The ortho-only groups stand down with their host; the toggle stays, and
+    // is now the way back.
+    await expect(page.locator('#vb-proj-ortho')).toBeHidden();
+    await expect(page.locator('#vb-host')).toHaveText('Terrain');
+
     // The DEM's credit is a licence obligation, not decoration, and MapLibre's
     // own control is where the 2D map's tile credits live too.
     await expect(page.locator('#map-3d .maplibregl-ctrl-attrib')).toContainText('Mapzen');
 
-    // ---- the two controls that only mean anything in 3D ----
+    // ---- the two controls that only mean anything in satellite 3D ----
     const slider = page.locator('#scene3d-exaggeration');
     await expect(slider).toBeVisible();
     await expect(slider).toHaveValue('1');
     await expect(page.locator('#btn-scene3d-field')).toBeVisible();
-
-    // …and the one that means nothing here: MapLibre draws its own ground, so
-    // the base-layer toggle is disabled rather than silently ignored.
-    await expect(page.locator('#btn-baselayer')).toBeDisabled();
-    await expect(page.locator('#btn-baselayer')).toHaveAttribute('title', 'Base layer — 2D only');
 
     // Moving it re-terrains and redraws; the assertion that matters is that
     // neither throws, which the console check at the end covers.
@@ -153,6 +181,8 @@ test.describe('the 3D scene', () => {
     await page.locator('#tab-2d').click();
     await expect(tab3d).toHaveAttribute('aria-selected', 'false');
     await expect(page.locator('#map-3d')).toBeHidden();
+    // The viewbar is 3D chrome and leaves with it.
+    await expect(viewbar).toBeHidden();
 
     const leaflet = page.locator('#map-canvas.leaflet-container');
     await expect(leaflet).toBeVisible();

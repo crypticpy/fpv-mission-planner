@@ -510,11 +510,13 @@ export async function importMissionFile(page, doc) {
  * Select the 3D mode tab and wait out the whole init handshake.
  *
  * The tab disables the moment the click lands and re-enables only after
- * `scene.ready` resolves, and that resolves inside `map.once('idle')`
- * *following* `setTerrain` — ADR 0004's ordering. Enabled while still selected
- * therefore proves the chunk arrived, MapLibre booted, the DEM loaded and the
- * deck overlay went on against a settled view; the failure path deselects the
- * tab back to 2D instead.
+ * `scene.ready` resolves. For the default ortho host (M12) that is deck's own
+ * `onLoad` plus the first terrain fetch; for the satellite host it resolves
+ * inside `map.once('idle')` *following* `setTerrain` — ADR 0004's ordering.
+ * Enabled while still selected therefore proves the chunk arrived and the
+ * engine came up against a settled view. The failure path no longer bounces
+ * the tabs: it keeps 3D selected and renders a system-state card over the
+ * live 2D map (M12), which the canvas wait below reports as a timeout.
  *
  * @param {import('@playwright/test').Page} page
  */
@@ -524,7 +526,30 @@ export async function activate3d(page) {
   await tab.click();
   await expect(tab).toBeEnabled({ timeout: 45_000 });
   await expect(tab).toHaveAttribute('aria-selected', 'true');
-  await expect(page.locator('#map-3d canvas.maplibregl-canvas')).toBeVisible();
+  await expect(page.locator('#map-3d canvas').first()).toBeVisible();
+}
+
+/**
+ * Flip an already-active 3D view to the named renderer via the viewbar's host
+ * toggle, and wait for that engine's canvas. MapLibre tags its canvas; the
+ * ortho host's is deck.gl's, which carries no engine class — "a canvas that is
+ * not MapLibre's" is the only durable way to name it.
+ *
+ * A no-op when the host is already up, so specs can state the host they need
+ * rather than count presses.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {'ortho'|'maplibre'} host
+ */
+export async function use3dHost(page, host) {
+  const bar = page.locator('#scene-viewbar');
+  if ((await bar.getAttribute('data-host')) === host) return;
+  await page.locator('#vb-host').click();
+  await expect(bar).toHaveAttribute('data-host', host, { timeout: 45_000 });
+  const canvas = host === 'maplibre'
+    ? page.locator('#map-3d canvas.maplibregl-canvas')
+    : page.locator('#map-3d canvas:not(.maplibregl-canvas)');
+  await expect(canvas.first()).toBeVisible();
 }
 
 /**

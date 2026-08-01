@@ -37,6 +37,7 @@ import { FIXTURE_ORIGIN, flatDem, pointAt } from '../fixtures/synthetic-dem.mjs'
 import {
   activate3d, cssColors, emptyPoint2d, importMissionFile, MAP_KEY, matchesAny,
   missionDoc, pixelAt, seedTheme, settledScan, stubExternals, stubImagery, stubTerrain,
+  use3dHost,
 } from './harness.js';
 
 /* ---------- the fixture ---------- */
@@ -246,14 +247,15 @@ function emptyPoint(mask, controls) {
 
 /**
  * The chrome floating over the 3D canvas, in canvas coordinates: MapLibre's own
- * controls plus the MapToolbar (M10), which overlays both engines from outside
- * the container. Element screenshots include overlaying DOM, so scans and
- * clicks alike have to know where it is.
+ * controls, the MapToolbar (M10), which overlays both engines from outside
+ * the container, and the scene viewbar (M12), which stays up in both hosts.
+ * Element screenshots include overlaying DOM, so scans and clicks alike have
+ * to know where it is.
  */
 async function controlBoxes(page, canvasBox) {
   /** @type {{ x: number, y: number, width: number, height: number }[]} */
   const boxes = [];
-  for (const control of await page.locator('#map-3d .maplibregl-ctrl, .map-toolbar').all()) {
+  for (const control of await page.locator('#map-3d .maplibregl-ctrl, .map-toolbar, #scene-viewbar').all()) {
     const box = await control.boundingBox();
     if (box) boxes.push({ ...box, x: box.x - canvasBox.x, y: box.y - canvasBox.y });
   }
@@ -430,6 +432,11 @@ test.describe('route editing parity', () => {
     /* ================= 3D ================= */
 
     await activate3d(page);
+    /* This half of the parity claim is about the satellite host — its field-view
+     * button, its zoom control and its geographic camera are the machinery every
+     * probe below drives. The ortho host that now answers the tab first (M12)
+     * has its own gate in ortho-viewbar.spec.js. */
+    await use3dHost(page, 'maplibre');
     const canvas3d = page.locator('#map-3d canvas.maplibregl-canvas');
 
     /* The route's own colours, off the live document — the scene reads the same
