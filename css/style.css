@@ -2450,3 +2450,103 @@ button.windpanel-level { cursor: pointer; }
   .fhome-tile-value { font-size: 21px; }
   .fhome-verdict-label { font-size: 27px; }
 }
+
+/* ---------- first-run onboarding (O-01/O-02, design evolution M13) ---------- */
+
+/* One overlay above everything the boot can draw (the brief and the chart
+   tooltip both top out at 1200). Two paged screens inside one card — the
+   app-like rule: the pilot pages, the page never scrolls. */
+.onboard {
+  position: fixed;
+  inset: 0;
+  z-index: 1300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--sp-4);
+  background: var(--overlay-scrim);
+  overscroll-behavior: contain;
+}
+.onboard-card {
+  width: min(430px, 100%);
+  max-height: 90dvh;
+  overflow-y: auto;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: var(--sp-4);
+  animation: onboard-in 0.28s ease-out;
+}
+.onboard-card:focus { outline: none; }
+@keyframes onboard-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) { .onboard-card { animation: none; } }
+
+.onboard-chip {
+  display: inline-block;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  padding: 3px 10px;
+  margin-bottom: var(--sp-2);
+}
+.onboard-title {
+  font-family: var(--font-display);
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+.onboard-sub { font-size: 14px; color: var(--ink-2); margin-top: var(--sp-1); }
+
+.onboard-doors { display: grid; gap: var(--sp-2); margin-top: var(--sp-3); }
+.onboard-door {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  text-align: left;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: var(--sp-2) var(--sp-3);
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
+.onboard-door:hover, .onboard-door:focus-visible { border-color: var(--accent); }
+.onboard-glyph { display: block; flex: none; width: 22px; height: 22px; color: var(--accent); }
+.onboard-door-text { display: grid; gap: 2px; min-width: 0; }
+.onboard-door-text strong { font-family: var(--font-display); font-size: 15px; font-weight: 600; }
+.onboard-door-text span { font-size: 12.5px; color: var(--ink-2); }
+
+.onboard-quiet {
+  display: block;
+  margin: var(--sp-3) auto 0;
+  background: none;
+  border: none;
+  padding: 6px 10px;
+  font-size: 12.5px;
+  color: var(--muted);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.onboard-quiet:hover { color: var(--ink); }
+
+.onboard-why { list-style: none; display: grid; gap: var(--sp-1); margin: var(--sp-3) 0; padding: 0; }
+.onboard-why li { display: flex; align-items: center; gap: var(--sp-2); font-size: 13.5px; }
+.onboard-why-glyph { display: block; flex: none; width: 16px; height: 16px; color: var(--accent); }
+.onboard-note { font-size: 12.5px; color: var(--muted); }
+#onboard-geo { margin-top: var(--sp-2); }
+.onboard-actions { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-2); margin-top: var(--sp-3); }
+.onboard-actions .map-btn { padding: 11px 12px; font-size: 13px; }
+
+@media (max-width: 700px) {
+  .onboard { padding: var(--sp-3); }
+  .onboard-card { padding: var(--sp-3); }
+  .onboard-title { font-size: 21px; }
+}

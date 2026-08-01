@@ -61,6 +61,7 @@ import { renderSpots, bindSpots } from './render/spots.js';
 import { setupShare, bindShare } from './render/share.js';
 import { renderSessionPlanner } from './render/session.js';
 import { setupField, renderFieldHome } from './render/field.js';
+import { setupOnboarding } from './render/onboarding.js';
 import { renderWindRibbon, windModelFrom } from './components/wind-ribbon.js';
 import { renderWindPanel, windPanelModelFrom } from './components/wind-panel.js';
 import { renderMissionSummary, summaryModelFrom } from './components/mission-summary.js';
@@ -589,7 +590,9 @@ function bind() {
     editLoadout();
   });
   $('btn-live').addEventListener('click', () => goLive());
-  $('btn-geo').addEventListener('click', useMyLocation);
+  // Wrapped: useMyLocation's first parameter is now a result observer (M13),
+  // and a bare handler reference would hand it the click event.
+  $('btn-geo').addEventListener('click', () => useMyLocation());
   $('sel-weather').addEventListener('change', e => {
     if (e.target.value === 'live') { goLive(); return; }
     state.weatherId = e.target.value;
@@ -903,6 +906,10 @@ setupShell({ setDest });
 // and to the same brief Review opens. Bound before the first render so a
 // session restored onto Field arrives with live controls.
 setupField({ openPlan: () => setDest('plan'), openBrief });
+// The first-run tour (M13) must decide before the boot render below: update()
+// saves the session on every pass, so a check made after it would find a blob
+// on every boot and the tour would never show at all.
+setupOnboarding({ setDest });
 const bootView = restoreSession();
 const bootDest = restoredDest();
 buildAuthoringForms();

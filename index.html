@@ -922,6 +922,53 @@
   <article id="brief-sheet" class="brief-sheet" tabindex="-1"></article>
 </section>
 
+<!-- O-01/O-02 first-run onboarding (design evolution M13): shown once, over
+     the already-booted app, when there is no saved session and no completed
+     tour. Two paged screens — the welcome chooser and the location step.
+     Every door only navigates and closes, so nothing a returning pilot needs
+     lives here. Driven by src/render/onboarding.js. -->
+<section id="onboard" class="onboard" role="dialog" aria-modal="true" aria-labelledby="onboard-title" hidden>
+  <div class="onboard-card" tabindex="-1">
+    <div id="onboard-welcome">
+      <p class="onboard-chip">Offline capable</p>
+      <h2 id="onboard-title" class="onboard-title">Plan with confidence</h2>
+      <p class="onboard-sub">Every number here is solved from your rig, your packs and the sky
+        at your spot — before anything spins up.</p>
+      <div class="onboard-doors">
+        <button id="onboard-field" class="onboard-door" type="button">
+          <span class="onboard-door-text"><strong>Quick field check</strong>
+            <span>The go / no-go verdict, the flight clock and the numbers you fly against.</span></span>
+        </button>
+        <button id="onboard-plan" class="onboard-door" type="button">
+          <span class="onboard-door-text"><strong>Plan a mission</strong>
+            <span>Drop the pin, draw the route, and see what the sky lets you close.</span></span>
+        </button>
+        <button id="onboard-library" class="onboard-door" type="button">
+          <span class="onboard-door-text"><strong>Open a saved mission</strong>
+            <span>Missions, spots and imports — GPX, KML, QGC and more.</span></span>
+        </button>
+      </div>
+      <button id="onboard-dismiss" class="onboard-quiet" type="button">Skip the tour — straight to the planner</button>
+    </div>
+    <div id="onboard-location" hidden>
+      <h2 class="onboard-title">Start at your spot</h2>
+      <p class="onboard-sub">The launch pin is what the whole plan is solved from:</p>
+      <ul class="onboard-why">
+        <li data-sym="wind">Local weather, gusts and the wind aloft</li>
+        <li data-sym="terrain">Terrain and elevation along the route</li>
+        <li data-sym="sun">The sunlight window for the shoot</li>
+      </ul>
+      <p class="onboard-note">Until you allow it, the pin starts at the default spot (Austin, TX) —
+        and you can drop it anywhere on the Plan map, anytime.</p>
+      <div id="onboard-geo" hidden></div>
+      <div class="onboard-actions">
+        <button id="onboard-locate" class="map-btn fhome-open" type="button">Use my location</button>
+        <button id="onboard-later" class="map-btn" type="button">Not now</button>
+      </div>
+    </div>
+  </div>
+</section>
+
 <script type="module" src="src/app.js"></script>
 </body>
 </html>

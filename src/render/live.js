@@ -79,11 +79,16 @@ function liveStatusText() {
 /**
  * Move the launch point to the device's position and refetch. The map reads the
  * saved point when it initializes, so a pin placed here survives the tab switch.
+ * The optional observer hears how it went — null on success, the same sentence
+ * the rail shows on failure — so a surface away from the rail (the onboarding
+ * location step, M13) can say it in place without a second geolocation path.
+ * @param {(err: string|null) => void} [onResult]
  */
-export function useMyLocation() {
+export function useMyLocation(onResult) {
   if (!navigator.geolocation) {
     geoMsg = 'This browser won’t share a location — move the pin on the Map tab instead.';
     updateLiveUI();
+    onResult?.(geoMsg);
     return;
   }
   geoMsg = 'Getting your location…';
@@ -97,6 +102,7 @@ export function useMyLocation() {
       pushLaunch(pt);     // …and the mission document, which is where the plan reads it
       geoMsg = null;
       goLive(pt);
+      onResult?.(null);
     },
     (err) => {
       geoMsg = err.code === err.TIMEOUT
@@ -105,6 +111,7 @@ export function useMyLocation() {
           ? 'Location unavailable — drop the pin yourself on the Map tab.'
           : 'Location denied — the launch point is unchanged. Drop the pin yourself on the Map tab.';
       updateLiveUI();
+      onResult?.(geoMsg);
     },
     { enableHighAccuracy: true, timeout: 8000 },
   );

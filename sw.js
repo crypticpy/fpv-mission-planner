@@ -152,6 +152,7 @@ const PRECACHE_URLS = [
   'src/render/format.js',
   'src/render/live.js',
   'src/render/missions.js',
+  'src/render/onboarding.js',
   'src/render/packinstances.js',
   'src/render/route.js',
   'src/render/session.js',
