@@ -1070,8 +1070,8 @@ button.rtl-row:hover:not(:disabled) { background: var(--surface-2); }
 }
 .wind-control {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  gap: 2px;
   background: var(--surface-1);
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -1079,7 +1079,18 @@ button.rtl-row:hover:not(:disabled) { background: var(--surface-2); }
   color: var(--ink-2);
   font-size: 12px;
 }
+.wind-row { display: flex; align-items: center; gap: 8px; }
 .wind-arrow { display: inline-block; font-size: 15px; color: var(--series-2); line-height: 1; }
+.wind-legend { color: var(--muted); font-size: 10.5px; }
+
+/* The W-04 arrow grid: the same overlay tier as the particles, one step under
+   them so the drift plays over the static reading. */
+.wind-arrows {
+  position: absolute;
+  inset: 0;
+  z-index: 449;
+  pointer-events: none;
+}
 
 /* Leaflet — dark theme, and a guard against our global border-box reset
    (Leaflet's control metrics assume content-box). */
@@ -2109,6 +2120,23 @@ button.windpanel-level { cursor: pointer; }
 .windpanel-heading-course { font-size: 11px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
 .windpanel-heading-reach { font-size: 13px; font-variant-numeric: tabular-nums; }
 .windpanel-sounding-label { color: var(--muted); }
+
+/* W-04's door out of the panel: quiet, full width, under every segment. */
+.windpanel-openmap {
+  display: block;
+  width: 100%;
+  margin-top: var(--sp-3);
+  padding: 8px var(--sp-2);
+  background: var(--button);
+  color: var(--ink-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.windpanel-openmap:hover { color: var(--ink); border-color: var(--accent); background: var(--button-hover); }
 
 @media (max-width: 900px) {
   .windpanel { width: calc(100% - 2 * var(--sp-3)); }

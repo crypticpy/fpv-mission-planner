@@ -100,7 +100,7 @@ let ribbonModel = null;
  */
 let panelModel = null;
 let windPanelOpen = false;
-let windPanelSeg = 'now'; // which segment the panel shows — 'now' | 'altitude'
+let windPanelSeg = 'now'; // which segment the panel shows — 'now' | 'altitude' | 'headings'
 
 const ribbonOpts = () => ({ expanded: windPanelOpen, onToggle: toggleWindPanel });
 
@@ -120,7 +120,22 @@ function drawWindChrome() {
     onSelectMode: (mode) => {
       if (['headOut', 'tailOut', 'cross'].includes(mode)) setWindMode(mode);
     },
+    onOpenMap: openWindMap,
   });
+}
+
+/**
+ * The panel's W-04 door: fold the panel, land on the Plan 2D map, and bring it
+ * on screen. Destination before mode — setView only drives the map engines
+ * while Plan is the open destination, so arriving on Plan first is what makes
+ * the 3D→2D walk-back actually run when the panel was unfolded somewhere else.
+ */
+function openWindMap() {
+  windPanelOpen = false;
+  setDest('plan');
+  setView('2d');
+  drawWindChrome();
+  $('map-canvas').scrollIntoView({ block: 'start', behavior: 'smooth' });
 }
 
 function setWindPanelSeg(id) {

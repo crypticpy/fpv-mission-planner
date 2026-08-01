@@ -516,7 +516,7 @@ function headingsSection(h, onSelectMode) {
   return sec;
 }
 
-/** The panel's segments. The tab bar exists because there are two (M11 §W-02). */
+/** The panel's segments — one tab per W-01…W-03 surface (M11). */
 const SEGS = [
   { id: 'now', label: 'Now' },
   { id: 'altitude', label: 'Altitude' },
@@ -529,10 +529,11 @@ const SEGS = [
  * @param {{ open: boolean, seg: string, onSelectSeg: (id: string) => void,
  *           onSelectHour: (i: number) => void,
  *           onSelectLevel: (m: number) => void,
- *           onSelectMode: (mode: string) => void }} opts
+ *           onSelectMode: (mode: string) => void,
+ *           onOpenMap: () => void }} opts
  */
 export function renderWindPanel(host, m,
-  { open, seg = 'now', onSelectSeg, onSelectHour, onSelectLevel, onSelectMode }) {
+  { open, seg = 'now', onSelectSeg, onSelectHour, onSelectLevel, onSelectMode, onOpenMap }) {
   host.hidden = !open || !m;
   if (host.hidden) { host.replaceChildren(); return; }
 
@@ -566,7 +567,16 @@ export function renderWindPanel(host, m,
   view.id = 'windpanel-view';
   view.setAttribute('role', 'tabpanel');
 
-  host.replaceChildren(bar, view);
+  // W-04's door: every number above, in route context. On every segment,
+  // because "how does this sit over my route" is the question they all raise.
+  const mapBtn = document.createElement('button');
+  mapBtn.type = 'button';
+  mapBtn.className = 'windpanel-openmap';
+  mapBtn.dataset.i = 'openmap';
+  mapBtn.textContent = 'Open wind map';
+  mapBtn.addEventListener('click', () => onOpenMap());
+
+  host.replaceChildren(bar, view, mapBtn);
   if (focusI !== undefined) {
     /** @type {HTMLElement|null} */
     const again = host.querySelector(`[data-i="${focusI}"]`);
