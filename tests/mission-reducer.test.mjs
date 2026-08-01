@@ -496,6 +496,7 @@ test('every command in MISSION_COMMANDS actually changes something', () => {
     removeDiveGate: { kind: 'approach' },
     setDiveBailout: { bailout: { latitude: 30.63, longitude: -98.13, name: 'Valley meadow' } },
     setDiveRthAltitude: { altitudeMslM: 3780 },
+    setDiveProfile: { speedMs: 32, pulloutLoadG: 3.5 },
   };
   assert.deepEqual(Object.keys(exercised).sort(), [...MISSION_COMMANDS].sort(),
     'the exported command list and this test agree on what exists');

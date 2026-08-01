@@ -42,7 +42,7 @@ test('the constraint code registry is exactly this list', () => {
     'W-DATA-LINK-ABSENT',
     'W-DATA-TERRAIN-ABSENT',
     'W-DATA-TERRAIN-SAMPLE-MISSING',
-    // M16 wave D's mountain dive. Ten codes, all `producer: 'plan'`; none of
+    // M16's mountain dive. Eleven codes, all `producer: 'analysis'`; none of
     // them quotes a temperature or a decibel, because no model in this tool
     // produces either.
     'W-DIVE-ESC-MARGIN',
@@ -50,6 +50,7 @@ test('the constraint code registry is exactly this list', () => {
     'W-DIVE-MOTOR-MARGIN',
     'W-DIVE-NO-BAILOUT',
     'W-DIVE-PULLOUT-GROUND',
+    'W-DIVE-PULLOUT-NO-LEG',
     'W-DIVE-PULLOUT-THIN',
     'W-DIVE-PULLOUT-UNSTATED',
     'W-DIVE-RESERVE-SHORT',

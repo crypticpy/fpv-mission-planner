@@ -352,6 +352,51 @@ the **still-working 2D map** that names the cause and offers the way out —
 retry, the other engine, or 2D. Nothing about the plan, the analysis, or the
 brief needs 3D to be available.
 
+## Mountain dives
+
+A dive down a face is the one manoeuvre where the plan and the ground argue with
+each other, so it gets its own workspace on the 3D stage. **Dive** on the viewbar
+opens it. With no dive yet, a row of route templates offers **Mountain dive** —
+three gates on the route's own bearing, descending from well above the launch
+elevation to just above it. It is a sketch to argue with, not a plan: every gate
+is yours to move.
+
+Once gates exist, the bottom edge of the stage becomes the dive's own reading,
+with two tabs:
+
+- **Profile** draws the flown line against the ground under it, with a button per
+  gate. The band under the line is the terrain field itself — it is drawn only
+  where a sample came back, so a gap in it is a gap in what was surveyed, never a
+  guess drawn flat.
+- **Dynamics** puts altitude, vertical speed and clearance on one shared axis, and
+  brings a **Systems margin** card to the seat beside it: energy left after the
+  climb out and the trip home, spare motor and ESC current, the pullout's
+  clearance over the ground, and the state of the radio link.
+
+Clicking a gate opens the leg it ends, where two figures shape the pullout: the
+**dive speed** and the **pullout load** in g. Nothing derives either, so nothing
+about the arc is drawn until you have stated both — with one of them missing, the
+pullout chip says which one, and the dynamics axis measures in metres and tells
+you there is no clock, because the same distance at an unstated speed takes an
+unknown number of seconds.
+
+The **Recovery plan** is the way out, and it is three answers no engine can
+supply: the **lost-link climb**, the **break-off gate** you abandon the run at,
+and the **bailout landing** you would rather put down on than lose the aircraft.
+The two that are places are placed by clicking the map, and a placed bailout is
+surveyed against the terrain field where it lands — or says it is not surveyed,
+where the field has no ground there. Review lists all three, names the ones you
+have not stated, and links straight to the panel that states them.
+
+### What the dive screen does not show
+
+The screen it is built from has a thermal margin card. This tool does not
+estimate motor or ESC temperature, so that card is absent and the panel says so
+where it would have been — an empty seat you can see is worth more than a green
+badge nobody computed. For the same reason the link margin is reported as
+**blocked distance**, which is what the radio geometry actually produces, and not
+in decibels: there is no decibel figure anywhere in this codebase to print.
+
 ## Terrain along the outbound leg
 
 A mission over hill country climbs, and the model plans at one elevation. The
@@ -813,6 +858,12 @@ fresh ones and says so.
   is really living on a milder row of the table than the one we hold it at.
   Preheating is modeled; the pack cooling back down in the airstream is not, so a
   preheated plan is the optimistic end of what you'll get.
+- The dive pullout is geometry, not aerodynamics. The arc comes from the speed
+  and the load *you* state, held constant through the pull — a real aircraft
+  bleeds speed into the turn and the load varies with how you fly it. Treat the
+  clearance figure as the best case of the numbers you gave it. Nothing here
+  estimates motor or ESC temperature, so a dive that is electrically and
+  energetically fine on this screen can still cook something on a hot day.
 - Rain and prop wear aren't modeled. The scenario burn multiplier is a flat
   average for the pattern — a single sustained dive-and-punch sequence can
   transiently pull far beyond it, which is what the landing reserve is for.

@@ -78,7 +78,7 @@ export function diveChecks(spec) {
   const sys = dynamics.systems;
   const points = chainPointsOf(dynamics);
 
-  drafts.push(...pulloutDrafts(dive, sys));
+  drafts.push(...pulloutDrafts(dive, dynamics, sys));
   drafts.push(...propulsionDrafts(sys));
   drafts.push(...reserveDrafts(sys, spec.landFloorFrac ?? null));
   drafts.push(...groundDrafts(dive, dynamics, points));
@@ -90,14 +90,27 @@ export function diveChecks(spec) {
 /**
  * The arc at the dive gate, against the ground under it.
  * @param {DivePlan} dive
+ * @param {DiveDynamics} dynamics
  * @param {DiveDynamics['systems']} sys
  * @returns {ConstraintDraft[]}
  */
-function pulloutDrafts(dive, sys) {
+function pulloutDrafts(dive, dynamics, sys) {
   const speedMs = typeof dive.speedMs === 'number' ? dive.speedMs : null;
   const loadG = typeof dive.pulloutLoadG === 'number' ? dive.pulloutLoadG : null;
+  /* An arc is pulled out of an entry angle, and the entry angle is the pitch of
+   * the leg that *arrives* at the dive gate. A plan with no dive gate on it — or
+   * one whose dive gate is the first thing on the line, with no pad and nothing
+   * before it — has no such leg, and that is a different hole from an unstated
+   * figure: no amount of typing speeds fills it. */
+  const hasDiveLeg = dynamics.phases.some((p) => p.kind === 'dive');
 
   if (sys.pulloutRadiusM == null) {
+    if (!hasDiveLeg) {
+      return [draftConstraint('W-DIVE-PULLOUT-NO-LEG',
+        'Nothing on this line arrives at a dive gate, so there is no entry angle to pull out of and '
+        + 'no arc was computed. The ground under the pull is unchecked rather than clear — place the '
+        + 'dive gate the run bottoms out at, or state the launch point the line starts from.')];
+    }
     return [draftConstraint('W-DIVE-PULLOUT-UNSTATED', unstatedText(speedMs, loadG))];
   }
   /* An arc exists and the ground under the gate did not answer. The clearance is
@@ -142,6 +155,11 @@ function unstatedText(speedMs, loadG) {
     return `This dive states ${speedMs} m/s but no pullout load, so no pullout arc was computed and the `
       + 'ground under it is unchecked. The load a pull is flown at is a pilot\'s decision, not a default.';
   }
+  /* Both figures stated, a leg into the gate, and still no arc: the only reading
+   * left is a load of 1 g or less, which `pulloutArc` declines and which both the
+   * schema and the reducer refuse to store. So this sentence speaks only if one
+   * of those two ever stops holding — and it names the load, because by then the
+   * load is the one thing that can have produced it. */
   return `A pullout load of ${loadG} g leaves no arc to fly: at 1 g or less the rotors hold the weight or `
     + 'turn the path, not both. No arc was computed, so the ground under the pull is unchecked.';
 }

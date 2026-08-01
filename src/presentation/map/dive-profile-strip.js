@@ -115,7 +115,7 @@ export function renderDiveStrip({
   if (reading === 'dynamics') {
     host.replaceChildren(tabs, dynamics
       ? diveTimelinePlot(dynamics, { units, selectedKind, onSelect })
-      : pending());
+      : pending(dive?.gates.length ?? 0));
     return;
   }
 
@@ -206,15 +206,23 @@ function readingTabs(reading, onReading) {
 }
 
 /**
- * The dynamics tab before the analysis has answered. Says which pass it is
- * waiting on rather than drawing empty axes, which would read as "nothing
- * happens on this dive".
+ * The dynamics tab before the analysis has answered. Says what it is waiting on
+ * rather than drawing empty axes, which would read as "nothing happens on this
+ * dive".
+ * @param {number} gateCount gates on the plan, which decides whether a reading is coming
  */
-function pending() {
+function pending(gateCount) {
   const el = document.createElement('p');
   el.className = 'dive-strip-caption';
   el.id = 'dive-dynamics-pending';
-  el.textContent = 'The dynamics ride the analysis pass — they land a moment after the gates do.';
+  /* Two waits that read alike and are not alike: one ends on its own and the
+     other never does. A single gate is a point, and the model declines a point
+     rather than modelling a leg it does not have — telling the pilot to sit
+     tight for a reading that is not coming would be the strip inventing
+     patience as the answer. */
+  el.textContent = gateCount < 2
+    ? 'One gate is a point, not a line. Place a second gate and there is a leg to read.'
+    : 'The dynamics ride the analysis pass — they land a moment after the gates do.';
   return el;
 }
 

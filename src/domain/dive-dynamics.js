@@ -277,6 +277,7 @@ export function diveDynamics(spec) {
   const arc = intoDive && speedMs != null && loadG != null
     ? pulloutArc({ speedMs, pitchDeg: intoDive.pitchDeg, loadG })
     : null;
+  if (!intoDive) note('no leg of the line arrives at a dive gate to pull out of');
   if (intoDive && speedMs != null && loadG != null && !arc) {
     note('a pullout load of 1 g or less leaves no arc to fly');
   }

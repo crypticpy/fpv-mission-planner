@@ -67,6 +67,11 @@ const BY_CODE = [
   // airframe and the pack, exactly as their W-ENERGY-/W-LIFT- cousins are.
   [/^W-DIVE-(MOTOR-MARGIN|ESC-MARGIN|SAG-LIMITED)$/,
     act({ kind: 'dest', dest: 'aircraft', label: 'Review the loadout' })],
+  // The one pullout finding whose lever is not on the dive leg, because there is
+  // no dive leg to open. Ahead of the family row below, which would otherwise
+  // send the pilot to a door this plan does not have.
+  [/^W-DIVE-PULLOUT-NO-LEG$/,
+    act({ kind: 'dive', gate: null, label: 'Check the dive line' })],
   // The pullout is authored on the dive leg: its inspector carries the speed and
   // the pullout-load boxes, which are the two figures every pullout finding
   // turns on — including the one that fires because they are absent.

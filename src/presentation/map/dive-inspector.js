@@ -27,6 +27,7 @@
 //
 // Not a map layer: no overlays, and it renders whether or not an engine is up.
 
+import { DIVE_PULLOUT_CLEARANCE_WARN_M } from '../../application/analysis/analysis-contracts.js';
 import { diveLeg, pulloutArc, pulloutClearance } from '../../domain/dive.js';
 import { DIVE_LEG_STYLE, diveLegChain } from './layers/dive-layer.js';
 import { f0, f1 } from '../../render/format.js';
@@ -69,12 +70,12 @@ export function resetDiveInspector() {
  *
  * Both inputs are authored and both are nullable, so there are three distinct
  * absences and each gets its own sentence: no speed, no load allowance, and no
- * ground under the recovery gate. A clearance figure quoted over any of them
- * would be the panel inventing the number the pilot came here to check.
+ * ground under the dive gate. A clearance figure quoted over any of them would
+ * be the panel inventing the number the pilot came here to check.
  *
  * @param {object} spec
  * @param {number} spec.pitchDeg      the dive leg's flight-path angle, negative down
- * @param {number} spec.gateMslM      the recovery gate the pull starts at
+ * @param {number} spec.gateMslM      the dive gate the pull starts at
  * @param {number|null} spec.groundMslM
  * @param {number|null} spec.speedMs
  * @param {number|null} spec.loadG
@@ -98,7 +99,7 @@ export function pulloutChip({ pitchDeg, gateMslM, groundMslM, speedMs, loadG }) 
     return {
       tone: 'unknown',
       text: `The pull sinks ${f0(arc.sinkM)} m through a ${f0(arc.radiusM)} m arc. `
-        + 'No ground under the recovery gate was sampled, so the clearance is unknown.',
+        + 'No ground under the dive gate was sampled, so the clearance is unknown.',
     };
   }
   const { clearanceM } = pulloutClearance({ gateMslM, groundMslM, sinkM: arc.sinkM });
@@ -110,7 +111,10 @@ export function pulloutChip({ pitchDeg, gateMslM, groundMslM, speedMs, loadG }) 
     };
   }
   return {
-    tone: clearanceM < 30 ? 'warning' : 'good',
+    /* The same floor the constraint pass warns at, imported rather than repeated:
+       a chip that turned amber at a different figure than the finding under it
+       would make the pilot pick which of the two to believe. */
+    tone: clearanceM < DIVE_PULLOUT_CLEARANCE_WARN_M ? 'warning' : 'good',
     text: `The pull sinks ${f0(arc.sinkM)} m through a ${f0(arc.radiusM)} m arc, `
       + `clearing the ground under the gate by ${f0(clearanceM)} m.`,
   };

@@ -1061,8 +1061,14 @@ function renderDivePanels(snapshot, frame) {
   const hasDive = !!frame.dive?.gates.length;
   /* The dynamics reading brings its own card to the seat, so the standing
      briefing stands down for it — the same one-answer-per-seat rule the two
-     inspectors already follow, one rung further out. */
-  const dynamicsSeat = up && hasDive && diveReading === 'dynamics';
+     inspectors already follow, one rung further out.
+
+     Two gates, not one: `diveDynamics` has nothing to say about a single point,
+     so a one-gate sketch would stand the briefing down for a card that never
+     draws and leave the seat empty. Asked of the plan's shape rather than of the
+     analysis, so the seat does not change hands each time a pass lands. */
+  const hasDiveLine = (frame.dive?.gates.length ?? 0) >= 2;
+  const dynamicsSeat = up && hasDiveLine && diveReading === 'dynamics';
   /* One seat, and the recovery plan sits in it alongside the two inspectors —
      it is an editor the pilot opened, which outranks anything standing. */
   const recoverySeat = recoveryOn && !!frame.dive;

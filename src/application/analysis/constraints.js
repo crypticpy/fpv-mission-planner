@@ -623,6 +623,17 @@ export const CONSTRAINT_CODES = Object.freeze(/** @type {Record<string, Constrai
       [PULL_AT_GATE, CONSTANT_SPEED_ARC, SAMPLED_GROUND, BARE_EARTH, AUTHORED_LINE],
     ),
   },
+  'W-DIVE-PULLOUT-NO-LEG': {
+    code: 'W-DIVE-PULLOUT-NO-LEG', producer: 'analysis', severity: 'unknown', legacyLevel: null,
+    explanation: why(
+      ['the dive plan\'s gates', 'the launch point the line starts from'],
+      'a leg of the line arriving at the dive gate, whose pitch the pullout is entered at',
+      ['the pull is entered at the angle the aircraft arrives on, so a dive gate with nothing '
+        + 'flown into it has no entry angle and therefore no arc',
+      'this is not the missing-figures case: the speed and the load can both be stated and the '
+        + 'arc still not exist, which is why it carries its own code and its own door'],
+    ),
+  },
   'W-DIVE-PULLOUT-THIN': {
     code: 'W-DIVE-PULLOUT-THIN', producer: 'analysis', severity: 'warning', legacyLevel: null,
     explanation: why(

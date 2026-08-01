@@ -101,7 +101,7 @@ export const MISSION_COMMANDS = Object.freeze([
   'setSegmentCamera', 'setSegmentSubject', 'setSegmentHold',
   'setCameraProfile', 'saveSceneTemplate', 'applySceneTemplate', 'removeSceneTemplate',
   // M16 — the mountain-dive plan's own commands.
-  'setDiveGate', 'removeDiveGate', 'setDiveBailout', 'setDiveRthAltitude',
+  'setDiveGate', 'removeDiveGate', 'setDiveBailout', 'setDiveRthAltitude', 'setDiveProfile',
 ]);
 
 /* ---------- handlers ---------- */

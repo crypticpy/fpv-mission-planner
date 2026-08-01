@@ -146,6 +146,10 @@ test('an unchecked arc is an unknown, named by whichever figure is absent', () =
 });
 
 test('a stated 1 g load is not an unstated one, and still leaves nothing checked', () => {
+  // Defensive: `setDiveProfile` and the schema both refuse to store a load of
+  // 1 g, so this fixture is built by hand and no saved document can reach the
+  // branch. It is held anyway, because it is the sentence that speaks if either
+  // of those two guards is ever relaxed.
   const flat = { ...PLAN, pulloutLoadG: 1 };
   const unchecked = { pulloutRadiusM: null, pulloutSinkM: null, pulloutClearanceM: null };
   assert.deepEqual(
@@ -156,6 +160,26 @@ test('a stated 1 g load is not an unstated one, and still leaves nothing checked
     textOf({ dive: flat, dynamics: dynamics(unchecked), landFloorFrac: 0.2 }, 'W-DIVE-PULLOUT-UNSTATED'),
     /A pullout load of 1 g leaves no arc/,
   );
+});
+
+test('a line with no leg into a dive gate says so, and does not blame the figures', () => {
+  // Both figures stated, and still no arc — because there is no dive leg to
+  // enter one on. A plan can be authored this way (place a recovery gate and
+  // nothing else, or import a document carrying two gates of the other two
+  // kinds), and the reason it cannot be checked has nothing to do with the
+  // speed or the load, so neither is named and the door is the plan, not a leg
+  // that does not exist.
+  const unchecked = { pulloutRadiusM: null, pulloutSinkM: null, pulloutClearanceM: null };
+  const noDiveLeg = dynamics(unchecked, { points: POINTS.slice(0, 2) });
+  noDiveLeg.phases = noDiveLeg.phases.map((p) => ({ ...p, kind: 'recovery', label: 'recovery' }));
+  const spec = { dive: PLAN, dynamics: noDiveLeg, landFloorFrac: 0.2 };
+
+  assert.ok(codesOf(spec).includes('W-DIVE-PULLOUT-NO-LEG'));
+  assert.ok(!codesOf(spec).includes('W-DIVE-PULLOUT-UNSTATED'));
+  const text = textOf(spec, 'W-DIVE-PULLOUT-NO-LEG');
+  assert.match(text, /Nothing on this line arrives at a dive gate/);
+  assert.doesNotMatch(text, /1 g/, 'the load is stated and above 1 g — it is not the reason');
+  assert.doesNotMatch(text, /26 m\/s/, 'the speed is stated too, and is not the reason either');
 });
 
 test('an arc over ground nobody sampled is one finding, not two', () => {
@@ -297,9 +321,23 @@ test('every code this module emits is registered, and every registered dive code
       ),
       landFloorFrac: 0.2,
     }),
+    // The structural hole needs its own run: it is the one pullout finding that
+    // fires with both figures stated, so no variation of the run above reaches it.
+    ...codesOf({
+      dive: PLAN,
+      dynamics: (() => {
+        const d = dynamics(
+          { pulloutRadiusM: null, pulloutClearanceM: null },
+          { points: POINTS.slice(0, 2) },
+        );
+        d.phases = d.phases.map((p) => ({ ...p, kind: 'recovery', label: 'recovery' }));
+        return d;
+      })(),
+      landFloorFrac: 0.2,
+    }),
   ]);
   const registered = Object.keys(CONSTRAINT_CODES).filter((c) => c.startsWith('W-DIVE-'));
-  assert.equal(registered.length, 10);
+  assert.equal(registered.length, 11);
   assert.deepEqual([...emitted].sort(), registered.slice().sort());
 });
 
