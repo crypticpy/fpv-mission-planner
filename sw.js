@@ -78,6 +78,7 @@ const PRECACHE_URLS = [
   'src/components/icons.js',
   'src/components/mission-summary.js',
   'src/components/readiness.js',
+  'src/components/recovery-entry.js',
   'src/components/review-panel.js',
   'src/components/route-timeline.js',
   'src/components/system-state.js',

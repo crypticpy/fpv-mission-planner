@@ -266,8 +266,11 @@ test.describe('mission persistence', () => {
     await expect(fold).toHaveJSProperty('open', false);
     await openMissionFold(page);
 
-    const row = page.locator('#mission-list .spot-row', { hasText: 'corrupt-e2e-1' });
+    // M14 folded quarantine into the history & recovery timeline (ADR 0012
+    // §5 still holds: same single download-raw affordance, now one list).
+    const row = page.locator('#mission-history .recovery-entry', { hasText: 'corrupt-e2e-1' });
     await expect(row).toBeVisible();
+    await expect(row).toContainText('QUARANTINED');
     await expect(row.locator('.spot-meta')).toContainText('could not be read as a mission');
 
     const [download] = await Promise.all([

@@ -6,12 +6,13 @@
 // file is the wording, the rows and the two-step delete — no storage logic and
 // no document editing of its own.
 import {
-  deleteMission, exportMission, listMissions, listQuarantined, missionId, missionStorage,
-  missionTitle, openMission, renameMission, saveMissionCopy,
+  deleteMission, exportMission, listMissions, listMissionVersions, listQuarantined, missionId,
+  missionStorage, missionTitle, openMission, renameMission, restoreMissionVersion, saveMissionCopy,
 } from '../mission-bridge.js';
 import {
-  compatibilityReport, exportCurrentMission, exportFormats, importForeign,
+  compatibilityReport, exportCurrentMission, exportFormats, importForeign, previewForeign,
 } from '../interop.js';
+import { recoveryEntry } from '../components/recovery-entry.js';
 import { $ } from './dom.js';
 
 // No injected deps: every operation here goes through the bridge, and the bridge
@@ -169,59 +170,12 @@ function missionRow(summary, open) {
   return row;
 }
 
-/**
- * A record the repository could not read as a mission (ADR 0005: quarantined,
- * never deleted). One affordance only, by design (ADR 0012 §5) — the recovery
- * path is export, fix by hand, re-import, and destroying the only copy on
- * disk is not a button this row gets.
- * @param {import('../infrastructure/persistence/mission-repository.js').QuarantineEnvelope} envelope
- */
-function quarantineRow(envelope) {
-  const row = document.createElement('div');
-  row.className = 'spot-row';
-
-  const text = document.createElement('div');
-  text.className = 'spot-text';
-  const name = document.createElement('span');
-  name.className = 'spot-name';
-  name.textContent = `Unreadable record (${envelope.id})`;
-  const meta = document.createElement('span');
-  meta.className = 'spot-meta';
-  meta.textContent = `could not be read as a mission — ${envelope.reason.message}`;
-  text.append(name, meta);
-
-  const actions = document.createElement('div');
-  actions.className = 'spot-actions';
-  const downloadBtn = document.createElement('button');
-  downloadBtn.type = 'button';
-  downloadBtn.className = 'link-btn';
-  downloadBtn.textContent = 'download raw';
-  downloadBtn.addEventListener('click', () => {
-    // Same Blob-URL-on-a-synthetic-link download onExport() uses above, over
-    // the envelope's own record rather than a re-serialised mission — this is
-    // the untouched bytes the repository could not read, verbatim.
-    const json = JSON.stringify(envelope.record, null, 2);
-    const url = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${slug(envelope.id)}-quarantined.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-    setNote(`Downloaded the raw contents of ${envelope.id}.`);
-  });
-  actions.appendChild(downloadBtn);
-
-  row.append(text, actions);
-  return row;
-}
-
 async function renderList() {
   const host = $('mission-list');
   const summaries = await listMissions();
-  const quarantined = await listQuarantined();
   const openId = missionId();
   host.replaceChildren();
-  if (!summaries.length && !quarantined.length) {
+  if (!summaries.length) {
     const empty = document.createElement('p');
     empty.className = 'spots-empty';
     empty.textContent = 'No missions saved yet.';
@@ -229,7 +183,90 @@ async function renderList() {
     return;
   }
   for (const s of summaries) host.appendChild(missionRow(s, s.id === openId));
-  for (const q of quarantined) host.appendChild(quarantineRow(q));
+}
+
+/* ---------- history & recovery (M14, L-04/H-04) ---------- */
+
+/**
+ * One stored checkpoint of the open mission, drawn as a RecoveryEntry. Restore
+ * is a single click, not a two-step like delete: it destroys nothing — the
+ * bridge records the outgoing document first and the repository records the
+ * restore itself, so every state stays reachable.
+ * @param {import('../infrastructure/persistence/mission-repository.js').VersionSummary} summary
+ * @param {boolean} current the newest checkpoint in the list
+ */
+function versionEntry(summary, current) {
+  const n = summary.waypoints;
+  return recoveryEntry({
+    kind: summary.kind,
+    current,
+    name: `v${summary.seq}`,
+    meta: `${ago(summary.savedAt)} · ${n} waypoint${n === 1 ? '' : 's'}`,
+    actions: [{
+      label: 'Restore',
+      primary: true,
+      act: async () => {
+        const result = await restoreMissionVersion(summary.missionId, summary.id);
+        if (!result) { setNote('There is no stored history in this browser to restore from.', true); return; }
+        setNote(result.ok
+          ? `Restored v${summary.seq}. The state you just left was checkpointed first — nothing is lost.`
+          : `That version could not be restored: ${result.errors[0]?.message ?? ''}`, !result.ok);
+        renderMissions();
+      },
+    }],
+  });
+}
+
+/**
+ * A record the repository could not read as a mission (ADR 0005: quarantined,
+ * never deleted), folded into the same list as the version timeline. One
+ * affordance only, by design (ADR 0012 §5) — the recovery path is export, fix
+ * by hand, re-import, and destroying the only copy on disk is not a button
+ * this row gets.
+ * @param {import('../infrastructure/persistence/mission-repository.js').QuarantineEnvelope} envelope
+ */
+function quarantineEntry(envelope) {
+  return recoveryEntry({
+    kind: 'quarantine',
+    name: `Unreadable record (${envelope.id})`,
+    meta: `could not be read as a mission — ${envelope.reason.message}`,
+    actions: [{
+      label: 'download raw',
+      act: () => {
+        // Same Blob-URL-on-a-synthetic-link download onExport() uses above, over
+        // the envelope's own record rather than a re-serialised mission — this is
+        // the untouched bytes the repository could not read, verbatim.
+        const json = JSON.stringify(envelope.record, null, 2);
+        const url = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${slug(envelope.id)}-quarantined.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+        setNote(`Downloaded the raw contents of ${envelope.id}.`);
+      },
+    }],
+  });
+}
+
+/** The open mission's checkpoints, newest first, with quarantine at the tail. */
+async function renderHistory() {
+  // Await before clearing, same as renderList: two overlapping calls that both
+  // clear first and append after would leave the list doubled.
+  const versions = await listMissionVersions(missionId());
+  const quarantined = await listQuarantined();
+  const host = $('mission-history');
+  host.replaceChildren();
+  if (!versions.length && !quarantined.length) {
+    const empty = document.createElement('p');
+    empty.className = 'spots-empty';
+    empty.textContent = 'No checkpoints of this mission yet — one is recorded at every open, '
+      + 'import, restore and Save-as-copy, and on a cadence while you edit.';
+    host.appendChild(empty);
+    return;
+  }
+  versions.forEach((v, i) => host.appendChild(versionEntry(v, i === 0)));
+  for (const q of quarantined) host.appendChild(quarantineEntry(q));
 }
 
 /**
@@ -243,6 +280,7 @@ export function renderMissions() {
   renderMissionStorage();
   void renderInteropReport();
   void renderList();
+  void renderHistory();
 }
 
 /* ---------- interop: hand this mission to (or read one from) another tool ---------- */
@@ -315,12 +353,26 @@ async function onInteropExport() {
   setNote(`Exported as ${label} — ${lossSummary(result.semanticLosses)}`);
 }
 
-/* ---------- import ---------- */
+/* ---------- import: preview first, store on confirm (L-04) ---------- */
 
+/** The picked file waiting on the pilot's confirmation, if any. */
+let pendingImport = null;
+
+function clearImportPreview() {
+  pendingImport = null;
+  $('import-preview').hidden = true;
+}
+
+/**
+ * A picked file is parsed and shown, never stored: previewForeign stops at the
+ * last step of the routing onImportConfirm() below completes, so cancelling
+ * really is "nothing happened" rather than "imported and deleted".
+ */
 async function onFile(e) {
   const input = e.target;
   const file = input.files?.[0];
   if (!file) return;
+  clearImportPreview(); // a new pick replaces whatever was waiting
   let text;
   try {
     text = await file.text();
@@ -333,16 +385,16 @@ async function onFile(e) {
     // arrives beside the original rather than on top of it.
     input.value = '';
   }
-  // importForeign rides the same lazy chunk the export path does; if that load
+  // previewForeign rides the same lazy chunk the export path does; if that load
   // fails, say so — a silently cleared file input reads as "nothing happened".
-  let routed;
+  let preview;
   try {
-    routed = await importForeign(text, file.name);
+    preview = await previewForeign(text, file.name);
   } catch {
     setNote('Importing needs a part of the app that could not be loaded — try again once you are back online.', true);
     return;
   }
-  const { formatId, result, applied } = routed;
+  const { formatId, result } = preview;
   if (!formatId) {
     setNote('That file is not a mission format this planner recognizes.', true);
     return;
@@ -351,6 +403,35 @@ async function onFile(e) {
     setNote(`${await formatLabel(formatId)} files can’t be imported into this planner (export only).`, true);
     return;
   }
+  if (!preview.ok || !preview.doc) {
+    setNote(`That file is not a mission this planner can read: ${preview.errors[0]?.message ?? ''}`, true);
+    return;
+  }
+  pendingImport = { text, filename: file.name };
+  const label = formatId === 'mission-document-v1' ? 'this planner’s own format' : await formatLabel(formatId);
+  const n = Array.isArray(preview.doc.route?.waypoints) ? preview.doc.route.waypoints.length : 0;
+  const warned = preview.warningCount ? ` · ${preview.warningCount} thing(s) will need attention` : '';
+  const lossNote = result ? ` — ${lossSummary(result.semanticLosses)}` : '';
+  setNote('');
+  $('import-preview-title').textContent = `“${preview.doc.title}”`;
+  $('import-preview-meta').textContent =
+    `${label} · ${n} waypoint${n === 1 ? '' : 's'}${warned}${lossNote} Nothing is stored until you confirm.`;
+  $('import-preview').hidden = false;
+}
+
+/** The confirmed pick goes through the full import path, exactly as before the preview existed. */
+async function onImportConfirm() {
+  if (!pendingImport) return;
+  const { text, filename } = pendingImport;
+  clearImportPreview();
+  let routed;
+  try {
+    routed = await importForeign(text, filename);
+  } catch {
+    setNote('Importing needs a part of the app that could not be loaded — try again once you are back online.', true);
+    return;
+  }
+  const { formatId, result, applied } = routed;
   if (result && result.status === 'failed') {
     setNote(`That file is not a mission this planner can read: ${result.errors[0]?.message ?? ''}`, true);
     return;
@@ -366,6 +447,11 @@ async function onFile(e) {
   const lossNote = result ? ` ${lossSummary(result.semanticLosses)}` : '';
   setNote(`Imported “${applied.doc.title}”${asFormat} and opened it.${reid}${warned}${lossNote}`);
   renderMissions();
+}
+
+function onImportCancel() {
+  clearImportPreview();
+  setNote('Import cancelled — nothing was stored.');
 }
 
 export function bindMissions() {
@@ -384,6 +470,8 @@ export function bindMissions() {
   void populateInteropFormats();
   $('btn-interop-export').addEventListener('click', () => { void onInteropExport(); });
   $('mission-file').addEventListener('change', (e) => { void onFile(e); });
+  $('btn-import-confirm').addEventListener('click', () => { void onImportConfirm(); });
+  $('btn-import-cancel').addEventListener('click', onImportCancel);
   // The list goes stale while the fold is shut; opening it is the cheapest place
   // to notice.
   $('mission-fold').addEventListener('toggle', (e) => { if (e.target.open) renderMissions(); });

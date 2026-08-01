@@ -505,6 +505,10 @@ export async function importMissionFile(page, doc) {
     mimeType: 'application/json',
     buffer: Buffer.from(JSON.stringify(doc)),
   });
+  /* M14: a picked file is previewed, not stored — the confirm click is what
+   * imports it, so seeding presses the same two buttons a pilot does. */
+  await expect(page.locator('#import-preview')).toBeVisible();
+  await page.locator('#btn-import-confirm').click();
   await expect(page.locator('#mission-note')).toContainText(doc.title);
   await gotoDest(page, from);
   /* Asserted only after the return trip: update() draws the open destination

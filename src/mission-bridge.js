@@ -97,6 +97,12 @@ const CHECKPOINT_INTERVAL_MS = 5 * 60_000;
 let dirty = false;
 let saveTimer = 0;
 let lastCheckpointAt = 0; // wall-clock ms of the last checkpoint attempt
+/** The most recent checkpoint write, still possibly in flight — most callers
+ *  fire and forget, so a read of the history right behind one (the Library
+ *  rendering after an import) must have something to await or it races the
+ *  write it is trying to show. Never rejects: recordCheckpoint absorbs
+ *  refusals into a console line. @type {Promise<void>} */
+let checkpointInFlight = Promise.resolve();
 
 /** @type {MissionStorageState} */
 let storage = { adapter: null, durable: false, persisted: null, save: 'idle', message: '', nearFull: null };
@@ -156,20 +162,24 @@ function onWarning(w) {
 /* ---------- persistence ---------- */
 
 /**
- * Ask the repository to record a version checkpoint, without waiting and
- * without letting a refusal become a storage failure: the checkpoint API
- * answers in data, and the only audience for a refused one is the console.
- * The `typeof` guard keeps older injected test repositories (which predate
- * versioning) valid doubles.
+ * Ask the repository to record a version checkpoint, without letting a refusal
+ * become a storage failure: the checkpoint API answers in data, and the only
+ * audience for a refused one is the console. Most callers fire and forget
+ * (`void`); the one that must sequence two checkpoints of the same mission
+ * (restore) awaits the returned promise instead, so the two never race for
+ * the same `seq`. The `typeof` guard keeps older injected test repositories
+ * (which predate versioning) valid doubles.
  * @param {MissionDocumentV1} snapshot
  * @param {import('./infrastructure/persistence/mission-repository.js').VersionKind} kind
+ * @returns {Promise<void>}
  */
 function recordCheckpoint(snapshot, kind) {
-  if (!repo || typeof repo.checkpoint !== 'function') return;
+  if (!repo || typeof repo.checkpoint !== 'function') return Promise.resolve();
   lastCheckpointAt = Date.now();
-  void repo.checkpoint(snapshot, kind).then((res) => {
+  checkpointInFlight = repo.checkpoint(snapshot, kind).then((res) => {
     if (!res.ok) console.warn(`mission: checkpoint not recorded — ${res.message}`);
   });
+  return checkpointInFlight;
 }
 
 /** @param {MissionDocumentV1} snapshot */
@@ -191,7 +201,7 @@ async function writeNow(snapshot) {
   }
   // The auto-checkpoint cadence rides the save receipts: only a confirmed
   // write can be worth remembering, and between writes there is nothing new.
-  if (Date.now() - lastCheckpointAt >= CHECKPOINT_INTERVAL_MS) recordCheckpoint(snapshot, 'auto');
+  if (Date.now() - lastCheckpointAt >= CHECKPOINT_INTERVAL_MS) void recordCheckpoint(snapshot, 'auto');
   if (dirty) scheduleSave(); // a new edit landed while the write was in flight
   void refreshStorageEstimate(); // after every save receipt (ADR 0012 §5)
 }
@@ -397,7 +407,7 @@ export async function openMissionBridge() {
     // The session-start restore point (H-04): whatever this session does to
     // the mission, the state it opened at stays reachable. Deduped against
     // the newest version, so an untouched reopen records nothing.
-    recordCheckpoint(doc, 'auto');
+    void recordCheckpoint(doc, 'auto');
   } else {
     doc = seededMission();
     if (doc) scheduleSave();
@@ -433,7 +443,7 @@ export async function openMission(id) {
   doc = resolveMissionAltitudes(next, deps?.terrainSampler ?? null).doc;
   launchRestored();
   report('saved');
-  recordCheckpoint(doc, 'auto'); // the open-moment restore point, deduped
+  void recordCheckpoint(doc, 'auto'); // the open-moment restore point, deduped
   deps?.onMissionChanged?.();
   deps?.requestRender();
   return true;
@@ -456,7 +466,7 @@ export async function saveMissionCopy() {
   report('saved');
   // "Save a copy" is the one deliberate save gesture this app has; the copy's
   // history starts with it as a manual checkpoint.
-  recordCheckpoint(copy, 'manual');
+  void recordCheckpoint(copy, 'manual');
   deps?.onMissionChanged?.();
   deps?.requestRender();
   return copy;
@@ -529,7 +539,7 @@ export async function importMission(text) {
   if (!repo) return null;
   // The document being navigated away from gets a restore point before the
   // import replaces it as the open one (deduped, so usually a no-op).
-  if (doc) recordCheckpoint(doc, 'auto');
+  if (doc) void recordCheckpoint(doc, 'auto');
   const result = await repo.importJson(text);
   if (result.ok) {
     doc = resolveMissionAltitudes(result.doc, deps?.terrainSampler ?? null).doc;
@@ -537,7 +547,7 @@ export async function importMission(text) {
     report('saved');
     // The import itself is an event worth a named version: the file's
     // contents as they arrived, before this session edits them.
-    recordCheckpoint(doc, 'import');
+    void recordCheckpoint(doc, 'import');
     deps?.onMissionChanged?.();
     deps?.requestRender();
   }
@@ -552,7 +562,8 @@ export async function importMission(text) {
  * @returns {Promise<import('./infrastructure/persistence/mission-repository.js').VersionSummary[]>}
  */
 export async function listMissionVersions(id) {
-  await flushMission();
+  await flushMission(); // the flush's own save receipt may fire a cadence checkpoint…
+  await checkpointInFlight; // …so wait for whichever checkpoint is mid-write before reading
   if (!repo || typeof repo.versions !== 'function') return [];
   return repo.versions(id);
 }
@@ -567,6 +578,13 @@ export async function listMissionVersions(id) {
 export async function restoreMissionVersion(id, versionId) {
   await flushMission();
   if (!repo || typeof repo.restoreVersion !== 'function') return null;
+  // The document being replaced gets a restore point first, the same courtesy
+  // importMission pays its outgoing document — otherwise edits made since the
+  // last cadence checkpoint would exist nowhere once the restore overwrites
+  // the live record. Awaited, unlike every other call: the repository is about
+  // to record the restore itself for this same mission, and two concurrent
+  // checkpoints would race for one `seq`.
+  if (doc) await recordCheckpoint(doc, 'auto');
   /** @type {Awaited<ReturnType<MissionRepository['restoreVersion']>>} */
   let result;
   try {

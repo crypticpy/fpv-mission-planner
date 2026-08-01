@@ -732,9 +732,27 @@
         <label>Open a mission file
           <input id="mission-file" type="file" accept=".json,.gpx,.plan,.waypoints,.txt,.mission,application/json">
         </label>
+        <!-- L-04: what a picked file would bring in, before it does. The file is
+             parsed but nothing is stored until the pilot confirms; cancelling
+             discards the text and the repository never hears about it. -->
+        <div id="import-preview" class="import-preview" hidden>
+          <p id="import-preview-title" class="spot-name"></p>
+          <p id="import-preview-meta" class="rail-note"></p>
+          <div class="custom-row">
+            <button id="btn-import-confirm" class="map-btn" type="button">Import this mission</button>
+            <button id="btn-import-cancel" class="link-btn" type="button">cancel</button>
+          </div>
+        </div>
         <p id="mission-note" class="rail-note" role="status" hidden></p>
         <p id="mission-storage" class="rail-note" role="status" hidden></p>
         <div id="mission-list" class="spots-list"></div>
+        <!-- H-04: the open mission's stored checkpoints. Restoring never deletes —
+             it writes the version back as the live document and records the
+             restore as a new checkpoint, so a restore can itself be undone by
+             restoring past it. Records the repository could not read as missions
+             (quarantine, ADR 0005) fold into the same list. -->
+        <h4 class="history-head">History &amp; recovery</h4>
+        <div id="mission-history" class="spots-list"></div>
       </details>
     </section>
     <section class="card spots-card">

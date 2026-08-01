@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   setupMissionBridge, openMissionBridge, missionId, missionTitle, missionStorage,
-  renameMission, exportMission, listMissions,
+  renameMission, exportMission, listMissions, restoreMissionVersion,
 } from '../src/mission-bridge.js';
 
 /* The bridge's promise under storage failure (module header): the in-memory
@@ -186,4 +186,47 @@ test('the estimate is refreshed again after a save receipt, not only at boot', a
   renameMission('Nearly full now');
   await sleep(400); // past the edit's own save debounce, then the receipt-triggered refresh
   assert.equal(missionStorage().nearFull, true, 'a save receipt asked again, not just the boot');
+});
+
+/* M14 (L-04/H-04): restoring a version must not orphan the state being
+ * navigated away from. The repository's own contract suite proves what
+ * restoreVersion does; what only the bridge can prove is the order it makes
+ * the calls in — the outgoing document's 'auto' checkpoint is awaited before
+ * the repository's restore runs (which records the restore itself), so edits
+ * made since the last cadence checkpoint stay reachable and two same-mission
+ * checkpoints never race for one seq. */
+
+test('restore checkpoints the outgoing document before the repository restores', async () => {
+  const calls = [];
+  let bootDoc = null;
+  const base = workingRepo();
+  const repo2 = {
+    ...base,
+    async save(saved) {
+      bootDoc ??= structuredClone(saved);
+      return base.save(saved);
+    },
+    async checkpoint(snapshot, kind) {
+      calls.push(['checkpoint', kind, snapshot.title]);
+      return { ok: true, id: `ver_${calls.length}`, seq: calls.length };
+    },
+    async restoreVersion(id, versionId) {
+      calls.push(['restore', id, versionId]);
+      return { ok: true, doc: structuredClone(bootDoc) };
+    },
+  };
+  setupMissionBridge({ seed, requestRender: () => {}, repository: repo2 });
+  await openMissionBridge();
+  await sleep(400); // the boot save lands and records the first 'auto' checkpoint
+
+  renameMission('Edited since the checkpoint');
+  const result = await restoreMissionVersion(missionId(), 'ver_1');
+  assert.equal(result.ok, true);
+  assert.equal(missionTitle(), 'Field test', 'the stored version is the live document again');
+
+  const restoreAt = calls.findIndex((c) => c[0] === 'restore');
+  assert.ok(restoreAt > 0, 'the repository was asked to restore');
+  assert.deepEqual(calls[restoreAt - 1], ['checkpoint', 'auto', 'Edited since the checkpoint'],
+    'the document being replaced was checkpointed immediately before the restore, not after and not never');
+  await sleep(400); // let any save debounce settle before the runner tears down
 });

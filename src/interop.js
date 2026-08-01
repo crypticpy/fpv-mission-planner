@@ -18,6 +18,12 @@
 // about what the compiler or the adapters themselves do has changed, only when
 // their bytes reach the browser.
 
+// The one static import: migrations are domain (the layering in ADR 0009 draws
+// no line there) and already in the entry chunk via the repository, so reading
+// them here costs no bytes and keeps previewForeign's native branch honest —
+// the same validation importJson will apply, run before anything is stored.
+import { migrateMission } from './domain/mission/mission-migrations.js';
+
 /** @typedef {import('./domain/mission/mission-schema.js').MissionDocumentV1} MissionDocumentV1 */
 /** @typedef {import('./domain/mission/altitude.js').TerrainSampler} TerrainSampler */
 /** @typedef {import('./infrastructure/export/adapter-contracts.js').AdapterResult} AdapterResult */
@@ -137,6 +143,56 @@ export async function compatibilityReport() {
     label: a.format.label,
     losses: deriveLosses(compiled.inventory, a.support),
   }));
+}
+
+/**
+ * @typedef {object} ImportPreview
+ * @property {string|null} formatId  null when no format recognised the file
+ * @property {boolean} ok            the file parses as a mission
+ * @property {MissionDocumentV1|null} doc  what would open on confirm — not yet
+ *   re-identified, not persisted, not opened
+ * @property {readonly { path?: string, code: string, message: string }[]} errors
+ * @property {number} warningCount
+ * @property {AdapterResult|null} result  the adapter's own report (losses,
+ *   warnings); null for the native format and for export-only formats
+ */
+
+/**
+ * A picked file, parsed but never stored (L-04): the same routing
+ * `importForeign` below applies, stopped at the last step. What comes back is
+ * enough for a preview card — the title and route that would arrive, the
+ * losses that specific import would make — and nothing has touched the
+ * repository; confirming is a separate call to `importForeign` with the same
+ * text, cancelling is dropping the string.
+ * @param {string} text
+ * @param {string} filename
+ * @returns {Promise<ImportPreview>}
+ */
+export async function previewForeign(text, filename) {
+  const { importAny } = await engine();
+  const { formatId, result } = importAny(text, { filename });
+  if (formatId === 'mission-document-v1') {
+    let raw;
+    try {
+      raw = JSON.parse(text);
+    } catch (e) {
+      return {
+        formatId, ok: false, doc: null, warningCount: 0, result: null,
+        errors: [{ code: 'E-DOC-PARSE', message: `Not valid JSON: ${/** @type {Error} */ (e).message}` }],
+      };
+    }
+    const migrated = migrateMission(raw);
+    return migrated.ok && migrated.doc
+      ? { formatId, ok: true, doc: migrated.doc, errors: [], warningCount: migrated.warnings?.length ?? 0, result: null }
+      : { formatId, ok: false, doc: null, errors: migrated.errors ?? [], warningCount: 0, result: null };
+  }
+  if (!result || result.status === 'failed' || !result.payload) {
+    return { formatId, ok: false, doc: null, errors: result?.errors ?? [], warningCount: 0, result };
+  }
+  return {
+    formatId, ok: true, doc: /** @type {MissionDocumentV1} */ (result.payload),
+    errors: [], warningCount: result.warnings.length, result,
+  };
 }
 
 /**

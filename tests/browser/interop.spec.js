@@ -101,6 +101,13 @@ test.describe('interop', () => {
       buffer: Buffer.from(ARDUPILOT_FIXTURE),
     });
 
+    // M14: the file is previewed before anything is stored — the card names the
+    // format and the size of what would arrive, and the confirm click imports it.
+    await expect(page.locator('#import-preview')).toBeVisible();
+    await expect(page.locator('#import-preview-meta')).toContainText('ArduPilot mission (QGC WPL 110)');
+    await expect(page.locator('#import-preview-meta')).toContainText('5 waypoints');
+    await page.locator('#btn-import-confirm').click();
+
     await expect(page.locator('#mission-note')).toContainText('Imported');
     await expect(page.locator('#mission-note')).toContainText('ArduPilot mission (QGC WPL 110)');
     // The two losses this specific import makes (ids re-minted, speed policy

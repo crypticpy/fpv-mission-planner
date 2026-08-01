@@ -137,7 +137,16 @@ test.describe('performance budgets', () => {
    * synchronously; only the showing would await the import). Verified at
    * this re-base that the split graph is intact (scene3d ×3, brief,
    * import-router, compile, adapter-contracts all still separate chunks). */
-  const ENTRY_BUDGET_KB = 183;
+  /* Re-based 183 → 187 at M14 wave B: the RecoveryEntry component, the
+   * history-and-restore render and the import-preview flow, 183.5 on landing.
+   * These live in the mission fold, which is entry-chunk shell on purpose —
+   * recovery is exactly the surface that must work offline at a trailhead.
+   * The claw-back here is the history section: it renders only while the
+   * fold is open, so renderHistory and its component could become a lazy
+   * chunk behind the fold toggle the way the brief already is. Verified at
+   * this re-base that the split graph is intact (scene3d ×3, brief,
+   * import-router, compile, adapter-contracts all still separate chunks). */
+  const ENTRY_BUDGET_KB = 187;
   const SCENE3D_BUDGET_KB = 500;
 
   test('the built bundles are inside their gzip budgets', async () => {
