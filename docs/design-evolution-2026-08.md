@@ -137,8 +137,14 @@ big ones). No epic branch.
   off); O-03 offline readiness card — six honest rows, basemap stated as
   never stored, Check-for-updates reports the real registration outcome;
   H-03 cached-freshness wiring in the ribbon chip.
-- [ ] **M14 — Library + versions.** L-01…L-04, H-04; autosave + version-history
-  persistence; RecoveryEntry.
+- [x] **M14 — Library + versions.** *(landed 2026-08-01, main @ bac9d99)*
+  L-01 mission library (search, origin chips, cards with route thumbnails);
+  L-02/L-03 saved-spot detail page + three-day forecast planner (pure-SVG
+  chart, day tabs, 10/80 m toggle, hour scrub, Plan-at-this-time hand-off);
+  L-04/H-04 RecoveryEntry timeline over a 20-checkpoint version store with
+  non-destructive restore, quarantine rows, and preview-before-import.
+  Sharing rigs/packs/flights stays in the Aircraft rail until the M15
+  reframe.
 - [ ] **M15 — Aircraft.** E-01…E-04 reframe with ConfidenceBadge; ΔIR
   parallel-pairing check surfaced; FOV frustum preview.
 - [ ] **M16 — Mountain dive.** 3D-05…3D-08: gates in the mission schema,
