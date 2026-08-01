@@ -121,7 +121,7 @@ big ones). No epic branch.
   2D/Analyze/Review modes, ContextInspector replaces permanent sidebars,
   ElevationProfile, RouteTimeline, MapToolbar, fix-linking engine on validation
   (P-01…P-05, T-01…T-04).
-- [ ] **M11 — Wind intelligence.** W-01…W-04 + WindRibbon expansion states
+- [x] **M11 — Wind intelligence.** *(landed 2026-08-01, main @ e00f62e)* W-01…W-04 + WindRibbon expansion states
   everywhere. Mostly visualization over existing data.
 - [ ] **M12 — Orthographic 3D planner.** Engine per spike verdict; 3D-01…3D-04
   with the full interaction contract; 2D fallback states.
