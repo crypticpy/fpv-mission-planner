@@ -37,7 +37,7 @@ import {
 import { renderComparison } from './render/comparison.js';
 import { setupLive, goLive, useMyLocation, updateLiveUI, liveError, liveProvenance } from './render/live.js';
 import {
-  setupForecast, renderForecastStrip, setForecastHour, reapplyForecastHour,
+  setupForecast, renderForecastStrip, setForecastHour, reapplyForecastHour, forecastOutlook,
 } from './render/forecast.js';
 import { setupTerrain, renderTerrainCard } from './render/terrain.js';
 import { isLinkBand } from './rf.js';
@@ -99,6 +99,13 @@ let ribbonModel = null;
  * @type {import('./components/wind-panel.js').WindPanelModel|null}
  */
 let panelModel = null;
+/**
+ * The snapshot panelModel was built from, kept so the minute tick can rebuild
+ * the model in place when the wall clock rolls into the next forecast hour —
+ * the outlook chips' "now" anchor — without running a full update().
+ * @type {import('./application/analysis/analysis-contracts.js').AnalysisSnapshot|null}
+ */
+let panelSnapshot = null;
 let windPanelOpen = false;
 let windPanelSeg = 'now'; // which segment the panel shows — 'now' | 'altitude' | 'headings'
 
@@ -225,6 +232,7 @@ function update() {
   // So is the wind ribbon (M9): persistent chrome on every destination, ahead
   // of the no-plan bail because the sky is real whether or not a pack fits.
   ribbonModel = windModelFrom(snapshot);
+  panelSnapshot = snapshot;
   panelModel = windPanelModelFrom(snapshot);
   drawWindChrome();
   // Handled, not thrown: with no pack there is no plan, and every render below
@@ -782,8 +790,22 @@ function bind() {
   // The ribbon's freshness age is wall-clock text ("4 min ago"); tick it over
   // once a minute so a phone left open in the field doesn't read "just now"
   // an hour later. Re-draws the last model — no analysis, no fetch.
+  //
+  // The panel can't just re-draw: its outlook chips carry absolute hour
+  // indices anchored to the forecast hour nearest "now" at build time, so
+  // once the clock rolls into the next hour the chip labeled "Now" would
+  // re-plan a past hour. When the outlook's fresh anchor disagrees with the
+  // drawn one (the Now chip is chips[0] by construction), rebuild the model
+  // off the same snapshot — formatting only, no analysis — and redraw. Folded
+  // too: an unfold later must not resurface the stale chips.
   setInterval(() => {
     if (ribbonModel) renderWindRibbon($('wind-ribbon'), ribbonModel, ribbonOpts());
+    const drawn = panelModel?.outlook ?? null;
+    const o = drawn ? forecastOutlook() : null;
+    if (drawn && o && o.now !== drawn.chips[0].i) {
+      panelModel = windPanelModelFrom(panelSnapshot);
+      drawWindChrome();
+    }
   }, 60000);
 }
 

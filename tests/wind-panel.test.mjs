@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import { state } from '../src/state.js';
 import { setWindLevels, setSounding, peakShear } from '../src/windprofile.js';
-import { setupForecast, setForecast, setForecastHour } from '../src/render/forecast.js';
+import { setupForecast, setForecast, setForecastHour, forecastOutlook } from '../src/render/forecast.js';
 import { windPanelModelFrom, gustCaution } from '../src/components/wind-panel.js';
 
 /* The wind panel's W-01 model (M11 wave A), minus its DOM. What is worth
@@ -140,6 +140,31 @@ test('the chip row stops at the forecast\'s edge instead of inventing hours', ()
   const m = windPanelModelFrom({ plan });
   assert.deepEqual(m.outlook.chips.map((c) => c.i), [0, 1, 2, 3, 4]);
   assert.equal(m.outlook.sun, null); // no day entry, no sun line
+});
+
+test('a rebuild after the clock crosses into the next hour re-anchors the Now chip', () => {
+  seed();
+  setForecast({ hours: hoursN(14), days: [] }, null);
+  const before = windPanelModelFrom({ plan });
+  assert.equal(before.outlook.chips[0].i, 0);
+
+  // The clock crossing an hour boundary, staged by re-anchoring the grid
+  // rather than stubbing Date: hours[0] slides to an hour ago, so hours[1]
+  // is this instant — the same grid as the wall clock now sees it.
+  setForecast({ hours: Array.from({ length: 14 }, (_, h) => hour(h - 1)), days: [] }, null);
+
+  // The drift app.js's minute tick watches for: the outlook's fresh anchor
+  // no longer matches the drawn model's Now chip…
+  assert.equal(forecastOutlook().now, 1);
+  assert.notEqual(before.outlook.chips[0].i, forecastOutlook().now);
+
+  // …and a plain model rebuild is the whole cure: every chip re-anchors, and
+  // the chip labeled "Now" presses the current hour, not the one before it.
+  const after = windPanelModelFrom({ plan });
+  assert.deepEqual(after.outlook.chips.map((c) => c.i), [1, 2, 3, 4, 5, 7, 10, 13]);
+  assert.equal(after.outlook.chips[0].label, 'Now');
+  assert.equal(after.outlook.chips[0].selected, true);
+  assert.equal(after.outlook.banner, null);
 });
 
 /* ---------- W-02: the altitude ladder (M11 wave B) ---------- */
