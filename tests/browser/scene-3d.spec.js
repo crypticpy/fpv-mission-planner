@@ -137,6 +137,11 @@ test.describe('the 3D scene', () => {
     await expect(slider).toHaveValue('1');
     await expect(page.locator('#btn-scene3d-field')).toBeVisible();
 
+    // …and the one that means nothing here: MapLibre draws its own ground, so
+    // the base-layer toggle is disabled rather than silently ignored.
+    await expect(page.locator('#btn-baselayer')).toBeDisabled();
+    await expect(page.locator('#btn-baselayer')).toHaveAttribute('title', 'Base layer — 2D only');
+
     // Moving it re-terrains and redraws; the assertion that matters is that
     // neither throws, which the console check at the end covers.
     await slider.fill('2');
@@ -157,6 +162,8 @@ test.describe('the 3D scene', () => {
     const leafletBox = await leaflet.boundingBox();
     expect(leafletBox?.height ?? 0, 'Leaflet came back to a collapsed container')
       .toBeGreaterThan(100);
+    // The base-layer toggle wakes back up with the 2D engine it belongs to.
+    await expect(page.locator('#btn-baselayer')).toBeEnabled();
 
     expect(errors, `console errors:\n${errors.join('\n')}`).toEqual([]);
   });
