@@ -4,8 +4,9 @@ import { IDBFactory } from 'fake-indexeddb';
 
 import { createMission, validateMission } from '../src/domain/mission/mission-schema.js';
 import { missionReduce } from '../src/domain/mission/mission-reducer.js';
+import { distanceKm } from '../src/domain/geo.js';
 import {
-  MissionRepositoryError, VERSION_KEEP, openMissionRepository,
+  MissionRepositoryError, VERSION_KEEP, openMissionRepository, summarizeMission,
 } from '../src/infrastructure/persistence/mission-repository.js';
 import {
   DATABASE_NAME, DATABASE_VERSION, MISSION_STORE, QUARANTINE_STORE, EVIDENCE_STORE, VERSION_STORE,
@@ -130,6 +131,39 @@ for (const makeEnv of ENVIRONMENTS) {
     assert.notEqual(read, doc, 'the store hands back a copy, not a live reference');
   });
 
+  test(`[${kind}] list() serves the library card's summary, not just identity`, async (t) => {
+    // L-01: the cards read origin, the route polyline, its length and the
+    // loadout straight off the summary — no full-document fetch per card.
+    const { repo, deps } = await openRepo(t);
+    const doc = makeMission(deps);
+    await repo.save(doc);
+    const [s] = await repo.list();
+    assert.deepEqual(s, summarizeMission(doc), 'list rows and the pure summarizer agree');
+    assert.equal(s.origin, 'authored');
+    assert.equal(s.waypointCount, 2);
+    assert.deepEqual(s.path, [
+      [AUSTIN.latitude, AUSTIN.longitude],
+      [30.30, -97.80],
+      [30.40, -97.90],
+    ], 'the polyline is launch first, then the waypoints in flight order');
+    const leg = (a, b) => distanceKm({ lat: a[0], lng: a[1] }, { lat: b[0], lng: b[1] });
+    assert.ok(Math.abs(s.distanceKm - (leg(s.path[0], s.path[1]) + leg(s.path[1], s.path[2]))) < 1e-9,
+      'the distance is the authored path, launch through last waypoint, no return leg');
+    // The fixture carries no loadout snapshots (the schema allows null), so the
+    // summary must say nothing rather than crash or invent a rig…
+    assert.equal(s.aircraftName, null);
+    assert.equal(s.batteryName, null);
+    // …and when the snapshots are there, their names ride along. Pure-function
+    // check: no save, so no validator opinion on the hand-rolled snapshots.
+    const rigged = summarizeMission({
+      ...doc,
+      aircraftSnapshot: { ...doc.aircraftSnapshot, name: 'Five-inch freestyle' },
+      batterySnapshot: { ...doc.batterySnapshot, name: '6S 1100' },
+    });
+    assert.equal(rigged.aircraftName, 'Five-inch freestyle');
+    assert.equal(rigged.batteryName, '6S 1100');
+  });
+
   test(`[${kind}] a mutation of a returned document does not reach the store`, async (t) => {
     const { repo, deps } = await openRepo(t);
     const doc = makeMission(deps);
@@ -182,7 +216,7 @@ for (const makeEnv of ENVIRONMENTS) {
     assert.equal(await repo.remove('msn_nope'), false);
   });
 
-  test(`[${kind}] list is newest first and carries only what a picker needs`, async (t) => {
+  test(`[${kind}] list is newest first and carries summaries, not documents`, async (t) => {
     const { repo, deps } = await openRepo(t);
     const first = makeMission(deps, 'First');
     const second = makeMission(deps, 'Second');
@@ -191,7 +225,12 @@ for (const makeEnv of ENVIRONMENTS) {
 
     const listed = await repo.list();
     assert.deepEqual(listed.map((m) => m.title), ['Third', 'Second', 'First']);
-    assert.deepEqual(Object.keys(listed[0]).sort(), ['id', 'title', 'updatedAt']);
+    // The card's summary and nothing more — a row that grew a `route` or a
+    // `scene` would mean full documents are being hauled into the list again.
+    assert.deepEqual(Object.keys(listed[0]).sort(), [
+      'aircraftName', 'batteryName', 'distanceKm', 'id', 'origin', 'path',
+      'title', 'updatedAt', 'waypointCount',
+    ]);
     assert.equal(listed[0].id, third.id);
   });
 
@@ -337,7 +376,7 @@ for (const makeEnv of ENVIRONMENTS) {
       assert.equal(result.ok, false);
       assert.equal(result.errors[0].code, code);
       assert.ok(result.errors[0].message.length > 0, 'and it says something a person can act on');
-      assert.deepEqual(await repo.list(), [{ id: doc.id, title: doc.title, updatedAt: doc.updatedAt }],
+      assert.deepEqual(await repo.list(), [summarizeMission(doc)],
         'no half-mission left behind');
       assert.deepEqual(await repo.quarantined(), [], 'a file that never landed is not a corrupt record');
     });
@@ -427,7 +466,7 @@ for (const makeEnv of ENVIRONMENTS) {
     assert.deepEqual(quarantined.map((q) => q.id).sort(), ['msn_future', 'msn_nonsense']);
     assert.deepEqual(quarantined.find((q) => q.id === 'msn_future').reason.code, 'E-DOC-VERSION-FUTURE');
     assert.deepEqual(quarantined.find((q) => q.id === 'msn_nonsense').reason.code, 'E-DOC-VERSION-MISSING');
-    assert.deepEqual(await repo.list(), [{ id: good.id, title: good.title, updatedAt: good.updatedAt }],
+    assert.deepEqual(await repo.list(), [summarizeMission(good)],
       'and a second pass does not re-quarantine anything');
   });
 

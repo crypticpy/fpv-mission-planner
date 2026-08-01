@@ -21,7 +21,7 @@
 import { createMission } from './domain/mission/mission-schema.js';
 import { missionReduce } from './domain/mission/mission-reducer.js';
 import { resolveMissionAltitudes } from './domain/mission/altitude.js';
-import { openMissionRepository } from './infrastructure/persistence/mission-repository.js';
+import { openMissionRepository, summarizeMission } from './infrastructure/persistence/mission-repository.js';
 
 /** @typedef {import('./domain/mission/mission-schema.js').MissionDocumentV1} MissionDocumentV1 */
 /** @typedef {import('./domain/mission/mission-schema.js').CreateMissionOptions} CreateMissionOptions */
@@ -426,9 +426,28 @@ export async function listMissions() {
   // way to keep the plan (failed or unavailable storage).
   const open = doc;
   if (open && !summaries.some((s) => s.id === open.id)) {
-    summaries.unshift({ id: open.id, title: open.title, updatedAt: open.updatedAt });
+    summaries.unshift(summarizeMission(open));
   }
   return summaries;
+}
+
+/**
+ * Start a fresh mission at the current launch point — the library's New
+ * Mission button. The open document is flushed first, so it stays on the list
+ * exactly as it was; the fresh one becomes the working document and earns its
+ * own v1 checkpoint on first save, the same path a boot-seeded mission takes.
+ * @returns {Promise<MissionDocumentV1|null>}
+ */
+export async function newMission() {
+  await flushMission();
+  const fresh = seededMission();
+  if (!fresh) return null;
+  doc = fresh;
+  scheduleSave();
+  launchRestored();
+  deps?.onMissionChanged?.();
+  deps?.requestRender();
+  return fresh;
 }
 
 /**

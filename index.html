@@ -745,7 +745,22 @@
         </div>
         <p id="mission-note" class="rail-note" role="status" hidden></p>
         <p id="mission-storage" class="rail-note" role="status" hidden></p>
+        <!-- L-01: the library proper. Search and the origin chips narrow what
+             the list below shows — presentation only, the stored missions are
+             untouched — and every card keeps the full set of actions the old
+             rows had: open, export, two-step delete. -->
+        <input id="mission-search" class="mission-search" type="search"
+               placeholder="Search missions" aria-label="Search missions">
+        <div id="mission-filters" class="mission-filters" role="group" aria-label="Filter missions">
+          <button type="button" class="filter-chip" data-filter="all" aria-pressed="true">All</button>
+          <button type="button" class="filter-chip" data-filter="recent" aria-pressed="false">Recent</button>
+          <button type="button" class="filter-chip" data-filter="saved" aria-pressed="false">Saved</button>
+          <button type="button" class="filter-chip" data-filter="imported" aria-pressed="false">Imported</button>
+        </div>
         <div id="mission-list" class="spots-list"></div>
+        <div class="custom-row">
+          <button id="btn-mission-new" class="map-btn" type="button">New mission</button>
+        </div>
         <!-- H-04: the open mission's stored checkpoints. Restoring never deletes —
              it writes the version back as the live document and records the
              restore as a new checkpoint, so a restore can itself be undone by

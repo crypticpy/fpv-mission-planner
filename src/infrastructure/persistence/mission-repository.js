@@ -34,6 +34,7 @@
 //     The granted/denied answer is returned as data, not ignored — and the
 //     export path, not `persist()`, is the actual guarantee.
 
+import { distanceKm } from '../../domain/geo.js';
 import { migrateMission } from '../../domain/mission/mission-migrations.js';
 import { ID_PREFIXES, defaultIdgen, validateMission } from '../../domain/mission/mission-schema.js';
 import { openIndexedDbStore } from './indexeddb-store.js';
@@ -42,7 +43,55 @@ import { openMemoryStore } from './memory-store.js';
 /** @typedef {import('../../domain/mission/mission-schema.js').MissionDocumentV1} MissionDocumentV1 */
 /** @typedef {import('../../domain/mission/mission-schema.js').ValidationIssue} ValidationIssue */
 
-/** @typedef {{ id: string, title: string, updatedAt: string }} MissionSummary */
+/**
+ * What the library's mission cards read without hauling full documents around
+ * (L-01): identity and age as before, plus where the document came from, the
+ * route as a polyline for a thumbnail, what that polyline adds up to, and the
+ * loadout it was planned with.
+ * @typedef {object} MissionSummary
+ * @property {string} id
+ * @property {string} title
+ * @property {string} updatedAt
+ * @property {'authored'|'imported'|'duplicated'} origin
+ * @property {number} waypointCount
+ * @property {[number, number][]} path  [lat, lng] tuples, launch first, flight order
+ * @property {number} distanceKm  along the authored path, launch through last
+ *   waypoint — the glanceable size of the mission, not the flown total (return
+ *   legs and holds belong to analysis, not a list row)
+ * @property {string|null} aircraftName  null when the document carries no
+ *   snapshot (the schema allows it) — the card says nothing rather than guessing
+ * @property {string|null} batteryName
+ */
+
+/**
+ * The card-ready summary of one document. Pure and exported so the bridge can
+ * summarize the open mission the same way when the store has never accepted it
+ * — two builders would drift into two card shapes.
+ * @param {MissionDocumentV1} doc
+ * @returns {MissionSummary}
+ */
+export function summarizeMission(doc) {
+  /** @type {[number, number][]} */
+  const path = [
+    [doc.launch.latitude, doc.launch.longitude],
+    ...doc.route.waypoints.map((w) => /** @type {[number, number]} */ ([w.latitude, w.longitude])),
+  ];
+  let km = 0;
+  for (let i = 1; i < path.length; i += 1) {
+    km += distanceKm({ lat: path[i - 1][0], lng: path[i - 1][1] }, { lat: path[i][0], lng: path[i][1] });
+  }
+  return {
+    id: doc.id,
+    title: doc.title,
+    updatedAt: doc.updatedAt,
+    origin: doc.provenance.origin,
+    waypointCount: doc.route.waypoints.length,
+    path,
+    distanceKm: km,
+    aircraftName: doc.aircraftSnapshot?.name ?? null,
+    batteryName: doc.batterySnapshot?.name ?? null,
+  };
+}
 
 /** @typedef {'manual'|'auto'|'restore'|'import'} VersionKind */
 
@@ -370,7 +419,7 @@ export async function openMissionRepository(deps = {}) {
       /** @type {MissionSummary[]} */ const summaries = [];
       for (const { key, value } of raws) {
         const doc = await accept(key, value);
-        if (doc) summaries.push({ id: doc.id, title: doc.title, updatedAt: doc.updatedAt });
+        if (doc) summaries.push(summarizeMission(doc));
       }
       return summaries.sort((a, b) => {
         const delta = Date.parse(b.updatedAt) - Date.parse(a.updatedAt);

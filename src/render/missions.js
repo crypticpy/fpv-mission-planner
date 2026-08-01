@@ -7,11 +7,13 @@
 // no document editing of its own.
 import {
   deleteMission, exportMission, listMissions, listMissionVersions, listQuarantined, missionId,
-  missionStorage, missionTitle, openMission, renameMission, restoreMissionVersion, saveMissionCopy,
+  missionStorage, missionTitle, newMission, openMission, renameMission, restoreMissionVersion,
+  saveMissionCopy,
 } from '../mission-bridge.js';
 import {
   compatibilityReport, exportCurrentMission, exportFormats, importForeign, previewForeign,
 } from '../interop.js';
+import { missionCard } from '../components/mission-card.js';
 import { recoveryEntry } from '../components/recovery-entry.js';
 import { $ } from './dom.js';
 
@@ -102,72 +104,80 @@ async function onExport(summary) {
   setNote(`Exported “${summary.title}”.`);
 }
 
+/* ---------- the library: search, filter, cards (L-01) ---------- */
+
+/** What the pilot typed in the search box, lowercased for matching. */
+let libraryQuery = '';
+/** Which chip is pressed: 'all' | 'recent' | 'saved' | 'imported'. */
+let libraryFilter = 'all';
+
+/** "Recent" means edited inside the last week — a working set, not an archive. */
+const RECENT_MS = 7 * 24 * 60 * 60 * 1000;
+
 /**
- * @param {{ id: string, title: string, updatedAt: string }} summary
+ * @param {import('../infrastructure/persistence/mission-repository.js').MissionSummary} s
+ */
+function inLibraryView(s) {
+  if (libraryQuery && !s.title.toLowerCase().includes(libraryQuery)) return false;
+  if (libraryFilter === 'recent') return Date.now() - Date.parse(s.updatedAt) < RECENT_MS;
+  if (libraryFilter === 'imported') return s.origin === 'imported';
+  if (libraryFilter === 'saved') return s.origin !== 'imported';
+  return true;
+}
+
+/**
+ * @param {import('../infrastructure/persistence/mission-repository.js').MissionSummary} summary
  * @param {boolean} open whether this is the mission on screen
  */
-function missionRow(summary, open) {
-  const row = document.createElement('div');
-  row.className = 'spot-row';
-  if (open) row.setAttribute('aria-current', 'true');
-
-  const text = document.createElement('div');
-  text.className = 'spot-text';
-  const name = document.createElement('span');
-  name.className = 'spot-name';
-  name.textContent = summary.title;
-  const meta = document.createElement('span');
-  meta.className = 'spot-meta';
-  meta.textContent = open ? `open now · ${ago(summary.updatedAt)}` : ago(summary.updatedAt);
-  text.append(name, meta);
-
-  const actions = document.createElement('div');
-  actions.className = 'spot-actions';
+function libraryCard(summary, open) {
+  const actions = [];
   if (!open) {
-    const openBtn = document.createElement('button');
-    openBtn.type = 'button';
-    openBtn.className = 'map-btn';
-    openBtn.textContent = 'Open';
-    openBtn.addEventListener('click', async () => {
-      disarmDelete();
-      const ok = await openMission(summary.id);
-      setNote(ok ? `Opened “${summary.title}”.` : 'That mission could not be opened.', !ok);
+    actions.push({
+      label: 'Open',
+      primary: true,
+      act: async () => {
+        disarmDelete();
+        const ok = await openMission(summary.id);
+        setNote(ok ? `Opened “${summary.title}”.` : 'That mission could not be opened.', !ok);
+      },
     });
-    actions.appendChild(openBtn);
   }
-  const exportBtn = document.createElement('button');
-  exportBtn.type = 'button';
-  exportBtn.className = 'link-btn';
-  exportBtn.textContent = 'export';
-  exportBtn.addEventListener('click', () => { void onExport(summary); });
+  actions.push({ label: 'export', act: () => { void onExport(summary); } });
 
   // Two-step rather than a confirm() dialog: the second click is the confirmation,
   // it costs nothing to walk away from, and it does not block the tab. Nothing
   // else in this app deletes a mission's worth of work in one click.
-  const del = document.createElement('button');
-  del.type = 'button';
-  del.className = 'link-btn';
-  del.textContent = armedDelete === summary.id ? 'delete — sure?' : 'delete';
-  del.addEventListener('click', async () => {
-    if (armedDelete !== summary.id) {
-      armedDelete = summary.id;
-      del.textContent = 'delete — sure?';
-      clearTimeout(armedTimer);
-      armedTimer = setTimeout(() => { disarmDelete(); renderMissions(); }, 5000);
-      return;
-    }
-    disarmDelete();
-    const wasOpen = summary.id === missionId();
-    const gone = await deleteMission(summary.id);
-    setNote(gone
-      ? `Deleted “${summary.title}”.${wasOpen ? ' Started a fresh mission at the same launch point.' : ''}`
-      : 'That mission was already gone.', !gone);
-    renderMissions();
+  actions.push({
+    label: armedDelete === summary.id ? 'delete — sure?' : 'delete',
+    act: async (btn) => {
+      if (armedDelete !== summary.id) {
+        armedDelete = summary.id;
+        btn.textContent = 'delete — sure?';
+        clearTimeout(armedTimer);
+        armedTimer = setTimeout(() => { disarmDelete(); renderMissions(); }, 5000);
+        return;
+      }
+      disarmDelete();
+      const wasOpen = summary.id === missionId();
+      const gone = await deleteMission(summary.id);
+      setNote(gone
+        ? `Deleted “${summary.title}”.${wasOpen ? ' Started a fresh mission at the same launch point.' : ''}`
+        : 'That mission was already gone.', !gone);
+      renderMissions();
+    },
   });
-  actions.append(exportBtn, del);
 
-  row.append(text, actions);
-  return row;
+  const n = summary.waypointCount;
+  const age = open ? `open now · ${ago(summary.updatedAt)}` : ago(summary.updatedAt);
+  return missionCard({
+    title: summary.title,
+    origin: summary.origin,
+    open,
+    path: summary.path,
+    loadout: [summary.aircraftName, summary.batteryName].filter(Boolean).join(' + '),
+    stats: `${summary.distanceKm.toFixed(1)} km · ${n} waypoint${n === 1 ? '' : 's'} · ${age}`,
+    actions,
+  });
 }
 
 async function renderList() {
@@ -182,7 +192,15 @@ async function renderList() {
     host.appendChild(empty);
     return;
   }
-  for (const s of summaries) host.appendChild(missionRow(s, s.id === openId));
+  const shown = summaries.filter(inLibraryView);
+  if (!shown.length) {
+    const empty = document.createElement('p');
+    empty.className = 'spots-empty';
+    empty.textContent = 'No missions match — clear the search or switch the filter back to All.';
+    host.appendChild(empty);
+    return;
+  }
+  for (const s of shown) host.appendChild(libraryCard(s, s.id === openId));
 }
 
 /* ---------- history & recovery (M14, L-04/H-04) ---------- */
@@ -467,6 +485,27 @@ export function bindMissions() {
     setNote(`Copied to “${copy.title}” — that is the one you are editing now. The original is untouched.`);
     renderMissions();
   });
+  $('btn-mission-new').addEventListener('click', async () => {
+    const fresh = await newMission();
+    if (!fresh) { setNote('A new mission could not be started.', true); return; }
+    setNote(`Started “${fresh.title}” at the same launch point. The mission you were on is on the list, exactly as you left it.`);
+    renderMissions();
+  });
+  // Search and the filter chips narrow what the list shows; the repository's
+  // list is untouched, so clearing them always brings everything back.
+  $('mission-search').addEventListener('input', (e) => {
+    libraryQuery = e.target.value.trim().toLowerCase();
+    void renderList();
+  });
+  for (const chip of $('mission-filters').querySelectorAll('button')) {
+    chip.addEventListener('click', () => {
+      libraryFilter = chip.dataset.filter;
+      for (const b of $('mission-filters').querySelectorAll('button')) {
+        b.setAttribute('aria-pressed', String(b === chip));
+      }
+      void renderList();
+    });
+  }
   void populateInteropFormats();
   $('btn-interop-export').addEventListener('click', () => { void onInteropExport(); });
   $('mission-file').addEventListener('change', (e) => { void onFile(e); });

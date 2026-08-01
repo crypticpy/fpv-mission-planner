@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   setupMissionBridge, openMissionBridge, missionId, missionTitle, missionStorage,
-  renameMission, exportMission, listMissions, restoreMissionVersion,
+  newMission, renameMission, exportMission, listMissions, restoreMissionVersion,
 } from '../src/mission-bridge.js';
 
 /* The bridge's promise under storage failure (module header): the in-memory
@@ -186,6 +186,30 @@ test('the estimate is refreshed again after a save receipt, not only at boot', a
   renameMission('Nearly full now');
   await sleep(400); // past the edit's own save debounce, then the receipt-triggered refresh
   assert.equal(missionStorage().nearFull, true, 'a save receipt asked again, not just the boot');
+});
+
+/* M14 (L-01): the library's New Mission button. The one behavior worth a
+ * bridge test is that starting fresh is not destructive — the open document is
+ * flushed to the store before the fresh one takes over, so nothing rides on
+ * whether a debounced save happened to have landed. */
+
+test('New Mission flushes the open document and starts a fresh one beside it', async () => {
+  setupMissionBridge({ seed, requestRender: () => {}, repository: workingRepo() });
+  await openMissionBridge();
+  await sleep(400); // the boot save lands
+  const firstId = missionId();
+  renameMission('The one being left');
+  // No sleep: the rename's save is still inside its debounce window, which is
+  // exactly what newMission's own flush must cover.
+  const fresh = await newMission();
+  assert.ok(fresh, 'a fresh mission opened');
+  assert.notEqual(missionId(), firstId, 'with its own identity');
+  assert.equal(missionTitle(), 'Field test', 'seeded, not a copy of the old document');
+  await sleep(400); // the fresh mission's first save lands
+  const summaries = await listMissions();
+  assert.equal(summaries.length, 2, 'the old mission is still on the list');
+  const old = summaries.find((s) => s.id === firstId);
+  assert.equal(old?.title, 'The one being left', 'with the un-flushed rename kept');
 });
 
 /* M14 (L-04/H-04): restoring a version must not orphan the state being
