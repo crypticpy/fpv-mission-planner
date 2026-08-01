@@ -152,8 +152,16 @@ big ones). No epic branch.
   camera profile on the mission document (same seam as Plan's segment
   editor); Model-confidence card with catalog-vs-fit drift over the same
   cruise legs.
-- [ ] **M16 — Mountain dive.** 3D-05…3D-08: gates in the mission schema,
-  dive-dynamics analysis, contingency review.
+- [x] **M16 — Mountain dive.** *(landed 2026-08-01)*
+  3D-05…3D-08: approach/dive/recovery gates on the mission document, the
+  mountain conditions card and the Mountain dive route template, gate and
+  pullout authoring on the 3D stage, a dynamics timeline with a Systems
+  margin card, and a Recovery plan (lost-link climb, break-off gate, bailout
+  landing) that Review links straight into. The mockup's thermal card is
+  deliberately absent and the panel says why — nothing here estimates motor
+  or ESC temperature — and link margin is reported as blocked distance
+  rather than decibels, because a decibel figure is not something this
+  codebase produces.
 - [ ] **M17 — Delivery polish.** H-01 acknowledged brief, H-02 export
   compatibility UI.
 
