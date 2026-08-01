@@ -84,6 +84,15 @@
     // where the arithmetic that can be wrong lives, and it is checked.
     "src/presentation/map/tile-sources.js",
     "src/presentation/map/scene3d/scene-geometry.js",
+    // M12 wave A's ortho-terrain.js is deliberately absent, and not for want of
+    // types: it passes `strict` on its own JSDoc under a scratch config. It
+    // imports @deck.gl/core and @deck.gl/mesh-layers, whose typings pull
+    // @types/node into the global scope, and that turns `setTimeout` into node's
+    // — which lands as `Timeout is not assignable to number` in mission-bridge.js,
+    // a file that has nothing to do with terrain. An include entry that changes
+    // the verdict on an unrelated module is not a ratchet notch, so the two
+    // exclusions above hold for a third file, and this one is measured rather
+    // than assumed.
     "src/domain/terrain/terrain-features.js",
     "src/application/terrain/terrain-contracts.js",
     "src/application/terrain/elevation-cache.js",

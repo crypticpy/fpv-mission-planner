@@ -39,3 +39,26 @@ export const TERRAIN_DEM_URL = 'https://s3.amazonaws.com/elevation-tiles-prod/te
 export const TERRAIN_DEM_ATTRIBUTION = 'Terrain: Mapzen/AWS Terrain Tiles';
 export const TERRAIN_DEM_MAX_ZOOM = 15;
 export const TERRAIN_DEM_TILE_SIZE = 256;
+
+/**
+ * One terrarium pixel, as metres above sea level.
+ *
+ * MapLibre applies this itself (`encoding: 'terrarium'` on the DEM source), so
+ * for the 3D scene the formula above stays a comment. The orthographic view
+ * decodes the same tiles in the page — a height grid it can query analytically is
+ * what makes a pick against terrain trustworthy (ADR 0004 wave C) — and a second
+ * transcription of four constants is exactly the kind of difference that would
+ * put the two views on different mountains. So the formula has one home, here,
+ * beside the endpoint it belongs to.
+ *
+ * No range checking: the inputs are three bytes off a canvas, every triple is a
+ * valid elevation somewhere between −32,768 m and +8,388,607 m, and there is no
+ * value in that range this function could reject as wrong. A decode error is not
+ * subtle — a wrong encoding puts a summit at −32,000 m.
+ *
+ * @param {number} r @param {number} g @param {number} b
+ * @returns {number} metres MSL
+ */
+export function decodeTerrarium(r, g, b) {
+  return r * 256 + g + b / 256 - 32768;
+}
