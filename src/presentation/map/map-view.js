@@ -614,9 +614,11 @@ function sceneState(spec) {
 }
 
 /**
- * The right card for the way 3D failed. Terrain that decoded to nothing is not
- * the network being down: the first has a satellite host one press away, the
- * second has a retry. Each card names its cause and every way out is a button.
+ * The right card for the way 3D failed. Terrain that decoded to nothing, a
+ * chunk that was never built, and a network that could not reach it are three
+ * different problems with three different ways out — a satellite host one press
+ * away, no retry at all, and a reload. Each card names its own cause, and every
+ * way out of it is a button.
  * @param {unknown} err
  */
 function sceneFailCard(err) {
@@ -631,6 +633,21 @@ function sceneFailCard(err) {
         onClick: () => { sceneHost = 'maplibre'; void activate3d(); },
       },
       secondary: { label: 'Use 2D map', onClick: () => deps.exit3d?.() },
+    });
+    return;
+  }
+  /* A bare specifier that never resolved is not a connection the pilot can go
+   * and find: nothing was requested, because the host is serving the unbundled
+   * source where `@deck.gl/core` means nothing to a browser. Retrying is futile
+   * and blaming the network would send someone looking for signal they already
+   * have — so this one names the build and offers only the way out that works. */
+  if (/resolve module specifier/i.test(message)) {
+    sceneState({
+      kind: 'recoverable-error',
+      title: '3D is not built on this host',
+      body: 'The 3D engine is only assembled by the build step, and this copy of the app is '
+        + 'serving unbundled source. Nothing to retry here — the 2D map underneath still works.',
+      action: { label: 'Use 2D map', onClick: () => deps.exit3d?.() },
     });
     return;
   }

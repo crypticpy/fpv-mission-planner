@@ -8,6 +8,13 @@ name: pages
 # makes once. Then restore the push trigger:
 #   push:
 #     branches: [main]
+#
+# This is not cosmetic. Until that flip, Pages serves the repo root, and the
+# root is source: the 3D chunk imports `@deck.gl/core` and `maplibre-gl` as bare
+# specifiers that only the bundler resolves. A browser cannot, so on the live
+# site every 3D entry — the orthographic planner and the whole mountain-dive
+# flow with it — fails at import and falls back to the 2D map. `dist/` has no
+# such problem; the built bundle is what production is supposed to serve.
 on:
   workflow_dispatch:
 

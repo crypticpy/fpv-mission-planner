@@ -158,6 +158,12 @@ test.describe('the dive dynamics reading', () => {
     await expect(page.locator('#dive-axis .dive-tick').last()).toContainText('s');
     await expect(tracks.nth(1)).not.toHaveClass(/is-empty/);
     await expect(tracks.nth(1).locator('svg .dive-track-line').first()).toBeAttached();
+    // A dive is a negative climb, so this is the one row whose range runs below
+    // zero — and a dash between the bounds would sit straight against the minus
+    // sign of the low one. It says "to" there, and never "–-".
+    const vsRange = page.locator('.dive-tracks .dive-track-name .dive-track-unit').nth(1);
+    await expect(vsRange).toContainText(' to -');
+    await expect(vsRange).not.toContainText('–-');
 
     // ---- and the pullout badge carries a clearance it can defend ----
     await expect(pullout).not.toHaveAttribute('data-tone', 'unknown');

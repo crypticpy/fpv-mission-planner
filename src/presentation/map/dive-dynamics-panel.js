@@ -170,7 +170,12 @@ function track({ label, unit, phases, at, selectedKind, values, show, zero }) {
   if (zero) { lo = Math.min(lo, 0); hi = Math.max(hi, 0); }
   const range = Math.max(1e-6, hi - lo);
   const y = (/** @type {number} */ v) => TRACK_H - PAD - ((v - lo) / range) * (TRACK_H - PAD * 2);
-  sub.textContent = `${show(hi)}–${show(lo)} ${unit}`;
+  /* A dash between the bounds reads as a range right up until the low bound is
+     negative, where "56–-33" puts two dashes back to back and the reader has to
+     work out which one is the minus. Vertical speed is the row that goes below
+     zero — a dive is a negative climb — so it is the row that says "to". */
+  const loText = show(lo);
+  sub.textContent = `${show(hi)}${loText.startsWith('-') ? ' to ' : '–'}${loText} ${unit}`;
 
   const svg = svgEl('svg', {
     class: 'dive-track-svg',
