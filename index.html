@@ -82,6 +82,9 @@
       <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/>
       <path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17v.01" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
     </symbol>
+    <symbol id="sym-chevron" viewBox="0 0 24 24">
+      <path d="m7 10 5 5 5-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
     <symbol id="sym-clock" viewBox="0 0 24 24">
       <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/>
       <path d="M12 7v5l3.5 2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
@@ -154,6 +157,12 @@
      src/components/wind-ribbon.js on every update pass; hidden until the first
      snapshot exists. -->
 <div id="wind-ribbon" class="windrib" hidden></div>
+
+<!-- The wind panel (design evolution M11): the ribbon's expansion — W-01 wind
+     now + hourly outlook this wave; the altitude ladder and heading exposure
+     segments join it in later waves. Rendered by src/components/wind-panel.js;
+     the ribbon button above owns its disclosure state. -->
+<div id="wind-panel" class="windpanel" role="region" aria-label="Wind details" hidden></div>
 
 <!-- The four destinations (design evolution M9, docs/design-evolution-2026-08.md).
      One element, two postures: a left rail above 900px, the bottom dock below it.

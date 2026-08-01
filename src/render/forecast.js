@@ -47,8 +47,10 @@ function forecastHours() {
 // them to `new Date()` (below, for "which hour is now") additionally assumes the
 // pilot is browsing from the launch point's timezone — true for any spot they
 // can drive to, and the only wrong-by-an-offset case is planning another zone.
-const hourName = (d) => d.toLocaleString([], { weekday: 'short', hour: 'numeric' });
-const clockTime = (d) => d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+// Exported (M11): the wind panel labels the same hours, and two spellings of
+// "Sat 3 PM" on one screen would read as two different hours.
+export const hourName = (d) => d.toLocaleString([], { weekday: 'short', hour: 'numeric' });
+export const clockTime = (d) => d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
 // "7:49 PM" → "7:49" once an earlier time in the same line established the
@@ -83,7 +85,9 @@ function definedOnly(patch) {
   return Object.fromEntries(Object.entries(patch).filter(([, v]) => Number.isFinite(v)));
 }
 
-function hourSummary(hr) {
+// Exported (M11): the wind panel prints the selected hour with the same words
+// the strip's readout uses — one sentence per sky, wherever it is quoted.
+export function hourSummary(hr) {
   const u = units();
   const bits = [];
   if (hr.windMph != null) {
@@ -117,6 +121,21 @@ function applyForecastHour() {
   if (patch) state.env = { ...state.env, ...definedOnly(patch) };
   populateControls();
   deps.update();
+}
+
+/**
+ * The outlook as the wind panel reads it (M11): the same shaped hours the
+ * scrubber scrubs, behind exactly the same gate, plus which index is selected,
+ * which is "now", and the selected hour's golden-hour window. Null when there
+ * is nothing to scrub — for the strip's own reasons (preset or hand-entered
+ * sky, failed refetch), so the panel and the strip can never disagree about
+ * whether a forecast exists.
+ */
+export function forecastOutlook() {
+  const hours = forecastHours();
+  if (!hours) return null;
+  const i = selectedIdx(hours);
+  return { hours, selected: i, now: nowIdx(hours), golden: goldenHour(dayFor(hours[i].time)) };
 }
 
 /** The scrubber's own handler: select an hour by index, then re-plan for it. */

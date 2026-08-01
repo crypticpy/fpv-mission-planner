@@ -51,11 +51,19 @@ export function windModelFrom(snapshot) {
   return { state: gusty ? 'gust' : stale ? 'stale' : 'normal', windText, note: gustText, fresh };
 }
 
-function ensure(host) {
+function ensure(host, onToggle) {
   if (host.firstChild) return;
-  // Two lines of meaning, one strip: the sky (state, wind, impact) and its
-  // provenance (the freshness chip). Desktop lays them out as one row with the
-  // chip pushed right; under 900px they stack — same DOM, two CSS postures.
+  // The whole strip is one disclosure button (M11): the sky at arm's length is
+  // also the way into the wind panel below it, so the tap target is the full
+  // ribbon, not a chevron hunt. Inside it, two lines of meaning: the sky
+  // (state, wind, impact) and its provenance (the freshness chip). Desktop
+  // lays them out as one row with the chip pushed right; under 900px they
+  // stack — same DOM, two CSS postures.
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'windrib-toggle';
+  btn.setAttribute('aria-controls', 'wind-panel');
+  btn.setAttribute('aria-expanded', 'false');
   const main = document.createElement('span');
   main.className = 'windrib-main';
   const stateEl = document.createElement('span');
@@ -65,9 +73,14 @@ function ensure(host) {
   const note = document.createElement('span');
   note.className = 'windrib-note';
   main.append(stateEl, icon('wind', 'windrib-glyph'), wind, note);
+  const side = document.createElement('span');
+  side.className = 'windrib-side';
   const freshSlot = document.createElement('span');
   freshSlot.className = 'windrib-fresh';
-  host.append(main, freshSlot);
+  side.append(freshSlot, icon('chevron', 'windrib-chevron'));
+  btn.append(main, side);
+  if (onToggle) btn.addEventListener('click', onToggle);
+  host.append(btn);
 }
 
 const STATE_WORD = { normal: 'Normal', stale: 'Stale', gust: 'Gust', critical: 'Critical' };
@@ -75,12 +88,15 @@ const STATE_WORD = { normal: 'Normal', stale: 'Stale', gust: 'Gust', critical: '
 /**
  * @param {HTMLElement} host
  * @param {WindRibbonModel|null} m  null hides the ribbon (no snapshot yet)
+ * @param {{ expanded: boolean, onToggle: () => void }} [opts]  the wind panel's
+ *   disclosure state; the listener binds once, on the first render that has it
  */
-export function renderWindRibbon(host, m) {
+export function renderWindRibbon(host, m, opts) {
   host.hidden = !m;
   if (!m) return;
-  ensure(host);
+  ensure(host, opts?.onToggle);
   host.className = `windrib windrib-${m.state}`;
+  host.querySelector('.windrib-toggle').setAttribute('aria-expanded', String(!!opts?.expanded));
   host.querySelector('.windrib-state').textContent = STATE_WORD[m.state];
   host.querySelector('.windrib-wind').textContent = m.windText;
   host.querySelector('.windrib-note').textContent = m.note;

@@ -81,6 +81,7 @@ const PRECACHE_URLS = [
   'src/components/route-timeline.js',
   'src/components/system-state.js',
   'src/components/verdict-card.js',
+  'src/components/wind-panel.js',
   'src/components/wind-ribbon.js',
   'src/data.js',
   'src/domain/camera.js',

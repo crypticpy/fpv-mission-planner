@@ -1902,6 +1902,130 @@ body.brief-open { overflow: hidden; }
 .freshness-stale { color: var(--status-warning); }
 .freshness-unavailable { color: var(--status-serious); }
 
+/* The ribbon as a disclosure button (M11): the whole strip is the tap target
+   into the wind panel. The host keeps the card look; the button takes over the
+   row layout the host used to own. */
+.windrib-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-1) var(--sp-3);
+  width: 100%;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.windrib-side { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; }
+.windrib-chevron {
+  display: block;
+  flex: none;
+  width: 15px;
+  height: 15px;
+  color: var(--muted);
+  transition: transform 0.15s ease;
+}
+.windrib-toggle[aria-expanded="true"] .windrib-chevron { transform: rotate(180deg); }
+@media (prefers-reduced-motion: reduce) { .windrib-chevron { transition: none; } }
+@media (max-width: 900px) {
+  .windrib-toggle { flex-direction: column; align-items: stretch; }
+  .windrib-side { justify-content: space-between; }
+}
+
+/* The wind panel (M11): the ribbon's expansion, same width formula so the two
+   read as one instrument. W-01 lives here this wave; the altitude ladder and
+   heading segments mount beside .windpanel-now in the next ones. */
+.windpanel {
+  width: calc(100% - 2 * var(--sp-5));
+  max-width: calc(1360px - 2 * var(--sp-5));
+  margin: var(--sp-1) auto 0;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: var(--sp-3);
+}
+.windpanel-hero { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-4); }
+.windpanel-big { margin: 0; font-family: var(--font-display); }
+.windpanel-big-value { font-size: 40px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+.windpanel-big-unit { font-size: 15px; font-weight: 600; color: var(--ink-2); }
+.windpanel-dir { margin: 4px 0 0; font-size: 15px; color: var(--ink); font-variant-numeric: tabular-nums; }
+.windpanel-level {
+  margin: 4px 0 0;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.windpanel-rose { width: 104px; height: 104px; flex: none; }
+.windpanel-rose-ring { fill: none; stroke: var(--border); stroke-width: 1.5; }
+.windpanel-rose-tick { stroke: var(--border); stroke-width: 1.5; }
+.windpanel-rose-letter {
+  fill: var(--muted);
+  font-family: var(--font-display);
+  font-size: 9px;
+  font-weight: 600;
+  text-anchor: middle;
+  dominant-baseline: central;
+}
+.windpanel-rose-north { fill: var(--ink); }
+.windpanel-rose-shaft { stroke: var(--accent); stroke-width: 2.5; }
+.windpanel-rose-head { fill: var(--accent); }
+.windpanel-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-2); margin-top: var(--sp-3); }
+.windpanel-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--sp-2);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.windpanel-tile-label { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.windpanel-tile-value { font-family: var(--font-display); font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.windpanel-tile-meta { font-size: 11px; color: var(--ink-2); }
+.windpanel-tile-caution { border-color: var(--status-serious); }
+.windpanel-tile-caution .windpanel-tile-meta { color: var(--status-serious); font-weight: 600; }
+.windpanel-outlook { margin-top: var(--sp-3); }
+.windpanel-outlook-title {
+  margin: 0;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.windpanel-banner { margin: var(--sp-1) 0 0; font-size: 11.5px; color: var(--ink-2); font-style: italic; }
+.windpanel-hours { display: flex; flex-wrap: wrap; gap: var(--sp-1); margin-top: var(--sp-1); }
+.windpanel-hour {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: 54px;
+  padding: 6px 8px;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.windpanel-hour[aria-pressed="true"] { background: var(--surface-2); border-color: var(--accent); }
+.windpanel-hour-when { font-size: 11px; color: var(--ink-2); white-space: nowrap; }
+.windpanel-hour-wind { font-family: var(--font-display); font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.windpanel-hour-gust { font-size: 10.5px; font-weight: 600; color: var(--status-serious); }
+.windpanel-hour-caution { border-color: var(--status-serious); }
+.windpanel-readout { margin: var(--sp-1) 0 0; font-size: 12px; color: var(--ink-2); }
+.windpanel-sun { margin: 4px 0 0; font-size: 12px; color: var(--ink-2); }
+.windpanel-nodata { margin: var(--sp-3) 0 0; font-size: 12px; color: var(--muted); }
+@media (max-width: 900px) {
+  .windpanel { width: calc(100% - 2 * var(--sp-3)); }
+  .windpanel-rose { width: 88px; height: 88px; }
+  .windpanel-big-value { font-size: 34px; }
+}
+
 /* MissionSummary: the four field numbers, tile vocabulary at card weight. */
 .msummary-title {
   font-size: 11px;

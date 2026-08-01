@@ -61,6 +61,7 @@ import { renderSpots, bindSpots } from './render/spots.js';
 import { setupShare, bindShare } from './render/share.js';
 import { renderSessionPlanner } from './render/session.js';
 import { renderWindRibbon, windModelFrom } from './components/wind-ribbon.js';
+import { renderWindPanel, windPanelModelFrom } from './components/wind-panel.js';
 import { renderMissionSummary, summaryModelFrom } from './components/mission-summary.js';
 import { renderSystemState } from './components/system-state.js';
 import { renderRouteTimeline, timelineModelFrom } from './components/route-timeline.js';
@@ -90,6 +91,28 @@ let latest = null;
  * @type {import('./components/wind-ribbon.js').WindRibbonModel|null}
  */
 let ribbonModel = null;
+
+/**
+ * The wind panel's last-drawn model and its disclosure state (M11). Ephemeral
+ * on purpose, like the forecast scrubber's hour: whether the panel is open is
+ * a question being asked right now, not part of the saved loadout.
+ * @type {import('./components/wind-panel.js').WindPanelModel|null}
+ */
+let panelModel = null;
+let windPanelOpen = false;
+
+const ribbonOpts = () => ({ expanded: windPanelOpen, onToggle: toggleWindPanel });
+
+/** The ribbon and its expansion, drawn together: one disclosure state, two hosts. */
+function drawWindChrome() {
+  renderWindRibbon($('wind-ribbon'), ribbonModel, ribbonOpts());
+  renderWindPanel($('wind-panel'), panelModel, { open: windPanelOpen, onSelectHour: setForecastHour });
+}
+
+function toggleWindPanel() {
+  windPanelOpen = !windPanelOpen;
+  drawWindChrome();
+}
 
 /** @type {Promise<typeof import('./render/brief.js')>|null} */
 let briefPromise = null;
@@ -155,7 +178,8 @@ function update() {
   // So is the wind ribbon (M9): persistent chrome on every destination, ahead
   // of the no-plan bail because the sky is real whether or not a pack fits.
   ribbonModel = windModelFrom(snapshot);
-  renderWindRibbon($('wind-ribbon'), ribbonModel);
+  panelModel = windPanelModelFrom(snapshot);
+  drawWindChrome();
   // Handled, not thrown: with no pack there is no plan, and every render below
   // this line reads one. Say it in the verdict card and stop here.
   if (!snapshot.plan) {
@@ -697,7 +721,7 @@ function bind() {
   // once a minute so a phone left open in the field doesn't read "just now"
   // an hour later. Re-draws the last model — no analysis, no fetch.
   setInterval(() => {
-    if (ribbonModel) renderWindRibbon($('wind-ribbon'), ribbonModel);
+    if (ribbonModel) renderWindRibbon($('wind-ribbon'), ribbonModel, ribbonOpts());
   }, 60000);
 }
 
