@@ -906,6 +906,9 @@ setupMapView({
   // The offline card's Retry reloads the document; the mission is flushed
   // through here first so the reload can never drop a dirty document.
   flushMission,
+  // The conditions card's wind rungs are the wind panel's own ladder model,
+  // read back rather than re-derived — one voice for wind (M16).
+  windLadder: () => panelModel?.altitude ?? null,
   // The route belongs to the mission document now (ADR 0002): the map draws what
   // it reads back through here, and every edit it makes is a command.
   routeWaypoints: missionWaypoints,

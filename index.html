@@ -547,6 +547,8 @@
           <div class="viewbar-group">
             <button id="vb-contours" class="viewbar-seg ortho-only" type="button" aria-pressed="false"
                     title="Contour lines">Contours</button>
+            <button id="vb-dive" class="viewbar-seg" type="button" aria-pressed="false"
+                    title="Mountain dive planning — conditions and route templates">Dive</button>
             <button id="vb-reset" class="viewbar-seg ortho-only" type="button"
                     title="Reset camera — default tilt, north up">Reset</button>
             <button id="vb-host" class="viewbar-seg" type="button"
@@ -594,6 +596,14 @@
           <div id="segment-warnings" class="warnings" hidden></div>
           <p id="segment-id" class="segment-id"></p>
         </section>
+        <!-- 3D-05 (M16): the mountain-conditions card, up in 3D while no leg is
+             selected — it shares the inspector's seat, and an open selection
+             wins it. Built entirely by conditions-card.js from numbers other
+             passes own; nothing static to write here. The template row below it
+             seeds a first sketch of a route through the same reducer commands a
+             hand edit raises. -->
+        <section class="card full-only conditions-card" id="conditions-card" hidden></section>
+        <div id="route-templates" class="route-templates" hidden></div>
       </div>
       <!-- The key to the zones above. Filled by the render pass and up only
            while the layer is drawing something; the trailing line about unshaded

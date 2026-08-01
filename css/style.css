@@ -994,6 +994,74 @@ tr.row-invalid td:nth-child(12) { color: var(--status-critical); font-weight: 60
   .map-toolbar { transition: none; }
 }
 
+/* Mission conditions (M16, 3D-05): the dive flow's briefing card, sharing the
+   inspector's top-right seat. The host shows at most one of the two — an open
+   leg selection wins it — so the z-order between them never actually decides
+   anything; the card sits under the inspector's 1002 to say so. */
+.conditions-card {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: min(300px, 34%);
+  max-height: calc(100% - 44px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  z-index: 1001;
+  margin: 0;
+  box-shadow: 0 8px 24px var(--shadow);
+}
+.conditions-wind h4 {
+  margin: var(--sp-3) 0 2px;
+  font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--muted);
+}
+.conditions-rungs {
+  display: grid;
+  grid-template-columns: minmax(4.5rem, auto) 1fr;
+  gap: 4px var(--sp-3);
+  margin: 4px 0 0;
+  font-size: 12.5px;
+}
+.conditions-rungs dt { color: var(--muted); }
+.conditions-rungs dd { color: var(--ink); font-variant-numeric: tabular-nums; margin: 0; }
+.conditions-nowind, .conditions-shear { margin: 4px 0 0; font-size: 11.5px; color: var(--muted); }
+.conditions-advisory {
+  margin: var(--sp-2) 0 0;
+  padding: 5px 8px;
+  font-size: 11.5px;
+  border-left: 3px solid var(--status-warning);
+  background: var(--surface-2);
+  border-radius: 0 6px 6px 0;
+}
+.conditions-advisory[data-severity="warning"] { border-left-color: var(--status-serious); }
+
+/* The template row (3D-05's bottom edge): first sketches, one tap each. Bottom
+   centre, lifted clear of the viewbar's row — the viewbar owns bottom-left,
+   attribution bottom-right, and a wrapped chip must not shadow either. */
+.route-templates {
+  position: absolute;
+  bottom: 52px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 6px;
+  z-index: 1001;
+  max-width: calc(100% - 20px);
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.route-template-chip {
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 2px 8px var(--shadow);
+  white-space: nowrap;
+}
+.route-template-chip:disabled {
+  color: var(--muted);
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 /* SceneViewbar (M12): the 3D camera's chrome, riding the bottom-left of the
    stage — the corner the mockup gives it, clear of the toolbar (top-right),
    the inspector (right) and Leaflet's attribution (bottom-right). Segmented
@@ -1403,6 +1471,13 @@ body {
     border-radius: 14px 14px 0 0;
     border-bottom: none;
   }
+
+  /* 3D-05 on phones (M16): the briefing card is a tablet composition — on a
+     phone stage it would cover the terrain it is briefing, so it stands down
+     and its numbers stay a tab away in Analyze. The sketch chips stay, lifted
+     clear of the viewbar's bottom row. */
+  .conditions-card { display: none; }
+  .route-templates { bottom: 62px; }
 
   /* The destnav becomes the bottom dock — the phone's thumb-reach home for the
      four destinations. */

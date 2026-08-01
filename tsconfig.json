@@ -143,6 +143,10 @@
     "src/domain/mission/scene-schema.js",
     "src/domain/mission/scene-commands.js",
     "src/domain/mission/dive-commands.js",
+    // M16 wave B: pure command-list builder over geo.js and the schema typedefs,
+    // both already here. Its consumer (conditions-card.js) stays out with
+    // segment-inspector.js — same src/render/format.js dependency, same reason.
+    "src/domain/mission/route-templates.js",
     // M7 wave D's 2D subject layer — pre-seeded the same way; it reaches only
     // the map contract and domain/geo.js, both above. Its 3D siblings stay out
     // on deck.gl's account, like the rest of scene3d/.

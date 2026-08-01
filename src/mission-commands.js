@@ -19,6 +19,7 @@
 // mission that was planned and saved today.
 import { aircraftSnapshot, batterySnapshot, payloadSnapshot } from './domain/mission/mission-schema.js';
 import { missionReduce } from './domain/mission/mission-reducer.js';
+import { ROUTE_TEMPLATES, templateCommands } from './domain/mission/route-templates.js';
 import { state, drone, loadoutBattery, payload } from './state.js';
 import { dispatch, missionDocument } from './mission-bridge.js';
 import { launchPoint } from './weather.js';
@@ -266,7 +267,45 @@ function rejectionReason(command) {
   return message ?? 'That command left the mission unchanged.';
 }
 
+/**
+ * The dive workspace's authored context: the aircraft the mission snapshotted
+ * (which the analysis deliberately does not republish) and the template row,
+ * each template carrying the reason it would decline right now — so the map can
+ * disable a chip with the same sentence applying it would have answered with.
+ * @returns {{ aircraftName: string|null, templates: { id: string, label: string, hint: string, blocked: string|null }[] }}
+ */
+function diveWorkspace() {
+  const doc = missionDocument();
+  return {
+    aircraftName: doc?.aircraftSnapshot?.name ?? null,
+    templates: ROUTE_TEMPLATES.map((t) => {
+      const plan = doc ? templateCommands(t.id, doc) : { blocked: 'No mission is open yet — nothing to edit.' };
+      return { id: t.id, label: t.label, hint: t.hint, blocked: plan.blocked ?? null };
+    }),
+  };
+}
+
+/**
+ * Seeds one template through the same dispatch every hand edit takes: each
+ * command either lands or, on the first refusal, the whole application stops
+ * and answers with the reducer's own sentence. Set-by-kind gate commands make
+ * a partial dive application safe to re-run; the waypoint templates are guarded
+ * against partial state by refusing non-empty routes in the first place.
+ * @param {string} id
+ * @returns {EditResult}
+ */
+function applyTemplate(id) {
+  const doc = missionDocument();
+  if (!doc) return { ok: false, message: 'No mission is open yet — nothing to edit.' };
+  const plan = templateCommands(id, doc);
+  if (plan.blocked) return { ok: false, message: plan.blocked };
+  for (const command of plan.commands ?? []) {
+    if (!dispatch(command)) return { ok: false, message: rejectionReason(command) };
+  }
+  return { ok: true, message: null };
+}
+
 /* Registered at import rather than from a setup call: app.js imports this module
    for its raisers, the map's own setter is a no-op until the map exists, and the
    port holds no state that needs a boot order. */
-setMissionEditor({ scene: sceneProjection, raise: raiseEdit });
+setMissionEditor({ scene: sceneProjection, raise: raiseEdit, dive: diveWorkspace, applyTemplate });

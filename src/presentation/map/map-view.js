@@ -37,6 +37,7 @@ import { loadMapState, saveMapState } from '../../store.js';
 import { createLeafletAdapter } from './leaflet-adapter.js';
 import { createLayerRegistry } from './layer-registry.js';
 import { renderAdvisoryLegend } from './advisory-panel.js';
+import { renderConditionsCard, renderRouteTemplates } from './conditions-card.js';
 import { liveSelection, nextSelection, renderSegmentInspector } from './segment-inspector.js';
 import { createAdvisoryLayer } from './layers/advisory-layer.js';
 import { createFootprintLayer } from './layers/footprint-layer.js';
@@ -115,6 +116,13 @@ let spotSpec = null;
  * that. Default on — a hazard advisory a pilot has to find before they can see
  * it is one they will miss. */
 let advisoryOn = true;
+/* Whether the mountain-dive workspace — the conditions card and the template
+ * row (M16) — is up over the 3D stage. Session-only like `advisoryOn`, but
+ * default OFF where the advisory defaults on: overlays over the stage are
+ * summoned, not standing (the segment card needs a selection, the scene-state
+ * card needs a failure), because a standing overlay intercepts taps aimed at
+ * the canvas and the viewbar under it. */
+let diveOn = false;
 /* Why the last edit did not land, when it did not. Beside `sceneNote` and with
  * the same lifetime rule: it is a fact that outlives the pass it happened in, so
  * it is composed into the note line rather than written over by the next render.
@@ -139,14 +147,27 @@ let editNote = null;
 
 /** @typedef {import('./segment-editor.js').SceneProjection} SceneProjection */
 /** @typedef {import('./segment-editor.js').EditResult} EditResult */
+/**
+ * M16 widened the port the same way for the same reason: the aircraft name the
+ * conditions card shows is `doc.aircraftSnapshot.name` — authored state the
+ * snapshot never republishes — and a route template is a list of commands only
+ * the command module may raise.
+ * @typedef {{ aircraftName: string|null, templates: import('./conditions-card.js').TemplateChip[] }} DiveWorkspace
+ * @typedef {{
+ *   scene: () => SceneProjection,
+ *   raise: (command: object) => EditResult,
+ *   dive?: () => DiveWorkspace,
+ *   applyTemplate?: (id: string) => EditResult,
+ * }} MissionEditorPort
+ */
 
-/** @type {{ scene: () => SceneProjection, raise: (command: object) => EditResult }|null} */
+/** @type {MissionEditorPort|null} */
 let editor = null;
 
 /** Nothing to draw and nothing to edit, which is the state before a document opens. */
 const NO_SCENE = { subjects: [], cameraProfile: null, templates: [] };
 
-/** @param {{ scene: () => SceneProjection, raise: (command: object) => EditResult }} port */
+/** @param {MissionEditorPort} port */
 export function setMissionEditor(port) { editor = port; }
 
 /** @returns {SceneProjection} */
@@ -297,6 +318,10 @@ function bindControls() {
   $('vb-reset').addEventListener('click', () => {
     const s = orthoScene();
     if (s) { s.resetCamera(); deps.requestRender(); }
+  });
+  $('vb-dive').addEventListener('click', () => {
+    diveOn = !diveOn;
+    deps.requestRender();
   });
   $('vb-host').addEventListener('click', () => {
     void setSceneHost(sceneHost === 'ortho' ? 'maplibre' : 'ortho');
@@ -861,7 +886,42 @@ export function renderMapView(snapshot) {
   /* The legend only; the explanation card moved to Analyze with the rest of the
    * numbers (M10), where app.js renders it off the same snapshot. */
   renderAdvisoryLegend({ advisories: snapshot.advisories, visible: frame.advisoryVisible });
+  renderDivePanels(snapshot, frame);
   renderToolbar(frame);
+}
+
+/**
+ * 3D-05's two surfaces, riding the same pass everything else does so a mode
+ * switch or a selection change lands on the next render with no wiring of its
+ * own. Both wait on the `diveOn` latch — summoned overlays, per the note on
+ * the latch itself — and the conditions card further yields to the leg
+ * inspector: top-right is one seat, and an open selection is the pilot
+ * mid-sentence.
+ * @param {AnalysisSnapshot} snapshot
+ * @param {MapFrame} frame
+ */
+function renderDivePanels(snapshot, frame) {
+  const up = mode === '3d' && diveOn;
+  const workspace = editor?.dive?.() ?? { aircraftName: null, templates: [] };
+  renderConditionsCard({
+    snapshot,
+    ladder: deps.windLadder?.() ?? null,
+    aircraftName: workspace.aircraftName,
+    units: frame.units,
+    visible: up && !selectedSegmentId,
+  });
+  renderRouteTemplates({
+    templates: workspace.templates,
+    visible: up,
+    onApply: (id) => {
+      const result = editor?.applyTemplate?.(id)
+        ?? { ok: false, message: 'No mission is open yet — nothing to edit.' };
+      /* Same contract as raiseEdit: the bridge renders the commands it accepts,
+       * so only a refusal has to ask for the pass that shows its sentence. */
+      editNote = result.ok ? null : result.message;
+      if (!result.ok) deps?.requestRender();
+    },
+  });
 }
 
 /**
@@ -1006,10 +1066,12 @@ function syncViewbar() {
   hostBtn.title = sceneHost === 'ortho'
     ? 'Switch to satellite 3D — imagery draped on terrain'
     : 'Switch to terrain 3D — the orthographic planner';
-  const s = orthoScene();
-  if (!s) return;
   const press = (/** @type {string} */ id, /** @type {boolean} */ on) => (
     $(id).setAttribute('aria-pressed', String(on)));
+  // Not ortho-only, so it syncs before the ortho early-out below.
+  press('vb-dive', diveOn);
+  const s = orthoScene();
+  if (!s) return;
   const proj = s.projection();
   press('vb-proj-ortho', proj === 'orthographic');
   press('vb-proj-persp', proj === 'perspective');
