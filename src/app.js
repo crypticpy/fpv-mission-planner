@@ -26,7 +26,7 @@ import {
   buildAuthoringForms, BATTERY_FORM, MANUFACTURER_FORM,
 } from './render/controls.js';
 import { setupDroneForm, buildDroneForm } from './render/droneform.js';
-import { setupPackInstances, buildPackInstanceForm } from './render/packinstances.js';
+import { setupPackInstances, buildPackInstanceForm, renderPackInstances } from './render/packinstances.js';
 import { resolvePackIr, resetBatteryChecks } from './render/batterychecks.js';
 import { setupFlightLog, buildFlightLogForm } from './render/flightlog.js';
 import { setupCalibration, renderDriftChart, renderCalibrationConfidence } from './render/calibration.js';
@@ -217,6 +217,7 @@ function update() {
   if (!batts.find(b => b.id === state.batteryId)) {
     state.batteryId = batts[0]?.id;
     fillSelect($('sel-battery'), batts.map(b => ({ value: b.id, label: `${b.name} · ${b.massG} g` })), state.batteryId);
+    renderPackInstances(); // the instance select must follow the pack the swap picked
   }
   saveSession();
   resetPackCaches();
@@ -434,8 +435,7 @@ function setDest(dest) {
   update();
 }
 
-/* Aircraft's four pages (M15), in tab order. Camera's tab ships hidden until
-   E-03 fills its panel in wave D. */
+/* Aircraft's four pages (M15), in tab order. */
 const AC_PAGES = ['aircraft', 'batteries', 'camera', 'calibration'];
 
 /**
@@ -590,8 +590,7 @@ function bind() {
   document.querySelector('.acnav').addEventListener('keydown', e => {
     if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
     e.preventDefault();
-    // Cycle the visible tabs only — Camera waits for E-03, and Calibration
-    // sits out in beginner mode.
+    // Cycle the visible tabs only — Calibration sits out in beginner mode.
     const open = AC_PAGES.filter(p =>
       !$(`actab-${p}`).hidden && !(beginner() && p === 'calibration'));
     const step = e.key === 'ArrowRight' ? 1 : -1;
@@ -636,6 +635,9 @@ function bind() {
   });
   $('sel-battery').addEventListener('change', e => {
     state.batteryId = e.target.value;
+    // The instance select is the pack cards' write target: it must list the new
+    // model's copies before update() draws cards whose Fly buttons write it.
+    renderPackInstances();
     clearSwapNotice();
     editLoadout();
   });

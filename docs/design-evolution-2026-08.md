@@ -145,8 +145,13 @@ big ones). No epic branch.
   non-destructive restore, quarantine rows, and preview-before-import.
   Sharing rigs/packs/flights stays in the Aircraft rail until the M15
   reframe.
-- [ ] **M15 — Aircraft.** E-01…E-04 reframe with ConfidenceBadge; ΔIR
-  parallel-pairing check surfaced; FOV frustum preview.
+- [x] **M15 — Aircraft.** *(landed 2026-08-01)*
+  E-01…E-04 reframe with ConfidenceBadge; ΔIR parallel-pairing check
+  surfaced; FOV frustum preview. Paged Aircraft/Batteries/Camera/Calibration
+  screens; aircraft + pack-instance card shelves fronting the old selects;
+  camera profile on the mission document (same seam as Plan's segment
+  editor); Model-confidence card with catalog-vs-fit drift over the same
+  cruise legs.
 - [ ] **M16 — Mountain dive.** 3D-05…3D-08: gates in the mission schema,
   dive-dynamics analysis, contingency review.
 - [ ] **M17 — Delivery polish.** H-01 acknowledged brief, H-02 export

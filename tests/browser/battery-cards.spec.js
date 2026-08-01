@@ -119,4 +119,34 @@ test.describe('battery instance cards', () => {
 
     expect(errors, `console errors:\n${errors.join('\n')}`).toEqual([]);
   });
+
+  test('Fly still routes right after switching pack models back and forth', async ({ context, page }) => {
+    await stubExternals(context);
+    const errors = watchConsole(page);
+
+    await page.goto('/');
+    await openBatteriesPage(page);
+
+    // Two copies of the first model, one of another, then back. The shelf
+    // redraws per model, and the hidden select has to follow it — a Fly press
+    // on a card the select doesn't list would silently plan the catalog spec.
+    await addPack(page, { label: 'Pack A-1', cycles: 10, ir: 100 });
+    await addPack(page, { label: 'Pack A-2', cycles: 12, ir: 105 });
+    const sel = page.locator('#sel-battery');
+    const first = await sel.inputValue();
+    const other = await sel.locator(`option:not([value="${first}"])`).first().getAttribute('value');
+    await sel.selectOption(other);
+    await addPack(page, { label: 'Pack B-1', cycles: 3, ir: 90 });
+    await sel.selectOption(first);
+
+    // A-2 was saved last, so it is planned; Fly on A-1 must land on A-1.
+    const packA1 = page.locator('#pack-cards .accard', { hasText: 'Pack A-1' });
+    await packA1.locator('.map-btn').click();
+    await expect(packA1).toHaveAttribute('aria-current', 'true');
+    await expect(page.locator('#battery-note')).toContainText('Flying Pack A-1');
+    const selLabel = await page.locator('#sel-pack-instance option:checked').textContent();
+    expect(selLabel).toContain('Pack A-1');
+
+    expect(errors, `console errors:\n${errors.join('\n')}`).toEqual([]);
+  });
 });

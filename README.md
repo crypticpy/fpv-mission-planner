@@ -11,7 +11,8 @@ The app is organized as four destinations, one per question a pilot actually
 asks: **Field** (day-of — how long do the packs in your bag keep you flying
 here), **Plan** (the workspace — weather, mission, verdict, charts, map),
 **Library** (saved missions, their version history, and your launch spots),
-and **Aircraft** (your fleet and its physics).
+and **Aircraft** (your fleet and its physics, paged into Aircraft, Batteries,
+Camera and Calibration tabs — see "The Aircraft hangar" below).
 A wind ribbon under the masthead keeps the current wind, its gust, and the
 data's freshness on screen in every destination. Pressing it unfolds the wind
 panel: the wind now with its hourly outlook, the wind-by-altitude ladder, and
@@ -559,6 +560,36 @@ energy is even counted. Camera intent and camera profile travel through the
 export loss report like every other concept: a format that cannot carry them
 says so before you export.
 
+## The Aircraft hangar
+
+The Aircraft destination is paged like the rest of the app: **Aircraft**,
+**Batteries**, **Camera** and **Calibration** tabs, one screen at a time, and
+the open page is a saved view preference. Beginner detail retires Calibration
+(fits and drift charts are a full-detail concern) but keeps Camera — what is
+bolted to the rig is equipment identity, not a chart sweep.
+
+- **Aircraft** is a card per airframe. Each card wears a confidence badge
+  saying where its numbers come from — catalog, datasheet, estimated, or
+  measured from your own logged flights — and the badge only carries a
+  percentage once scored cruise legs exist to earn one. **Use** on a card runs
+  the same handler the old dropdown did, pack re-pick and swap notice
+  included; the airframe on the rail is marked with a word instead of a
+  button.
+- **Batteries** is the pack shelf: the selector and its folds, plus a card per
+  stored physical copy of the selected model next to a catalog-spec card.
+  When two or more copies exist, a **parallel-pairing strip** compares their
+  measured resistances pair by pair — ΔIR in mΩ and percent, which pack would
+  carry more than its share, and a softener when the two readings were taken
+  at very different bench temperatures. The verdict exists only when both
+  packs carry a measured resistance; nothing is invented.
+- **Camera** picks the mission's camera profile — the same profile Plan's
+  segment editor writes, stored on the mission document, so either surface
+  changes both. The pane draws what the lens sees: sensor and focal-length
+  tiles, the field of view as a wedge over distance, and a subject you can
+  slide out to 200 m to read how much of the frame it fills.
+- **Calibration** holds the logbook, the fit status, and the drift chart,
+  opened by a **Model confidence** card (below).
+
 ## Adding your own drone
 
 "Add a drone" in the Aircraft rail builds a rig with **no required physics
@@ -611,6 +642,13 @@ how the model stops guessing about your rig.
   can't tell efficiency and drag apart, so it stays opt-in no matter how many
   there are. You can always switch it off, and the footnote under the plan says
   whose numbers are in play.
+- **Model confidence** is the card at the top of the Calibration page: a badge
+  naming the provenance of the record that is flying (catalog, datasheet,
+  estimated, or measured) and — only once cruise legs have been scored — how
+  closely it predicted them. With a fit in hand the card compares like with
+  like: over the same logged legs, the catalog record's error next to your
+  fit's, and a sentence saying whether the fit is flyable yet and that
+  applying it never overwrites the catalog record.
 - **Model vs your flights** is the chart under the logbook: each logged flight as
   predicted-versus-actual average power, with the ideal diagonal behind it, so a
   model that is consistently 8% optimistic looks like exactly that. Toggle it to

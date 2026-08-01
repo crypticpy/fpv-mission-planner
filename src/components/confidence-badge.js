@@ -60,7 +60,12 @@ export function renderConfidenceBadge(host, m) {
     fill.style.width = `${m.pct}%`;
     meter.appendChild(fill);
     children.push(pct, meter);
-    host.title = `Cruise economy within ${100 - m.pct}% of ${m.driftN} logged cruise ${m.driftN === 1 ? 'leg' : 'legs'}`;
+    // pct is clamped at 0, so at 0 the true error may exceed the 100% the
+    // arithmetic would claim — say so instead of understating it.
+    const legs = `${m.driftN} logged cruise ${m.driftN === 1 ? 'leg' : 'legs'}`;
+    host.title = m.pct === 0
+      ? `Cruise economy off by 100% or more over ${legs}`
+      : `Cruise economy within ${100 - m.pct}% of ${legs}`;
   } else {
     host.title = m.nFlights > 0
       ? `${m.nFlights} logged ${m.nFlights === 1 ? 'flight' : 'flights'} — no accepted cruise legs yet, so no percentage`
