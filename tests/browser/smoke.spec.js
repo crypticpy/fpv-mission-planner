@@ -29,6 +29,9 @@ const BLANK_TILE = Buffer.from(
  * the console assertion below.
  */
 async function stubExternals(context) {
+  // A returning pilot: latch M13's first-run tour off, or its overlay would
+  // intercept every click this suite makes (see onboarding.spec.js).
+  await context.addInitScript(() => localStorage.setItem('fpv:v1:onboarded', 'true'));
   await context.route(/(^|\/\/|\.)((server\.)?arcgisonline\.com|tile\.openstreetmap\.org)/, (route) =>
     route.fulfill({ status: 200, contentType: 'image/png', body: BLANK_TILE }));
 

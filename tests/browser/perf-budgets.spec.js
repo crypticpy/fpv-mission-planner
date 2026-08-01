@@ -128,7 +128,16 @@ test.describe('performance budgets', () => {
    * to load, so they cannot live in the 3D chunk; the viewbar is persistent
    * chrome on the map stage. Verified at this re-base that the split graph
    * is intact (all three scene3d chunks still lazy, none in the precache). */
-  const ENTRY_BUDGET_KB = 180;
+  /* Re-based 180 → 183 at M13 wave D: the Field home card, the offline
+   * readiness rows and the first-run tour, 181.6 on landing. The Field
+   * surfaces are always-path on purpose — the offline destination is exactly
+   * the code that must already be on the device at a trailhead. The claw-back
+   * here is the tour: only a first run ever shows it, so it could become a
+   * lazy chunk behind the first-run check (the decision reads localStorage
+   * synchronously; only the showing would await the import). Verified at
+   * this re-base that the split graph is intact (scene3d ×3, brief,
+   * import-router, compile, adapter-contracts all still separate chunks). */
+  const ENTRY_BUDGET_KB = 183;
   const SCENE3D_BUDGET_KB = 500;
 
   test('the built bundles are inside their gzip budgets', async () => {

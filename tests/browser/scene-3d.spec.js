@@ -63,6 +63,9 @@ const IMAGERY_TILE = encodeRGB(256, 256, new Uint8Array(256 * 256 * 3).fill(96))
  * request is itself a console error, which would defeat the console assertion.
  */
 async function stubTiles(context) {
+  // A returning pilot: latch M13's first-run tour off, or its overlay would
+  // intercept every click this suite makes (see onboarding.spec.js).
+  await context.addInitScript(() => localStorage.setItem('fpv:v1:onboarded', 'true'));
   await context.route(/elevation-tiles-prod/, (route) =>
     route.fulfill({ status: 200, contentType: 'image/png', body: Buffer.from(TERRAIN_TILE) }));
   await context.route(/(^|\/\/|\.)((server\.)?arcgisonline\.com|tile\.openstreetmap\.org)/, (route) =>

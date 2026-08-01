@@ -122,10 +122,18 @@ const FORECAST_DAYS = 3;
  *
  * @param {import('@playwright/test').BrowserContext} context
  * @param {{ elevationM?: number, dem?: ((lat: number, lng: number) => number|null)|null,
- *           sky?: Partial<Sky>|null }} [opts]
+ *           sky?: Partial<Sky>|null, firstRun?: boolean }} [opts]
  * @returns {Promise<{ setSky: (patch: Partial<Sky>) => void }>}
  */
-export async function stubExternals(context, { elevationM = 150, dem = null, sky = null } = {}) {
+export async function stubExternals(context, { elevationM = 150, dem = null, sky = null, firstRun = false } = {}) {
+  // Every spec here is a returning pilot unless it says otherwise: a fresh
+  // context has no session and no `fpv:v1:onboarded`, which is exactly the
+  // state M13's first-run tour shows on — an overlay that would sit over
+  // every click these suites make. onboarding.spec.js passes `firstRun: true`
+  // to get the tour on purpose.
+  if (!firstRun) {
+    await context.addInitScript(() => localStorage.setItem('fpv:v1:onboarded', 'true'));
+  }
   await context.route(/(^|\/\/|\.)((server\.)?arcgisonline\.com|tile\.openstreetmap\.org)/, (route) =>
     route.fulfill({ status: 200, contentType: 'image/png', body: BLANK_TILE }));
 
