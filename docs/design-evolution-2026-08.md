@@ -123,8 +123,12 @@ big ones). No epic branch.
   (P-01…P-05, T-01…T-04).
 - [x] **M11 — Wind intelligence.** *(landed 2026-08-01, main @ e00f62e)* W-01…W-04 + WindRibbon expansion states
   everywhere. Mostly visualization over existing data.
-- [ ] **M12 — Orthographic 3D planner.** Engine per spike verdict; 3D-01…3D-04
-  with the full interaction contract; 2D fallback states.
+- [x] **M12 — Orthographic 3D planner.** *(landed 2026-08-01, main @ 33c6fcd)*
+  Ortho engine per spike verdict is the 3D tab's default host, MapLibre
+  satellite one toggle away; 3D-01…3D-04 via the scene viewbar (projection,
+  azimuth, exaggeration, contours); failure keeps the pilot on the tab with a
+  system-state card over the live 2D map (Retry is a document reload — a
+  failed dynamic import is cached for the document's lifetime).
 - [ ] **M13 — Field + onboarding.** O-01…O-03, F-01, H-03; sunlight mode.
 - [ ] **M14 — Library + versions.** L-01…L-04, H-04; autosave + version-history
   persistence; RecoveryEntry.
