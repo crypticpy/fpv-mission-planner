@@ -273,7 +273,9 @@ async function engage3d() {
   const tab = $('tab-3d');
   tab.disabled = true;
   const ok = supports3d() && await setMode3d(true);
-  tab.disabled = false;
+  // Not unconditionally: without WebGL2 the boot disable (with its why) stands,
+  // rather than leaving a tab that bounces back to 2D on every press.
+  tab.disabled = !supports3d();
   // The pilot may have switched modes mid-download; only walk the failure back
   // if the 3D tab is still the one selected.
   if (!ok && state.view === '3d') setView('2d');
