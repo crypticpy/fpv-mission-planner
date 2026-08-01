@@ -239,6 +239,10 @@ export function buildSceneLayers(frame, ctx) {
   layers.push(launchLayer(frame, ctx, space));
   layers.push(...pinLayers(geometry.pins, palette, space));
 
+  /* The way out, under the way in: the contingency sheet and the bailout site
+   * are the background the run is planned against, so the run blends over them. */
+  layers.push(...diveContingencyLayers(frame, ctx, space));
+
   /* The dive plan on top of all of it. This is the one geometry in the scene the
    * pilot is authoring in three dimensions rather than two — a gate is a place
    * *and* an altitude — so it wins every blend, and its droplines are what tie
@@ -421,6 +425,187 @@ function diveLayers(frame, ctx, space) {
   }));
 
   return out;
+}
+
+/**
+ * The two contingencies, drawn where they would be flown (M16, 3D-08).
+ *
+ * The lost-link plane is a sheet at the stated RTH altitude, spread over the
+ * ground the dive is flown across. It is the one picture in this app that
+ * answers the question a number on a form cannot: *does climbing to that height
+ * actually clear this ridge?* The sheet is depth-tested against the terrain like
+ * everything else here, so where the mountain is higher than the RTH altitude
+ * the mountain eats the sheet — and a plane that disappears into the hillside is
+ * exactly the mission that would fly a lost-link climb into it.
+ *
+ * Both surfaces draw only from stated numbers. No RTH altitude authored, no
+ * sheet; no bailout site authored, no marker. And the bailout dot needs a height
+ * for the ground it sits on, which is the DEM's answer if it has arrived and the
+ * site's own stated elevation if it has not — with neither, the site is named in
+ * the review panel's recovery block and left off the scene rather than parked at
+ * sea level.
+ *
+ * @param {MapFrame} frame
+ * @param {SceneContext} ctx
+ * @param {SceneSpace} space
+ */
+function diveContingencyLayers(frame, ctx, space) {
+  const dive = frame.dive;
+  if (!dive) return [];
+
+  const spatial = spaceProps(space);
+  const { palette, exaggeration } = ctx;
+  const out = [];
+
+  const rthM = dive.rthAltitudeMslM;
+  if (typeof rthM === 'number' && Number.isFinite(rthM)) {
+    const box = contingencyExtent(frame);
+    const z = rthM * exaggeration;
+    const quad = [
+      [box.west, box.south], [box.east, box.south],
+      [box.east, box.north], [box.west, box.north],
+    ].map(([lng, lat]) => spacePosition(space, lng, lat, z));
+
+    out.push(new PolygonLayer({
+      id: 'dive-rth-plane',
+      data: [{ polygon: quad }],
+      getPolygon: (d) => d.polygon,
+      filled: true,
+      stroked: true,
+      extruded: false,
+      /* Faint enough to read the terrain through — the sheet is a reference
+         height, not a lid, and an opaque one would hide the ridge it is being
+         compared against. */
+      getFillColor: [...palette.accent, 38],
+      getLineColor: [...palette.accent, 190],
+      getLineWidth: 1.5,
+      lineWidthUnits: 'pixels',
+      lineWidthMinPixels: 1,
+      // Nothing to select: the altitude is edited on the dive card, not here.
+      pickable: false,
+      updateTriggers: { getPolygon: `${rthM}` },
+      ...spatial,
+    }));
+
+    out.push(new TextLayer({
+      id: 'dive-rth-label',
+      data: [{
+        position: spacePosition(space, box.east, box.north, z),
+        text: `RTH ${Math.round(rthM)} m`,
+      }],
+      getPosition: (d) => d.position,
+      getText: (d) => d.text,
+      getColor: [...palette.accent, 255],
+      getSize: 11,
+      sizeUnits: 'pixels',
+      fontWeight: 700,
+      characterSet: 'RTH0123456789 m',
+      getTextAnchor: 'end',
+      getPixelOffset: [-4, -10],
+      billboard: true,
+      pickable: false,
+      updateTriggers: { getText: `${rthM}` },
+      ...spatial,
+    }));
+  }
+
+  const bailout = dive.bailout;
+  const bailoutZ = bailout ? bailoutHeight(bailout, ctx) : null;
+  if (bailout && bailoutZ != null) {
+    const site = [{
+      position: spacePosition(space, bailout.lng, bailout.lat, bailoutZ + space.drapeLiftM),
+      name: bailout.name,
+    }];
+    const rgb = DIVE_LEG_STYLE.abort.rgb;
+
+    out.push(new ScatterplotLayer({
+      id: 'dive-bailout',
+      data: site,
+      getPosition: (d) => d.position,
+      getFillColor: [...rgb, 235],
+      getLineColor: [...palette.markerBorder, 255],
+      lineWidthUnits: 'pixels',
+      getLineWidth: 2.5,
+      stroked: true,
+      filled: true,
+      radiusUnits: 'pixels',
+      getRadius: 10,
+      radiusMinPixels: 8,
+      billboard: true,
+      pickable: false,
+      ...spatial,
+    }));
+
+    out.push(new TextLayer({
+      id: 'dive-bailout-label',
+      data: site,
+      getPosition: (d) => d.position,
+      getText: (d) => d.name,
+      getColor: [...rgb, 255],
+      getSize: 11,
+      sizeUnits: 'pixels',
+      fontWeight: 600,
+      // Under the dot, where the gate ordinals never sit: the site is on the
+      // ground, so the space above it belongs to whatever is flying over it.
+      getPixelOffset: [0, 18],
+      billboard: true,
+      pickable: false,
+      updateTriggers: { getText: bailout.name },
+      ...spatial,
+    }));
+  }
+
+  return out;
+}
+
+/**
+ * How far the lost-link sheet spreads: over everything the dive involves, with a
+ * margin, so the plane is visibly a height across the whole run rather than a
+ * tile balanced on the gates.
+ *
+ * A quarter of the plan's own span, floored at roughly 200 m of latitude, keeps a
+ * half-authored plan — one gate, or a gate on top of the pad — from collapsing to
+ * a sheet with no area.
+ *
+ * @param {MapFrame} frame
+ */
+function contingencyExtent(frame) {
+  const lats = [frame.launch.lat];
+  const lngs = [frame.launch.lng];
+  for (const g of frame.dive?.gates ?? []) { lats.push(g.lat); lngs.push(g.lng); }
+  const bailout = frame.dive?.bailout;
+  if (bailout) { lats.push(bailout.lat); lngs.push(bailout.lng); }
+
+  const south = Math.min(...lats);
+  const north = Math.max(...lats);
+  const west = Math.min(...lngs);
+  const east = Math.max(...lngs);
+  const padLat = Math.max((north - south) * 0.25, 0.0018);
+  const padLng = Math.max((east - west) * 0.25, 0.0018);
+  return {
+    south: south - padLat,
+    north: north + padLat,
+    west: west - padLng,
+    east: east + padLng,
+  };
+}
+
+/**
+ * The height of the ground the bailout site sits on, or null when nothing knows
+ * it. The DEM first because it is what the rest of this scene is drawn against;
+ * the site's own stated elevation second, for the pass before the tile lands.
+ *
+ * @param {{ lat: number, lng: number, elevationMslM: number|null }} bailout
+ * @param {SceneContext} ctx
+ * @returns {number|null}
+ */
+function bailoutHeight(bailout, ctx) {
+  const ground = ctx.groundZAt(bailout.lng, bailout.lat);
+  if (ground != null) return ground;
+  const stated = bailout.elevationMslM;
+  return typeof stated === 'number' && Number.isFinite(stated)
+    ? stated * ctx.exaggeration
+    : null;
 }
 
 /**

@@ -34,6 +34,7 @@
 //     impure does: as a nullable accessor in `deps`.
 
 import { fovDeg, orbitAirspeedMs, shotGeometry, subjectFraming } from '../../domain/camera.js';
+import { diveDynamics } from '../../domain/dive-dynamics.js';
 import { destination, distanceKm, bearingTo } from '../../domain/geo.js';
 import { CAMERA_INTENTS } from '../../domain/mission/mission-schema.js';
 import { HOLD_INTENTS } from '../../domain/mission/mission-schema.js';
@@ -44,6 +45,7 @@ import {
   anchorAt, hashKey, provenanceOf, stableStringify,
 } from './analysis-contracts.js';
 import { draftConstraint, draftFromLegacy, finalizeConstraints } from './constraints.js';
+import { diveChecks } from './dive-checks.js';
 import { returnEnergyChecks, routeWideChecks } from './route-checks.js';
 import { legVerticalFlight, verticalFlightDrafts } from './vertical-flight.js';
 import { windAdvisory } from './wind-advisory.js';
@@ -54,6 +56,8 @@ import { windAdvisory } from './wind-advisory.js';
  * @typedef {import('../../domain/mission/mission-schema.js').Subject} Subject
  * @typedef {import('../../domain/mission/mission-schema.js').Waypoint} Waypoint
  * @typedef {import('../../domain/camera.js').Fov} Fov
+ * @typedef {import('../../domain/dive-dynamics.js').DiveDynamics} DiveDynamics
+ * @typedef {import('./analysis-contracts.js').AnalysedRoute} AnalysedRoute
  * @typedef {import('./analysis-contracts.js').ConstraintAnchor} ConstraintAnchor
  * @typedef {import('./analysis-contracts.js').SegmentShot} SegmentShot
  * @typedef {import('./analysis-contracts.js').AnalysisInputs} AnalysisInputs
@@ -121,6 +125,12 @@ import { windAdvisory } from './wind-advisory.js';
  * @property {SweepKit|null} [sweepKit] the footprint geometry; absent, the
  *   snapshot carries `footprint: null` rather than half a ring
  * @property {(() => TerrainField|null)|null} [terrainField] the corridor's ground
+ * @property {((latitude: number, longitude: number) => number|null)|null} [groundAt]
+ *   the ground under one arbitrary point, in metres MSL. The corridor field
+ *   above cannot answer this: it is sampled along the *route*, and M16's dive
+ *   line is a second line over ground the corridor never crossed. Absent, the
+ *   dive model reports no clearance at all rather than a clearance measured
+ *   against nothing — which is what W-DIVE-GROUND-UNKNOWN then says out loud.
  * @property {(() => unknown)|null} [windLevels] the forecast's published wind levels
  * @property {(() => AdvisoryGridReading)|null} [advisoryGrid] M5's area grid, read
  *   the same way and for the same reason `terrainField` is: the host samples it
@@ -966,6 +976,79 @@ function advisoryOf(doc, inputs, plan, deps) {
   });
 }
 
+/* ---------- the mountain dive (M16) ---------- */
+
+/**
+ * The dive line, modelled and judged, in one place both snapshot sites call.
+ *
+ * The dive is not a route: no leg of it reaches planRoute, so nothing here can
+ * be read off `route`. What it borrows instead is the *plan* — the mass, the
+ * drivetrain efficiency, the hover power and the pack the mission was solved
+ * with — because a pullout flown by a different aircraft than the one the plan
+ * costed would be arithmetic about nobody's drone.
+ *
+ * Every input this cannot source is passed as null rather than filled in. The
+ * model then names the absence in `systems.missing` and the affected checks
+ * come back as `unknown` instead of as a pass; that is the whole design, and it
+ * is why there is no `??` fallback on any figure below except the pack
+ * temperature, which follows planMission's own documented rule (an unstated
+ * pack temperature is the air temperature — the pack came out of the bag).
+ *
+ * @param {MissionDocumentV1} doc
+ * @param {AnalysisInputs} inputs
+ * @param {SolvedPlan|null} plan
+ * @param {AnalysedRoute|null} route
+ * @param {RouteResult|null} raw
+ * @param {AnalysisDeps} deps
+ * @returns {{ dive: DiveDynamics|null, drafts: ConstraintDraft[] }}
+ */
+function diveModel(doc, inputs, plan, route, raw, deps) {
+  const divePlan = doc.scene?.dive ?? null;
+  if (!divePlan) return { dive: null, drafts: [] };
+
+  /* The speed the route's own flight home is flown at, which is the last leg
+   * the integrator solved. Reused rather than re-chosen: the recovery is a
+   * cruise home like any other, and a second cruise speed in this file would be
+   * a second answer to a question planRoute has already answered. */
+  const homeLeg = [...(raw?.legs ?? [])].reverse().find((l) => typeof l.vMs === 'number' && l.vMs > 0);
+  const cruiseMs = homeLeg && typeof homeLeg.vMs === 'number' ? homeLeg.vMs : null;
+  /* Against the planning wind on every heading, because the recovery is flown
+   * direct from wherever the dive left the aircraft and nothing here knows that
+   * heading. The closing speed is therefore the least the trip home can make. */
+  const closingMs = plan && cruiseMs != null ? Math.max(cruiseMs - plan.wind.planningMs, 0) : null;
+
+  const landFloorPct = plan ? plan.energy.landFloorPct : inputs.landFloorPct;
+
+  const dive = diveDynamics({
+    dive: divePlan,
+    launch: { latitude: doc.launch.latitude, longitude: doc.launch.longitude },
+    launchMslM: typeof doc.launch.elevationMslM === 'number' ? doc.launch.elevationMslM : null,
+    groundAt: deps.groundAt ?? null,
+    drone: inputs.drone ?? null,
+    battery: inputs.battery ?? null,
+    tempC: typeof inputs.packTempC === 'number' ? inputs.packTempC : (inputs.env?.tempC ?? null),
+    // Nothing states where in the mission the dive happens, so nothing states
+    // the charge the pack is at when the pull comes. See the report on this.
+    soc: null,
+    packWh: plan ? plan.energy.deliveredWh : null,
+    spentWh: route ? route.missionWh : null,
+    hoverPowerW: plan ? plan.hover.pW : null,
+    massKg: plan ? plan.cfg.massKg : null,
+    etaProp: plan ? plan.cfg.etaProp : null,
+    levelPowerW: plan && cruiseMs != null ? powerAtSpeed(plan.cfg, cruiseMs) : null,
+    rthSpeedMs: closingMs,
+  });
+
+  return {
+    dive,
+    drafts: diveChecks({
+      dive: divePlan,
+      dynamics: dive,
+      landFloorFrac: typeof landFloorPct === 'number' ? landFloorPct / 100 : null,
+    }),
+  };
+}
+
 /* ---------- the pipeline ---------- */
 
 /**
@@ -1065,12 +1148,18 @@ function compute(doc, inputs, revision, deps, cacheKey, computedAt) {
      * runs here too: a pilot with no battery selected still gets to see what
      * the wind does to the hills they are looking at. */
     const advisory = advisoryOf(doc, inputs, null, deps);
+    /* The dive's geometry does not need a pack either: the line, its pitches and
+     * the ground under it are the pilot's drawing, and saying so beats going
+     * silent about a plan they are looking at. Every systems figure comes back
+     * null with its reason named. */
+    const noPackDive = diveModel(doc, inputs, null, null, null, deps);
     const drafts = [
       draftConstraint('W-ENERGY-NO-PACK',
         'No battery is selected, so there is nothing to plan: every energy, range and time figure here '
         + 'is unavailable until one is.'),
       ...(planResult.warnings ?? []).map((w) => draftFromLegacy('plan', w)),
       ...advisory.drafts,
+      ...noPackDive.drafts,
       ...forecastAgeDrafts(doc, computedAt),
     ];
     return freezeSnapshot({
@@ -1086,6 +1175,7 @@ function compute(doc, inputs, revision, deps, cacheKey, computedAt) {
       footprint: null,
       segments: {},
       advisories: advisory.advisories,
+      dive: noPackDive.dive,
       constraints: finalizeConstraints(drafts),
       provenance: buildProvenance(doc, deps, corridor,
         deps.terrainField ? deps.terrainField() : null, null, cacheKey, computedAt),
@@ -1197,6 +1287,7 @@ function compute(doc, inputs, revision, deps, cacheKey, computedAt) {
   const profile = deps.elevationProfile ? deps.elevationProfile() : null;
   const { link, drafts: linkConstraintDrafts } = linkDrafts(plan, deps);
   const advisory = advisoryOf(doc, inputs, plan, deps);
+  const diveResult = diveModel(doc, inputs, plan, route, raw, deps);
 
   /** @type {ConstraintDraft[]} */
   const drafts = [
@@ -1208,6 +1299,7 @@ function compute(doc, inputs, revision, deps, cacheKey, computedAt) {
     ...groundChecks.drafts,
     ...returnEnergyDrafts,
     ...advisory.drafts,
+    ...diveResult.drafts,
     ...forecastAgeDrafts(doc, computedAt),
   ];
   if (oneWay) {
@@ -1227,6 +1319,7 @@ function compute(doc, inputs, revision, deps, cacheKey, computedAt) {
     footprint: footprintOf(inputs, launch, bearingDeg, deps),
     segments,
     advisories: advisory.advisories,
+    dive: diveResult.dive,
     constraints: finalizeConstraints(drafts),
     provenance: buildProvenance(doc, deps, corridor, field, profile, cacheKey, computedAt),
   });
@@ -1244,6 +1337,10 @@ function compute(doc, inputs, revision, deps, cacheKey, computedAt) {
 function routeSignatureOf(doc) {
   return stableStringify({
     launch: doc.launch,
+    // Present only when there is one, so every mission without a dive plan
+    // keys exactly as it did before M16 — and a dive edit that lands inside the
+    // same millisecond as the last one is still a new question.
+    ...(doc.scene?.dive ? { dive: doc.scene.dive } : {}),
     returnPolicy: doc.route.returnPolicy,
     waypoints: doc.route.waypoints,
     segments: doc.route.segments.map((s) => ({

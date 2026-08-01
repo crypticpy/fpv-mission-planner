@@ -242,6 +242,21 @@ function sceneProjection() {
 }
 
 /**
+ * The dive plan on its own, for the surfaces outside the map that have to talk
+ * about it — Review's recovery block is the first (M16, 3D-08).
+ *
+ * The projected shape rather than the document's own: `lat`/`lng` is the
+ * vocabulary every consumer of a dive already reads, and a second dialect for
+ * the sake of one panel is how two screens end up disagreeing about which field
+ * holds the latitude.
+ *
+ * @returns {import('./presentation/map/map-adapter.js').DiveProjection|null}
+ */
+export function divePlan() {
+  return projectDive(missionDocument()?.scene?.dive);
+}
+
+/**
  * The dive plan in the map's coordinate vocabulary, or null when the mission
  * carries none. Gates are authored geometry the same way subjects are — no
  * pass computes where a recovery gate stands — and the two profile numbers ride

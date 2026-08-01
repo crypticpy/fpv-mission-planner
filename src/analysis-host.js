@@ -906,6 +906,12 @@ export function analyzeNow() {
     // W-DATA-TERRAIN-ABSENT, while a wired port with nothing back is "asked and
     // not answered yet" and must never read as clear ground.
     terrainField: sampler ? currentField : null,
+    // The same field, asked point by point rather than corridor-wide: the dive
+    // pass needs the ground under a gate the route never passes through, which
+    // a corridor of solved legs cannot answer. Gated on `sampler` for the reason
+    // above — and it answers null off the sampled corridor, which the dive
+    // checks report as W-DIVE-GROUND-UNKNOWN rather than as clear ground.
+    groundAt: sampler ? groundAt : null,
     windLevels,
     // M5's advisory ports, read the same way and gated the same way: an unwired
     // grid sampler is "nobody asked" (W-WIND-NODATA), a wired one with nothing

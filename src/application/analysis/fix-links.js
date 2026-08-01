@@ -13,6 +13,10 @@
 //   { kind: 'mode', mode }           switch the Plan workspace mode
 //   { kind: 'conditions', control }  reveal one control in the Conditions rail
 //   { kind: 'dest', dest }           switch destination (the loadout is Aircraft's)
+//   { kind: 'dive', gate }           open M16's dive plan, on one gate's leg
+//                                    when a single gate moves the finding and on
+//                                    the plan as a whole (`gate: null`) when it
+//                                    does not
 //
 // `control` is a semantic token ('reserve', 'live-weather', …), not a DOM id —
 // which element answers to it is the shell's business, so a renamed input
@@ -27,8 +31,17 @@
  * @typedef {{ kind: 'segment', segmentId: string, label: string }
  *         | { kind: 'mode', mode: '2d'|'analyze', label: string }
  *         | { kind: 'conditions', control: 'reserve'|'live-weather'|'pack-temp'|'cruise-speed', label: string }
- *         | { kind: 'dest', dest: 'aircraft', label: string }} FixAction
+ *         | { kind: 'dest', dest: 'aircraft', label: string }
+ *         | { kind: 'dive', gate: 'approach'|'dive'|'recovery'|'abort'|'contingency'|null,
+ *             label: string }} FixAction
  */
+
+/* `gate: 'contingency'` is the one member of that union that is not a gate. The
+ * lost-link altitude, the bailout landing and the abort gate belong to no leg —
+ * there is no leg inspector that could edit them — so they open the recovery
+ * plan instead, which is the only surface in the app where all three are
+ * authored. Sending them to a leg would land the pilot on a panel with no
+ * control for the thing they clicked. */
 
 /** @type {(action: FixAction) => Readonly<FixAction>} */
 const act = Object.freeze;
@@ -43,6 +56,31 @@ const BY_CODE = [
   // The route itself is broken — the only fix is redrawing it on the map.
   [/^W-(ROUTE-UNFLYABLE|WIND-NO-CLOSE)$/,
     act({ kind: 'mode', mode: '2d', label: 'Rework the route' })],
+  // M16's dive, before the families whose words it borrows. Three of its codes
+  // are fixed at knobs that already exist — the reserve slider and the loadout —
+  // and sending them to the dive plan instead would be a shorter walk to the
+  // wrong place. The dive's own rows come first so the split is visible here
+  // rather than inferred from regex precedence further down.
+  [/^W-DIVE-RESERVE-SHORT$/,
+    act({ kind: 'conditions', control: 'reserve', label: 'Adjust the reserve' })],
+  // The pull's current and the pack's sag under it are properties of the
+  // airframe and the pack, exactly as their W-ENERGY-/W-LIFT- cousins are.
+  [/^W-DIVE-(MOTOR-MARGIN|ESC-MARGIN|SAG-LIMITED)$/,
+    act({ kind: 'dest', dest: 'aircraft', label: 'Review the loadout' })],
+  // The pullout is authored on the dive leg: its inspector carries the speed and
+  // the pullout-load boxes, which are the two figures every pullout finding
+  // turns on — including the one that fires because they are absent.
+  [/^W-DIVE-PULLOUT-/,
+    act({ kind: 'dive', gate: 'dive', label: 'Open the dive leg' })],
+  // A hole in the elevation data is not one gate's fault, and naming a gate here
+  // would send the pilot to whichever one this module guessed. The plan is the
+  // honest door: every gate on the line is in it.
+  [/^W-DIVE-GROUND-UNKNOWN$/,
+    act({ kind: 'dive', gate: null, label: 'Check the dive line' })],
+  // The two contingency findings. Neither is about a leg, and both are authored
+  // in one place; see the note on `gate: 'contingency'` above.
+  [/^W-DIVE-(RTH-BELOW-TERRAIN|NO-BAILOUT)$/,
+    act({ kind: 'dive', gate: 'contingency', label: 'Open the recovery plan' })],
   // Energy findings whose lever is the reserve the pilot chose to hold back.
   [/^W-(ROUTE-RESERVE-SHORT|RESERVE-|RETURN-ENERGY-SHORT)/,
     act({ kind: 'conditions', control: 'reserve', label: 'Adjust the reserve' })],

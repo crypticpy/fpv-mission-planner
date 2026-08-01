@@ -39,6 +39,8 @@ import { createLayerRegistry } from './layer-registry.js';
 import { renderAdvisoryLegend } from './advisory-panel.js';
 import { renderConditionsCard, renderRouteTemplates } from './conditions-card.js';
 import { renderDiveInspector } from './dive-inspector.js';
+import { renderDiveSystems } from './dive-dynamics-panel.js';
+import { renderDiveRecovery, resetDiveRecovery, abortSeedAltitudeM } from './dive-recovery-panel.js';
 import { renderDiveStrip } from './dive-profile-strip.js';
 import { liveSelection, nextSelection, renderSegmentInspector } from './segment-inspector.js';
 import { createAdvisoryLayer } from './layers/advisory-layer.js';
@@ -126,6 +128,13 @@ let advisoryOn = true;
  * card needs a failure), because a standing overlay intercepts taps aimed at
  * the canvas and the viewbar under it. */
 let diveOn = false;
+/* Which of the two readings the bottom edge is showing (M16, 3D-06 / 3D-07).
+ * Session-only like the latch above, and it starts on the profile because that
+ * is the reading a plan can always answer: the dynamics need a pack, an air
+ * density and a stated dive speed, and a workspace that opened on a screen full
+ * of "—" would teach the pilot the screen is broken rather than unstated. */
+/** @type {'profile'|'dynamics'} */
+let diveReading = 'profile';
 /* Why the last edit did not land, when it did not. Beside `sceneNote` and with
  * the same lifetime rule: it is a fact that outlives the pass it happened in, so
  * it is composed into the note line rather than written over by the next render.
@@ -277,7 +286,11 @@ function onMapClick(at) {
   /* Subject mode first, and exclusive: the two editing modes both want the same
    * gesture, so the one that is lit wins outright rather than the click meaning
    * both things at once. */
-  if (subjectActive()) placeSubject(at);
+  /* Ahead of both: a recovery placement is armed one press at a time, for one
+   * click, and disarms itself either way — it is the most specific thing a
+   * click can mean here, and the pilot armed it a moment ago. */
+  if (divePlacing) placeRecovery(at);
+  else if (subjectActive()) placeSubject(at);
   else if (routeActive()) addWaypoint(at);
   else moveLaunch(at);
 }
@@ -780,11 +793,63 @@ export function selectedDiveLeg() { return selectedDiveKind; }
  * @param {string|null} kind
  */
 export function selectDiveGate(kind) {
+  /* The abort gate is not a leg. Nothing flies to it — it is where the run is
+     broken off — so `diveLegChain` leaves it out and the leg inspector has
+     nothing to draw for it. Clicking it opens the plan it belongs to instead of
+     selecting a kind whose panel does not exist, which used to blank the seat
+     and look like the pin was dead. */
+  if (kind === 'abort') { toggleDiveRecovery(); return; }
   selectedDiveKind = nextSelection(selectedDiveKind, kind);
   if (selectedDiveKind) {
     selectedSegmentId = null;
+    recoveryOn = false;
     diveOn = true;
   }
+  deps?.requestRender();
+}
+
+/* Whether the recovery plan is open. Its own latch rather than a value of
+   `selectedDiveKind`, because that one is re-checked against the gates on every
+   pass and drops anything the plan does not carry — and the recovery panel's
+   whole job is the case where the plan carries nothing yet. */
+let recoveryOn = false;
+
+/** What the next map click places for the recovery plan, if anything. */
+/** @type {'abort'|'bailout'|null} */
+let divePlacing = null;
+
+function toggleDiveRecovery() {
+  recoveryOn = !recoveryOn;
+  if (recoveryOn) {
+    selectedSegmentId = null;
+    selectedDiveKind = null;
+    diveOn = true;
+  } else {
+    divePlacing = null;
+    resetDiveRecovery();
+  }
+  deps?.requestRender();
+}
+
+/**
+ * Open the dive workspace, optionally on one leg — what a fix link lands on
+ * (M16, 3D-08). Deliberately not `selectDiveGate`: that one toggles, which is
+ * right for a click on a gate and wrong for a remedy, where arriving at a
+ * *closed* panel because the leg happened to already be open would look like
+ * the fix did nothing. A null kind opens the plan with nothing selected, which
+ * is what the findings about the plan as a whole are asking for.
+ * @param {string|null} kind
+ */
+export function openDivePlan(kind) {
+  diveOn = true;
+  selectedSegmentId = null;
+  /* 'contingency' is not a gate: it is the plan the lost-link altitude, the
+     bailout and the abort gate all live in, and the findings about those three
+     have no leg to land on. It opens the recovery panel outright rather than
+     toggling, for the same reason the rest of this function does not. */
+  recoveryOn = kind === 'contingency';
+  selectedDiveKind = recoveryOn ? null : kind;
+  if (!recoveryOn) divePlacing = null;
   deps?.requestRender();
 }
 
@@ -841,6 +906,49 @@ const subjectActive = () => subjectOn && !deps.beginner();
 /** @param {LatLng} at */
 function placeSubject(at) {
   raiseEdit({ type: 'addSubject', payload: { latitude: at.lat, longitude: wrapLng(at.lng) } });
+}
+
+/**
+ * The armed recovery placement, spent (M16, 3D-08). Disarms first and whatever
+ * the command answers: a click that was refused has still been used, and leaving
+ * the map armed would put the next pin somewhere the pilot was not aiming.
+ *
+ * The bailout carries the ground under it as its elevation, sampled once here.
+ * That is the terrain field's own answer at the moment of the click, not an
+ * assumption — and where the field has no ground the site is stored with none,
+ * which every surface that reads it already prints as unsurveyed.
+ *
+ * @param {LatLng} at
+ */
+function placeRecovery(at) {
+  const what = divePlacing;
+  divePlacing = null;
+  const latitude = at.lat;
+  const longitude = wrapLng(at.lng);
+  if (what === 'bailout') {
+    const existing = sceneNow().dive?.bailout ?? null;
+    raiseEdit({ type: 'setDiveBailout', payload: { bailout: {
+      /* A move keeps the name the pilot typed; a first placement takes the
+         reducer's default and offers the box to change it. */
+      ...(existing ? { name: existing.name } : {}),
+      latitude, longitude, elevationMslM: groundSampler(latitude, longitude),
+    } } });
+  } else if (what === 'abort') {
+    const dive = sceneNow().dive;
+    const existing = dive?.gates.find((g) => g.kind === 'abort') ?? null;
+    const altitudeMslM = existing ? existing.altitudeMslM : abortSeedAltitudeM(dive);
+    if (altitudeMslM == null) {
+      /* Only reachable if the run's gates went away between arming and clicking.
+         The panel disables the button for this case; saying it beats placing a
+         gate at an altitude nobody stated. */
+      editNote = 'That dive has no gates to read a break-off height from.';
+    } else {
+      raiseEdit({ type: 'setDiveGate', payload: {
+        kind: 'abort', latitude, longitude, altitudeMslM, radiusM: existing?.radiusM ?? null,
+      } });
+    }
+  }
+  deps?.requestRender();
 }
 
 /* ---------- saved spots ---------- */
@@ -951,6 +1059,14 @@ function renderDivePanels(snapshot, frame) {
   const up = mode === '3d' && diveOn;
   const workspace = editor?.dive?.() ?? { aircraftName: null, templates: [] };
   const hasDive = !!frame.dive?.gates.length;
+  /* The dynamics reading brings its own card to the seat, so the standing
+     briefing stands down for it — the same one-answer-per-seat rule the two
+     inspectors already follow, one rung further out. */
+  const dynamicsSeat = up && hasDive && diveReading === 'dynamics';
+  /* One seat, and the recovery plan sits in it alongside the two inspectors —
+     it is an editor the pilot opened, which outranks anything standing. */
+  const recoverySeat = recoveryOn && !!frame.dive;
+  const seatFree = !selectedSegmentId && !selectedDiveKind && !recoverySeat;
   /* The pad's elevation as the analysis used it, or nothing. `elevM` is what
      every other surface measures a height against, and a launch that never
      resolved one is why the profile can start at the first gate. */
@@ -962,7 +1078,14 @@ function renderDivePanels(snapshot, frame) {
     ladder: deps.windLadder?.() ?? null,
     aircraftName: workspace.aircraftName,
     units: frame.units,
-    visible: up && !selectedSegmentId && !selectedDiveKind,
+    visible: up && seatFree && !dynamicsSeat,
+  });
+  renderDiveSystems({
+    dynamics: snapshot.dive ?? null,
+    link: snapshot.link ?? null,
+    units: frame.units,
+    visible: dynamicsSeat && seatFree,
+    onTune: selectDiveGate,
   });
   renderRouteTemplates({
     templates: workspace.templates,
@@ -987,6 +1110,26 @@ function renderDivePanels(snapshot, frame) {
     groundAt: groundSampler,
     visible: up && hasDive,
     onSelect: selectDiveGate,
+    reading: diveReading,
+    onReading: (next) => {
+      if (diveReading === next) return;
+      diveReading = next;
+      deps?.requestRender();
+    },
+    dynamics: snapshot.dive ?? null,
+    units: frame.units,
+  });
+  renderDiveRecovery({
+    dive: frame.dive,
+    groundAt: groundSampler,
+    /* Not behind `up`: the abort gate and the bailout draw on the flat map too,
+       and a pilot who tapped one there is owed the panel that tap promised —
+       the same exception the leg inspector makes, for the same reason. */
+    visible: recoverySeat,
+    placing: divePlacing,
+    onPlace: (what) => { divePlacing = what; deps?.requestRender(); },
+    onClose: () => toggleDiveRecovery(),
+    raise: editor ? raiseEdit : undefined,
   });
   renderDiveInspector({
     dive: frame.dive,
@@ -1080,6 +1223,25 @@ function buildFrame(snapshot, sceneEdit) {
             altitudeMslM: gate.altitudeMslM,
             radiusM: gate.radiusM,
           },
+        });
+      },
+      moveDiveBailout: (at) => {
+        const b = sceneEdit.dive?.bailout;
+        if (!b) return;
+        const latitude = at.lat;
+        const longitude = wrapLng(at.lng);
+        raiseEdit({
+          type: 'setDiveBailout',
+          payload: { bailout: {
+            name: b.name,
+            latitude,
+            longitude,
+            /* Re-surveyed, because unlike a gate's altitude this figure is a
+               property of the ground and the drag moved the ground. Null where
+               the field has none, which every reader already prints as
+               unsurveyed rather than as sea level. */
+            elevationMslM: groundSampler(latitude, longitude),
+          } },
         });
       },
     },

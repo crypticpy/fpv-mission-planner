@@ -913,8 +913,11 @@ tr.row-invalid td:nth-child(12) { color: var(--status-critical); font-weight: 60
   --seat-dive: min(360px, 46%);
   /* And the height the dive profile strip claims along the bottom, for the same
      reason: everything else on the stage that can grow downwards has to stop
-     short of it, and the one number is what keeps them agreeing on where. */
-  --strip-clear: 195px;
+     short of it, and the one number is what keeps them agreeing on where.
+     Sized for the taller of the strip's two readings — the dynamics timeline
+     carries a phase row and an axis the profile does not — so switching tabs
+     never moves the card above it. */
+  --strip-clear: 215px;
 }
 .map-canvas {
   height: 100%;
@@ -1216,6 +1219,179 @@ tr.row-invalid td:nth-child(12) { color: var(--status-critical); font-weight: 60
   color: var(--muted);
 }
 
+/* The two readings (M16, 3D-07). A segmented control, borrowing the view bar's
+   own segment so the strip's tabs and the stage's mode buttons are one idiom —
+   the pilot has already learnt this control by the time they get here. Right
+   aligned: the plot underneath is read left to right and the tabs are a
+   selector, not its title. */
+.dive-readings {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 2px;
+}
+.dive-reading {
+  min-height: 26px;
+  border-radius: 6px;
+  border-right: 0;
+}
+
+/* ---------- the dynamics reading (M16, 3D-07) ---------- */
+
+.dive-timeline { display: flex; flex-direction: column; gap: 4px; }
+
+/* The phases as controls, each opening the leg it belongs to. The colour bar is
+   the only thing tying a chip to its band in the tracks below, so it is on the
+   leading edge where the eye lands rather than behind the text. */
+.dive-phases { display: flex; gap: 4px; }
+.dive-phase {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--gate-color, var(--series-1));
+  border-radius: 0 6px 6px 0;
+  background: var(--surface-2);
+  color: var(--ink-2);
+  font-family: var(--font-display);
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1.2;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+}
+.dive-phase > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.dive-phase:hover { color: var(--ink); background: var(--button-hover); }
+.dive-phase[aria-pressed="true"] { color: var(--ink); border-color: var(--accent); border-left-color: var(--gate-color, var(--series-1)); }
+.dive-phase-len { color: var(--muted); font-weight: 500; font-variant-numeric: tabular-nums; }
+
+/* Three rows on one axis: the name and its own range on the left, the series
+   across the shared width on the right. The range lives in the name cell rather
+   than on a y axis per row — three axes stacked in 80 px would be three sets of
+   numbers nobody can read, and the pair of extremes is what the row is for. */
+.dive-tracks {
+  display: grid;
+  grid-template-columns: minmax(84px, auto) 1fr;
+  align-items: center;
+  gap: 4px var(--sp-2);
+}
+.dive-track-name {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--ink-2);
+  line-height: 1.25;
+}
+.dive-track-unit { color: var(--muted); font-weight: 500; font-size: 9.5px; font-variant-numeric: tabular-nums; }
+.dive-track-plot {
+  height: 24px;
+  background: var(--surface-2);
+  border-radius: 4px;
+  overflow: hidden;
+}
+/* A row nothing computed says so in words. An empty plot frame would read as a
+   flat line at zero, which is a claim about the dive rather than about the model. */
+.dive-track-plot.is-empty {
+  display: grid;
+  place-items: center;
+  font-size: 10px;
+  color: var(--muted);
+  font-style: italic;
+}
+.dive-track-svg { display: block; width: 100%; height: 100%; }
+/* The phase bands are the tie between the chips above and the lines here; the
+   selected one lifts rather than recolours, so the series keeps its own colour. */
+.dive-track-band { fill: var(--grid); opacity: 0.5; }
+.dive-track-band.is-selected { fill: var(--accent); opacity: 0.18; }
+.dive-track-zero { stroke: var(--baseline); stroke-width: 1; stroke-dasharray: 3 3; }
+.dive-track-line { stroke-width: 2; stroke-linecap: round; }
+
+/* The axis under all three rows, in the plot column of the same grid so it
+   cannot drift out of step with them. Ticks are absolutely placed percentages,
+   so the row needs a height of its own and a position to hang them from. */
+.dive-axis {
+  grid-column: 2;
+  position: relative;
+  height: 24px;
+  font-size: 9.5px;
+  color: var(--muted);
+}
+.dive-tick {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.dive-tick:first-of-type { transform: none; }
+.dive-tick:last-of-type { transform: translateX(-100%); }
+.dive-axis-note {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  text-align: center;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------- the systems seat (M16, 3D-07) ---------- */
+
+/* Same seat and geometry as the standing briefing it displaces — it wears the
+   briefing's class for exactly that — with only the things that differ here. */
+.dive-systems-card { z-index: 1001; }
+
+/* The margins, four across. `unknown` is the honest fourth tone and wears the
+   muted rule: a margin nothing computed is not a mild warning about the margin,
+   it is the absence of one. */
+.dive-margins {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+  margin-top: var(--sp-2);
+}
+.dive-margin {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 5px 8px;
+  border-left: 3px solid var(--border);
+  background: var(--surface-2);
+  border-radius: 0 6px 6px 0;
+}
+.dive-margin-label {
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.dive-margin strong {
+  font-size: 12px;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.dive-margin[data-tone="unknown"] strong { color: var(--muted); font-weight: 500; }
+.dive-margin[data-tone="good"] { border-left-color: var(--status-good); }
+.dive-margin[data-tone="warning"] { border-left-color: var(--status-warning); }
+.dive-margin[data-tone="serious"] { border-left-color: var(--status-critical); }
+
+/* What the card does not show. Muted and small, but present on every pass — the
+   reason a seat is empty is worth the four lines it costs. */
+.dive-absent {
+  margin: var(--sp-2) 0 0;
+  font-size: 10.5px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
 /* Dive gates (M16, 3D-06): the authored break-off points, numbered in flight
    order and wearing the colour of the corridor that arrives at them. The number
    is the order, not the name — the pilot reads the plan as 1-2-3-4 and the
@@ -1266,6 +1442,20 @@ tr.row-invalid td:nth-child(12) { color: var(--status-critical); font-weight: 60
    stack their labels on each other, which is the only collision that actually
    happens along a route. */
 .dive-gate-alt.is-above { top: auto; bottom: 26px; }
+/* The bailout landing (M16, 3D-08): a hollow ring, not a filled dot, and no
+   ordinal in it — nothing flies to it in sequence, and a numbered pin would put
+   it in the run. The abort colour is deliberate: it belongs to the same thought
+   as the gate the run is broken off at. */
+.dive-bailout-dot {
+  width: 22px;
+  height: 22px;
+  margin: 1px;
+  border-radius: 50%;
+  background: var(--surface-1);
+  border: 4px solid var(--gate-color, var(--status-critical));
+  box-shadow: 0 1px 5px var(--shadow);
+  cursor: grab;
+}
 /* Same reasoning as route-hit above: an interactive Leaflet path hit-tests on
    painted pixels, and the corridor wants the whole stroke clickable — a leg is
    easier to hit than the dot at its end on a phone. */
@@ -1681,8 +1871,23 @@ body {
   /* 3D-05 on phones (M16): the briefing card is a tablet composition — on a
      phone stage it would cover the terrain it is briefing, so it stands down
      and its numbers stay a tab away in Analyze. The sketch chips stay: they are
-     in the bottom stack, which keeps them clear of the viewbar by itself. */
+     in the bottom stack, which keeps them clear of the viewbar by itself.
+
+     3D-07's systems card wears the same class and stands down with it, for the
+     same reason and with the same guarantee: the Dynamics tab on the strip is
+     the phone's reading of the dive, and every systems figure that amounts to a
+     *finding* — a pullout that does not clear, a reserve that runs out, a motor
+     past its ceiling — is raised in the analysis pass, so it reaches this screen
+     as a warning and Review as a fix whether or not the card is on it. */
   .conditions-card { display: none; }
+
+  /* The dynamics reading on a phone: the phase chips wrap to two rows rather
+     than squeezing four unreadable columns, and the tracks lose the range text's
+     second line. The plots keep their height — they are the reading. */
+  .dive-phases { flex-wrap: wrap; }
+  .dive-phase { flex: 1 1 44%; }
+  .dive-tracks { grid-template-columns: minmax(66px, auto) 1fr; }
+  .dive-track-name { font-size: 10px; }
 
   /* 3D-06 on phones (M16). The leg inspector rides as a bottom sheet, exactly
      as the segment card above it does and for the same reason — the gate the
@@ -2156,6 +2361,28 @@ body {
 .conditions-card .segment-facts {
   grid-template-columns: minmax(0, 8rem) minmax(0, 1fr);
 }
+/* 3D-08's recovery plan (M16). Every row is a control plus the sentence saying
+   what it is for, so the value cell is a wrapping row of controls with the note
+   dropped onto its own line beneath them — a note squeezed in beside a button
+   is the line a pilot skips, and these are the three lines they must not.
+
+   After `.dive-facts input.card-select` above and weighing the same, so source
+   order is what lets a box share its row with Move and Remove instead of taking
+   the full width the leg inspector's altitudes want. */
+.recovery-facts dd {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.recovery-facts .segment-note { flex: 1 0 100%; }
+.recovery-facts input.card-select { flex: 1 1 5.5rem; width: auto; min-width: 0; }
+/* A name is prose, not a reading: the tabular figures the other cells inherit
+   would space its letters like a table of altitudes. */
+.recovery-name { flex: 1 1 8rem; font-variant-numeric: normal; }
+/* Armed. Same language the toolbar latches and the frame toggle already speak,
+   so a lit control means one thing across the stage. */
+.recovery-place[aria-pressed="true"] { color: var(--ink); border-color: var(--accent); }
 .segment-note { display: block; color: var(--muted); font-size: 11.5px; margin-top: 1px; }
 #segment-warnings { margin-top: var(--sp-2); }
 /* The identifier the click actually came back with, and the key every figure
@@ -2985,6 +3212,31 @@ button.windpanel-level { cursor: pointer; }
 .fix-go:hover { color: var(--ink); border-color: var(--accent); background: var(--button-hover); }
 .review-reserve-line { font-size: 12.5px; color: var(--ink-2); margin: 0 0 var(--sp-1); }
 .review-reserve .fix-go { align-self: auto; }
+/* The recovery read-back (M16, 3D-08). Three authored answers, and the whole
+   point of the card is that an unstated one reads as unstated — so the stated
+   rows wear the ink the rest of the panel does and the unstated ones go muted
+   and italic with the control beside them. Not a warning tone: a mission with no
+   bailout is not wrong, it is unanswered, and dressing it as a fault would put
+   the same red on it as a pullout that does not clear. */
+.review-recovery { margin-bottom: var(--sp-2); }
+.recovery-lines {
+  display: grid;
+  grid-template-columns: minmax(0, 9rem) minmax(0, 1fr);
+  gap: 6px var(--sp-3);
+  margin: var(--sp-2) 0 0;
+  font-size: 12.5px;
+}
+.recovery-lines dt { color: var(--muted); }
+.recovery-lines dd {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.recovery-lines dd[data-stated="true"] { color: var(--ink); }
+.recovery-lines dd[data-stated="false"] { color: var(--muted); font-style: italic; }
+.recovery-go { font-size: 11.5px; padding: 3px 8px; }
 /* A pressed fix link lights the control it landed on — an opacity fade, not
    motion, so it stays under prefers-reduced-motion. */
 .fix-flash { animation: fix-flash 1.4s ease-out; }

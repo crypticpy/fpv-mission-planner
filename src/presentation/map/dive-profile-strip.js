@@ -16,16 +16,25 @@
 // The gates are real buttons over the plot, not shapes in it: they are the
 // selection control for the leg inspector, they have to be thumb-sized on a
 // phone, and a `<button>` gets focus, Enter and a name from the platform.
+//
+// The host is shared with 3D-07's dynamics timeline (dive-dynamics-panel.js).
+// One element along the bottom edge, two readings of the same plan, chosen by
+// the tabs this file draws — because they answer the same question at two
+// depths ("where does the line go" / "what happens along it"), and two strips
+// stacked would cost the map the height that is the reason to fly a dive in 3D.
 
 import { svgEl } from '../../charts.js';
 import { DIVE_LEG_STYLE } from './layers/dive-layer.js';
 import { diveProfileFrom } from './dive-profile.js';
+import { diveTimelinePlot } from './dive-dynamics-panel.js';
 import { f0 } from '../../render/format.js';
 
 /**
  * @typedef {import('./map-adapter.js').LatLng} LatLng
  * @typedef {import('./map-adapter.js').DiveProjection} DiveProjection
  * @typedef {import('./dive-profile.js').DiveProfile} DiveProfile
+ * @typedef {import('../../domain/dive-dynamics.js').DiveDynamics} DiveDynamics
+ * @typedef {import('../../domain/units.js').UnitSystem} UnitSystem
  */
 
 const $ = (/** @type {string} */ id) => document.getElementById(id);
@@ -84,8 +93,15 @@ export function groundRuns(ground) {
  * @param {(lat: number, lng: number) => number|null} view.groundAt
  * @param {boolean} view.visible
  * @param {(kind: string) => void} view.onSelect
+ * @param {'profile'|'dynamics'} view.reading  which of the two the tabs have chosen
+ * @param {(reading: 'profile'|'dynamics') => void} view.onReading
+ * @param {DiveDynamics|null} view.dynamics  the analysis's dive pass, a frame behind
+ * @param {UnitSystem} view.units
  */
-export function renderDiveStrip({ dive, launch, launchMslM, selectedKind, groundAt, visible, onSelect }) {
+export function renderDiveStrip({
+  dive, launch, launchMslM, selectedKind, groundAt, visible, onSelect,
+  reading, onReading, dynamics, units,
+}) {
   const host = $('dive-strip');
   if (!host) return;
 
@@ -94,6 +110,14 @@ export function renderDiveStrip({ dive, launch, launchMslM, selectedKind, ground
     : null;
   host.hidden = !profile;
   if (!profile) { host.replaceChildren(); return; }
+
+  const tabs = readingTabs(reading, onReading);
+  if (reading === 'dynamics') {
+    host.replaceChildren(tabs, dynamics
+      ? diveTimelinePlot(dynamics, { units, selectedKind, onSelect })
+      : pending());
+    return;
+  }
 
   const { x, y } = scaleOf(profile);
   const svg = svgEl('svg', {
@@ -148,7 +172,50 @@ export function renderDiveStrip({ dive, launch, launchMslM, selectedKind, ground
     plot.appendChild(btn);
   }
 
-  host.replaceChildren(plot, caption(profile));
+  host.replaceChildren(tabs, plot, caption(profile));
+}
+
+/**
+ * The two readings, as a segmented control. Both are always offered: a pilot who
+ * has not stated a dive speed still gets the dynamics tab, and what they find
+ * there is the timeline saying which number would give it a clock.
+ * @param {'profile'|'dynamics'} reading
+ * @param {(reading: 'profile'|'dynamics') => void} onReading
+ */
+function readingTabs(reading, onReading) {
+  const row = document.createElement('div');
+  row.className = 'dive-readings';
+  row.id = 'dive-readings';
+  row.setAttribute('role', 'group');
+  row.setAttribute('aria-label', 'Dive reading');
+  for (const [key, label, title] of /** @type {const} */ ([
+    ['profile', 'Profile', 'The dive line against the ground under it'],
+    ['dynamics', 'Dynamics', 'Altitude, vertical speed and clearance along the run'],
+  ])) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'viewbar-seg dive-reading';
+    btn.id = `dive-read-${key}`;
+    btn.textContent = label;
+    btn.title = title;
+    btn.setAttribute('aria-pressed', String(reading === key));
+    btn.addEventListener('click', () => onReading(key));
+    row.appendChild(btn);
+  }
+  return row;
+}
+
+/**
+ * The dynamics tab before the analysis has answered. Says which pass it is
+ * waiting on rather than drawing empty axes, which would read as "nothing
+ * happens on this dive".
+ */
+function pending() {
+  const el = document.createElement('p');
+  el.className = 'dive-strip-caption';
+  el.id = 'dive-dynamics-pending';
+  el.textContent = 'The dynamics ride the analysis pass — they land a moment after the gates do.';
+  return el;
 }
 
 /**

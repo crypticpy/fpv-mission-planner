@@ -26,7 +26,7 @@
 // Paths are relative to this file's scope (the app can live at "/" locally
 // or at a GitHub Pages subpath) — never use a leading "/".
 
-const CACHE_NAME = 'fpv-shell-v18';
+const CACHE_NAME = 'fpv-shell-v19';
 
 /* GENERATED LIST — do not edit between the brackets by hand.
    scripts/generate-dev-sw.mjs derives it from the static shell (index.html,
@@ -54,6 +54,7 @@ const PRECACHE_URLS = [
   'src/application/analysis/analysis-contracts.js',
   'src/application/analysis/analyze.js',
   'src/application/analysis/constraints.js',
+  'src/application/analysis/dive-checks.js',
   'src/application/analysis/fix-links.js',
   'src/application/analysis/route-checks.js',
   'src/application/analysis/vertical-flight.js',
@@ -93,6 +94,7 @@ const PRECACHE_URLS = [
   'src/confidence.js',
   'src/data.js',
   'src/domain/camera.js',
+  'src/domain/dive-dynamics.js',
   'src/domain/dive.js',
   'src/domain/fresnel.js',
   'src/domain/geo.js',
@@ -135,9 +137,11 @@ const PRECACHE_URLS = [
   'src/packinstances.js',
   'src/presentation/map/advisory-panel.js',
   'src/presentation/map/conditions-card.js',
+  'src/presentation/map/dive-dynamics-panel.js',
   'src/presentation/map/dive-inspector.js',
   'src/presentation/map/dive-profile-strip.js',
   'src/presentation/map/dive-profile.js',
+  'src/presentation/map/dive-recovery-panel.js',
   'src/presentation/map/footprint-panel.js',
   'src/presentation/map/layer-registry.js',
   'src/presentation/map/layers/advisory-layer.js',

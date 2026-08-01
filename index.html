@@ -632,6 +632,20 @@
              seat when a gate or corridor is clicked. Built by dive-inspector.js
              — nothing static belongs here. -->
         <section class="card full-only dive-card" id="dive-card" hidden></section>
+        <!-- 3D-07 (M16): the dive's systems reading — peak sink, pullout load and
+             clearance, pack sag, motor and ESC margin, recovery reserve. Takes the
+             conditions card's seat while the strip below is showing Dynamics, on
+             the same rule the other three follow: the more specific answer to
+             "how is this dive" wins the seat. Built by dive-dynamics-panel.js
+             from the analysis pass; every figure it cannot get is printed as a
+             dash with the reason beside it. -->
+        <section class="card full-only conditions-card dive-systems-card" id="dive-systems" hidden></section>
+        <!-- 3D-08 (M16): the dive's way out, authored — lost-link climb, break-off
+             gate, bailout landing. Wears .dive-card so it takes the leg
+             inspector's seat and its phone sheet: both are editors the pilot
+             opened, and two of them at once would be two answers to "what am I
+             working on". Built by dive-recovery-panel.js. -->
+        <section class="card full-only dive-card dive-recovery-card" id="dive-recovery" hidden></section>
       </div>
       <!-- The key to the zones above. Filled by the render pass and up only
            while the layer is drawing something; the trailing line about unshaded

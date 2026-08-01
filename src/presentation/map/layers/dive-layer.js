@@ -132,12 +132,19 @@ export function createDiveLayer() {
       /* Redrawn only when the plan or the selection actually moves — a slider
          drag runs this pass too, and rebuilding four pins to put them back where
          they were is work the map can see. */
+      const bailout = frame.dive?.bailout ?? null;
       const signature = `${selected ?? ''}#${frame.launch.lat},${frame.launch.lng}`
-        + `#${gates.map(gateKey).join('|')}`;
+        + `#${gates.map(gateKey).join('|')}`
+        + `#${bailout ? `${bailout.name}@${bailout.lat},${bailout.lng}` : ''}`;
       if (signature === drawnSignature) return;
       drawnSignature = signature;
 
       clear();
+      /* The bailout before the early return: a plan can carry a landing site and
+         no gates yet — a pilot who picked where they would put it down before
+         drawing the run — and a placed pin that does not appear is a control
+         with no effect. */
+      if (bailout) pins.push(bailoutPin(bailout, adapter, () => current));
       if (!gates.length) return;
 
       for (const leg of diveLegChain(frame.launch, gates)) {
@@ -155,7 +162,7 @@ export function createDiveLayer() {
         }));
       }
 
-      pins = orderedGates(gates).map(({ gate, ordinal }) => {
+      pins.push(...orderedGates(gates).map(({ gate, ordinal }) => {
         const style = DIVE_LEG_STYLE[gate.kind] ?? DIVE_LEG_STYLE.abort;
         const on = gate.kind === selected;
         return adapter.marker({
@@ -189,7 +196,7 @@ export function createDiveLayer() {
             f.actions.selectDiveGate(gate.kind);
           },
         });
-      });
+      }));
     },
 
     dispose() {
@@ -198,6 +205,55 @@ export function createDiveLayer() {
       current = null;
     },
   };
+}
+
+/**
+ * The bailout landing, on the flat map (M16, 3D-08). Not a gate and drawn as
+ * one on purpose — no ordinal, no altitude label, and the abort leg's colour,
+ * because it belongs to the same thought as the gate the run is broken off at.
+ * Its elevation is a surveyed figure and not the aircraft's height over it, so
+ * printing it under the pin beside four numbers that *are* heights would invite
+ * the one misreading that matters.
+ *
+ * @param {NonNullable<import('../map-adapter.js').DiveProjection['bailout']>} bailout
+ * @param {import('../map-adapter.js').MapAdapter} adapter
+ * @param {() => MapFrame|null} frameNow
+ */
+function bailoutPin(bailout, adapter, frameNow) {
+  return adapter.marker({
+    at: { lat: bailout.lat, lng: bailout.lng },
+    className: 'dive-gate-marker',
+    html: '<div class="dive-bailout-dot" '
+      + `style="--gate-color: var(${DIVE_LEG_STYLE.abort.cssVar})"></div>`
+      + `<div class="dive-gate-alt is-above">${escapeText(bailout.name)}</div>`,
+    sizePx: [24, 24],
+    anchorPx: [12, 12],
+    title: `${bailout.name} — bailout landing`
+      + (bailout.elevationMslM == null ? ', elevation not surveyed'
+        : ` at ${Math.round(bailout.elevationMslM)} m MSL`)
+      + ' · drag to move, click to open the recovery plan',
+    draggable: true,
+    zIndexOffset: 200,
+    onDragEnd: (to) => {
+      const f = frameNow();
+      f?.gestures.dragEnded();
+      f?.actions.moveDiveBailout(to);
+    },
+    onClick: () => {
+      const f = frameNow();
+      if (!f || f.gestures.afterDrag()) return;
+      f.gestures.markerClicked();
+      /* The abort kind opens the recovery plan, which is where every control for
+         this pin lives — see map-view's `selectDiveGate`. */
+      f.actions.selectDiveGate('abort');
+    },
+  });
+}
+
+/** The pilot's own name, going into markup. */
+function escapeText(/** @type {string} */ s) {
+  return s.replace(/[&<>"]/g, (c) => (
+    c === '&' ? '&amp;' : c === '<' ? '&lt;' : c === '>' ? '&gt;' : '&quot;'));
 }
 
 /** The gate in the pilot's words, for the pin's tooltip. */

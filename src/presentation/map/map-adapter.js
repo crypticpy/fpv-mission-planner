@@ -211,10 +211,14 @@ export const MAP_EVENTS = Object.freeze(
  * @property {(segmentId: string|null) => void} selectSegment  null clears
  * @property {(kind: string|null) => void} selectDiveGate  open the dive-leg
  *   inspector on the leg this gate ends ('approach'|'dive'|'recovery'); null
- *   clears. Same view-state-only rule as `selectSegment`
+ *   clears. 'abort' ends no leg, so it opens the recovery plan instead. Same
+ *   view-state-only rule as `selectSegment`
  * @property {(kind: string, at: LatLng) => void} moveDiveGate  drag a gate to a
  *   new place. The kind *is* the gate's identity in the reducer, so a moved gate
  *   keeps its id without this layer ever handling one
+ * @property {(at: LatLng) => void} moveDiveBailout  drag the bailout landing.
+ *   Unlike a gate, this one re-surveys its elevation on arrival: the figure
+ *   describes the ground, and the drag moved the ground
  */
 
 /**

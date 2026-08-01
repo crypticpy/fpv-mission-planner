@@ -32,7 +32,12 @@
  * @typedef {import('./analysis-contracts.js').Severity} Severity
  */
 
-import { MISSION_ANCHOR, constraintId } from './analysis-contracts.js';
+import {
+  DIVE_CURRENT_MARGIN_FRAC, DIVE_PULLOUT_CLEARANCE_WARN_M, MISSION_ANCHOR, constraintId,
+} from './analysis-contracts.js';
+
+/** The current-margin threshold as the sentences say it: "10%", not "0.1". */
+const DIVE_MARGIN_PCT = (DIVE_CURRENT_MARGIN_FRAC * 100).toFixed(0);
 
 /**
  * ADR 0008's taxonomy read against the levels this codebase actually emits.
@@ -107,6 +112,22 @@ const SURFACE_FLOW = 'the forcing is computed from the ground the wind crosses, 
 const NOT_SAFE = 'this is a relative picture: an area with no modelled forcing has not been '
   + 'found safe, it has only produced no signal in a proxy that models very little';
 const ONE_WIND = 'one wind, from one coarse forecast cell, is applied across the whole area';
+
+/* M16's mountain dive, stated once for the ten W-DIVE-* codes below. NO_THERMAL
+ * is the milestone's prohibited claim written as its opposite and it rides on
+ * every code that touches the propulsion: a pilot reading "the pull draws 82% of
+ * the motors' ceiling" has to meet "and nothing here knows what that does to
+ * their temperature" in the same breath. */
+const NO_THERMAL = 'nothing in this tool measures or estimates motor, ESC or pack temperature, '
+  + 'so no thermal limit is checked and none is quoted';
+const PULL_AT_GATE = 'the pull is measured from the gate itself, which is the latest defensible '
+  + 'start — beginning it earlier only clears by more';
+const CONSTANT_SPEED_ARC = 'the arc is flown at constant speed, so the sink quoted is at or above '
+  + 'the one a real pull that bleeds speed into drag would produce';
+const HOVER_SCALED = 'the pullout draw is hover power scaled by n^1.5, which overstates it — at '
+  + 'pullout speeds the rotors are in clean forward flow, not hover';
+const AUTHORED_LINE = 'this describes the line as authored; nothing here models what the pilot\'s '
+  + 'thumb does on the way down';
 
 /**
  * Every code this tool can emit, frozen. The tests assert this object's shape,
@@ -573,6 +594,132 @@ export const CONSTRAINT_CODES = Object.freeze(/** @type {Record<string, Constrai
         + 'it is unknown, and it is drawn as missing rather than left blank',
         'per ADR 0008 missing data is a stated warning, never silence',
         SAMPLED_GROUND, NOT_SAFE],
+    ),
+  },
+
+  /* ---- the mountain dive (M16) ----
+   *
+   * Ten codes over one model, and the limitations named above them are why they
+   * read the way they do. Every figure here is closed-form mechanics over what
+   * the pilot authored — a gate's height, a stated speed, a stated load — and
+   * none of it is a measurement of this airframe. The claim this family is
+   * forbidden to make is stated once, as NO_THERMAL, and rides on every code it
+   * bears on: nothing in this tool knows how hot a motor gets, so no code here
+   * quotes a temperature or a thermal margin — not even an empty one.
+   *
+   * The producer is `analysis`, not `plan`, and the distinction is load-bearing
+   * rather than cosmetic: `plan` means planMission wrote the sentence and
+   * classifyLegacy recognised it, which the registry's own fixture test asserts
+   * for every code carrying that producer. These ten are drafted by the pipeline
+   * itself — dive-checks.js over dive-dynamics.js — exactly as route-checks.js's
+   * W-RETURN-* and W-RESERVE-* are, and they sit with them.
+   */
+  'W-DIVE-PULLOUT-GROUND': {
+    code: 'W-DIVE-PULLOUT-GROUND', producer: 'analysis', severity: 'critical', legacyLevel: null,
+    explanation: why(
+      ['the dive leg\'s pitch', 'the authored dive speed', 'the authored pullout load',
+        'the dive gate\'s altitude', 'the ground under the dive gate'],
+      'the lowest point of the pullout arc staying above the ground under the gate',
+      [PULL_AT_GATE, CONSTANT_SPEED_ARC, SAMPLED_GROUND, BARE_EARTH, AUTHORED_LINE],
+    ),
+  },
+  'W-DIVE-PULLOUT-THIN': {
+    code: 'W-DIVE-PULLOUT-THIN', producer: 'analysis', severity: 'warning', legacyLevel: null,
+    explanation: why(
+      ['the dive leg\'s pitch', 'the authored dive speed', 'the authored pullout load',
+        'the dive gate\'s altitude', 'the ground under the dive gate'],
+      `at least ${DIVE_PULLOUT_CLEARANCE_WARN_M} m under the bottom of the pullout arc`,
+      [PULL_AT_GATE, CONSTANT_SPEED_ARC, SAMPLED_GROUND, BARE_EARTH, AUTHORED_LINE],
+    ),
+  },
+  'W-DIVE-PULLOUT-UNSTATED': {
+    code: 'W-DIVE-PULLOUT-UNSTATED', producer: 'analysis', severity: 'unknown', legacyLevel: null,
+    explanation: why(
+      ['the authored dive speed', 'the authored pullout load'],
+      'a dive line carrying the speed and the load its pullout is flown at',
+      ['without both figures there is no arc to compute, so the ground under the pullout '
+        + 'is unchecked rather than clear',
+      'a stated load of 1 g or less describes no arc either — at that load the rotors hold '
+        + 'the weight or bend the path, not both — and it lands here for the same reason',
+      'neither figure is guessed at: a house cruise speed standing in for the authored '
+        + 'one would put a number under this constraint that nobody planned'],
+    ),
+  },
+  'W-DIVE-SAG-LIMITED': {
+    code: 'W-DIVE-SAG-LIMITED', producer: 'analysis', severity: 'warning', legacyLevel: null,
+    explanation: why(
+      ['hover power', 'the authored pullout load', 'pack internal resistance', 'cell count',
+        'pack temperature', 'state of charge at the pullout'],
+      'the pack holding a terminal voltage while delivering the pullout draw',
+      [HOVER_SCALED,
+        'internal resistance is a single figure, not a curve against temperature and age',
+        NO_THERMAL],
+    ),
+  },
+  'W-DIVE-MOTOR-MARGIN': {
+    code: 'W-DIVE-MOTOR-MARGIN', producer: 'analysis', severity: 'warning', legacyLevel: null,
+    explanation: why(
+      ['pack current during the pullout', 'rotor count', 'the catalog\'s per-motor current limit'],
+      `at least ${DIVE_MARGIN_PCT}% of the motors' current ceiling left unused by the pull`,
+      [HOVER_SCALED,
+        'the limit is a catalog figure for this motor, not one measured on this build',
+        NO_THERMAL],
+    ),
+  },
+  'W-DIVE-ESC-MARGIN': {
+    code: 'W-DIVE-ESC-MARGIN', producer: 'analysis', severity: 'warning', legacyLevel: null,
+    explanation: why(
+      ['pack current during the pullout', 'rotor count', 'the catalog\'s per-ESC current limit'],
+      `at least ${DIVE_MARGIN_PCT}% of the ESCs' current ceiling left unused by the pull`,
+      [HOVER_SCALED,
+        'the limit is a catalog figure for this ESC, not one measured on this build',
+        NO_THERMAL],
+    ),
+  },
+  'W-DIVE-RESERVE-SHORT': {
+    code: 'W-DIVE-RESERVE-SHORT', producer: 'analysis', severity: 'warning', legacyLevel: null,
+    explanation: why(
+      ['usable pack energy', 'the mission\'s planned energy', 'the climb to the lost-link altitude',
+        'the distance home from the last gate', 'the landing floor'],
+      'the pack still holding its landing floor once the dive is flown and the ride home is paid for',
+      ['the whole mission\'s planned energy is charged before the recovery, which is the '
+        + 'least reserve the plan can leave rather than the most',
+        'the dive line\'s own descent and pullout are not in that figure — no leg of the '
+        + 'dive reaches the route integrator',
+        'the flight home is charged at the route\'s own cruise power over the closing speed '
+        + 'left after the planning wind, and is flown direct rather than retraced',
+        NO_REGEN],
+    ),
+  },
+  'W-DIVE-RTH-BELOW-TERRAIN': {
+    code: 'W-DIVE-RTH-BELOW-TERRAIN', producer: 'analysis', severity: 'critical', legacyLevel: null,
+    explanation: why(
+      ['the authored lost-link altitude', 'the ground under each gate of the dive line'],
+      'a lost-link altitude above every piece of ground the dive line crosses',
+      [SAMPLED_GROUND, BARE_EARTH,
+        'the ground is read under the gates, not along the whole line between them — a '
+        + 'ridge standing between two gates is not in this comparison'],
+    ),
+  },
+  'W-DIVE-NO-BAILOUT': {
+    code: 'W-DIVE-NO-BAILOUT', producer: 'analysis', severity: 'advisory', legacyLevel: null,
+    explanation: why(
+      ['the dive plan\'s bailout landing'],
+      'a dive plan naming somewhere to put the aircraft down if the run is abandoned',
+      ['nothing here judges whether a named bailout is landable — this is about whether '
+        + 'one was named at all',
+        'no bailout is costed: naming one adds no energy, distance or time to any figure '
+        + 'in this plan'],
+    ),
+  },
+  'W-DIVE-GROUND-UNKNOWN': {
+    code: 'W-DIVE-GROUND-UNKNOWN', producer: 'analysis', severity: 'unknown', legacyLevel: null,
+    explanation: why(
+      ['the elevation provider\'s coverage under the dive line'],
+      'ground under the pad and every gate of the dive line',
+      ['a gate with no elevation under it is checked against nothing — its clearance is '
+        + 'unknown, not clear',
+        SAMPLED_GROUND],
     ),
   },
 }));

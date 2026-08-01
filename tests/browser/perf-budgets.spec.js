@@ -179,7 +179,20 @@ test.describe('performance budgets', () => {
    * re-import). Verified at this re-base that the split graph is intact
    * (scene3d ×3, brief, import-router, compile, adapter-contracts all still
    * separate chunks). */
-  const ENTRY_BUDGET_KB = 203;
+  /* Re-based 203 → 213 at M16 wave D: the dive's dynamics and contingency
+   * surfaces — the dynamics timeline and systems card, the recovery panel, and
+   * the two engines behind them (dive-dynamics.js, dive-checks.js), 209.2 on
+   * landing. The engines earn the shell outright: they run in the analysis pass
+   * for any mission carrying a dive, so nothing could defer them without
+   * deferring the findings Review is built on. The claw-back here is the two
+   * panels: neither renders until a dive plan exists and the pilot asks for it —
+   * one behind the Dynamics tab, one behind the Recovery plan button — so
+   * dive-dynamics-panel.js and dive-recovery-panel.js could load behind those
+   * two gestures, with the gesture awaiting the import (mind the Chromium
+   * failed-import cache: the retry would have to reload, not re-import).
+   * Verified at this re-base that the split graph is intact (scene3d ×3, brief,
+   * import-router, compile, adapter-contracts all still separate chunks). */
+  const ENTRY_BUDGET_KB = 213;
   const SCENE3D_BUDGET_KB = 500;
 
   test('the built bundles are inside their gzip budgets', async () => {

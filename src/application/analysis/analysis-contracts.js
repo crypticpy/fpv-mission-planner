@@ -203,6 +203,32 @@ export const TERRAIN_CLEARANCE_WARN_M = 30;
  */
 export const TERRAIN_CLEARANCE_FLOOR_M = 0;
 
+/* ---------- the mountain dive's own thresholds (M16) ---------- */
+
+/**
+ * Clearance under the bottom of a pullout arc, below which the pull is thin
+ * (metres). Deliberately the same figure as TERRAIN_CLEARANCE_WARN_M above, and
+ * deliberately its own constant: they answer different questions — one is the
+ * cruise altitude over a corridor sample, the other is the low point of an arc
+ * over the ground under one gate — and tying them together would mean a change
+ * to what "close to the ground on a route" means silently moved what "a thin
+ * pullout" means.
+ */
+export const DIVE_PULLOUT_CLEARANCE_WARN_M = 30;
+
+/**
+ * The share of a stated current ceiling a pullout may leave unused before it is
+ * worth saying so (0.10 reads "10% of the ceiling still free").
+ *
+ * The pullout draw behind this comparison is hover power scaled by n^1.5, which
+ * overstates it — the rotors are in clean forward flow, not hover — so a margin
+ * measured against it errs toward warning about a pull the aircraft would have
+ * made. That is the direction this whole family errs in, and it is why the
+ * threshold is a tenth rather than something tighter: a figure known to be
+ * pessimistic does not earn a hair-fine trigger.
+ */
+export const DIVE_CURRENT_MARGIN_FRAC = 0.10;
+
 /* ---------- provenance ---------- */
 
 /**
@@ -250,6 +276,12 @@ export function provenanceOf(overrides = {}) {
 /* ---------- the snapshot ---------- */
 
 /**
+ * @typedef {import('../../domain/physics.js').DroneConfig} DroneConfig
+ * @typedef {import('../../domain/physics.js').BatteryConfig} BatteryConfig
+ * @typedef {import('../../domain/dive-dynamics.js').DiveDynamics} DiveDynamics
+ */
+
+/**
  * What "the same question" means to the cache and to the async-staleness guard.
  * `missionUpdatedAt` is an opaque freshness token, not a timestamp: the host
  * composes the document's updatedAt with a hash of the rail inputs that change
@@ -276,7 +308,21 @@ export function provenanceOf(overrides = {}) {
  * @property {string} [windMode]
  */
 
-/** @typedef {{ env?: EnvironmentInputs, cruiseMode?: string }} AnalysisInputs */
+/**
+ * The bag `missionInputs()` builds. `env` and the cruise choice are what this
+ * layer reads for the route; the four optional properties below are what M16's
+ * dive model reads, and they are declared here because they were always in the
+ * bag — `src/state.js` has put the airframe, the pack, the pack's temperature
+ * and the landing floor in it since M1. The rest still passes through untyped
+ * to the injected planner, which owns its meaning.
+ * @typedef {object} AnalysisInputs
+ * @property {EnvironmentInputs} [env]
+ * @property {string} [cruiseMode]
+ * @property {DroneConfig|null} [drone]
+ * @property {BatteryConfig|null} [battery]
+ * @property {number} [packTempC]
+ * @property {number} [landFloorPct]
+ */
 
 /** The legacy warning shape every producer emits today. */
 /** @typedef {{ level: string, text: string }} LegacyWarning */
@@ -829,6 +875,11 @@ export function advisoryProvenanceOf(overrides = {}) {
  * @property {MissionFootprint|null} footprint
  * @property {Record<string, SegmentAnalysis>} segments
  * @property {AdvisoryField} advisories
+ * @property {DiveDynamics|null} dive  M16's mountain dive, modelled; null when
+ *   the document carries no dive plan or fewer than two gates on it. It sits
+ *   beside `route` rather than inside it because no leg of the dive reaches the
+ *   route integrator — the dive is a second line over the same ground, and every
+ *   figure in it comes from domain/dive.js rather than from planRoute.
  * @property {Constraint[]} constraints
  * @property {AnalysisProvenance} provenance
  */

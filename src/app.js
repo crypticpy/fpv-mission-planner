@@ -6,7 +6,7 @@ import { WEATHER, allBatteries, allManufacturers, saveCustomBattery, saveCustomM
 import { hideTooltip } from './charts.js';
 import {
   setupMapView, showMapView, renderMapView, pauseMapView, resizeMapView,
-  setMode3d, selectedSegment, selectSegment,
+  setMode3d, selectedSegment, selectSegment, openDivePlan,
 } from './presentation/map/map-view.js';
 import { renderFootprintPanel } from './presentation/map/footprint-panel.js';
 import { renderAdvisoryCard } from './presentation/map/advisory-panel.js';
@@ -57,7 +57,7 @@ import {
   restoreEvidenceFor, forgetEvidence, terrainField,
 } from './analysis-host.js';
 import {
-  missionSeed, restoreLaunch, pushLaunch, pushLoadout, pushEnvironment, pushPolicy,
+  missionSeed, restoreLaunch, pushLaunch, pushLoadout, pushEnvironment, pushPolicy, divePlan,
 } from './mission-commands.js';
 import { renderMissions, renderMissionStorage, bindMissions } from './render/missions.js';
 import { renderSpots, bindSpots, flyToSpot, loadoutLabel } from './render/spots.js';
@@ -333,7 +333,7 @@ function update() {
     // rather than show the rows twice. Leaving Review re-runs update(), where
     // renderWarnings restores it.
     $('warnings').hidden = true;
-    renderReviewPanel($('review-fixes'), reviewModelFrom(snapshot), { onAction: applyFix });
+    renderReviewPanel($('review-fixes'), reviewModelFrom(snapshot, divePlan()), { onAction: applyFix });
     renderMissionSummary($('review-summary'), summaryModelFrom(r));
     return;
   }
@@ -497,6 +497,17 @@ function applyFix(action) {
     setView('2d');
     // selectSegment toggles — re-selecting the already-open leg would close it.
     if (selectedSegment() !== action.segmentId) selectSegment(action.segmentId);
+    return;
+  }
+  if (action.kind === 'dive') {
+    /* A dive gate is a place *and* an altitude, and only the 3D stage draws the
+       second one — landing a pilot on the flat map to fix a clearance would put
+       them in front of the one picture that cannot show the thing they came to
+       fix. The workspace latch and the panel go together: openDivePlan raises
+       both, so this arrives with the leg — or the recovery plan, for the three
+       findings that belong to no leg — already open. */
+    setView('3d');
+    openDivePlan(action.gate);
     return;
   }
   // conditions: the rail is a sidebar on desktop, a bottom sheet on mobile.
