@@ -10,7 +10,8 @@ out you can push before you have to turn around.
 The app is organized as four destinations, one per question a pilot actually
 asks: **Field** (day-of — how long do the packs in your bag keep you flying
 here), **Plan** (the workspace — weather, mission, verdict, charts, map),
-**Library** (saved missions), and **Aircraft** (your fleet and its physics).
+**Library** (saved missions, their version history, and your launch spots),
+and **Aircraft** (your fleet and its physics).
 A wind ribbon under the masthead keeps the current wind, its gust, and the
 data's freshness on screen in every destination. Pressing it unfolds the wind
 panel: the wind now with its hourly outlook, the wind-by-altitude ladder, and
@@ -499,8 +500,15 @@ light.
 **Saved spots** (on the 2D map) turn the single launch pin into a named list: each
 spot keeps its location, cached elevation, notes, and a snapshot of the loadout
 you saved it with. *Fly here* re-aims the pin, restores that rig, and refetches
-live weather — so "which of my spots is flyable Saturday" is two clicks and a
-scrub.
+live weather. In the Library, a spot's name opens its own page: the saved
+facts, the sky over that spot right now, and a three-day forecast chart — the
+wind line riding its gust band, rain bars on their own percent scale, the
+golden-hour strip — with day tabs, a 10 m / 80 m height toggle, and an hour
+scrub. **Plan at this time** hands the chosen hour to the Plan scrubber, so
+"which of my spots is flyable Saturday" is a scrub and one button. Hours the
+forecast doesn't publish are drawn as gaps, an empty day says so instead of
+showing a bare axis, and a failed fetch keeps the saved facts on screen with a
+retry.
 
 The **session planner** (Planner tab) totals airtime across the packs in your
 bag — set a count next to each pack and it sums flight time plus swap overhead
@@ -685,16 +693,39 @@ Imported flights feed the calibration fit for the imported airframe, so a
 stranger's `etaProp` backed by eleven logged flights is still visibly different
 from one they typed in.
 
+## The mission library
+
+The Library's missions card is where plans live between sessions. The list is
+searchable, and origin chips — All · Recent · Saved · Imported — narrow it;
+each mission card carries a route thumbnail, the distance along the authored
+path, the waypoint count, the loadout it was planned with, and when it was
+last saved. Open, export, or delete from the card; **Save as a copy** forks
+the open mission under a fresh identity.
+
+Underneath, **History & recovery** keeps the last 20 checkpoints of the open
+mission. One is recorded at the moments that matter — open, import, restore,
+Save as a copy, and on a cadence while you edit — and skipped when nothing
+actually changed, so the history is twenty distinct states, not twenty copies
+of one. **Restore destroys nothing**: the state you're leaving is checkpointed
+first, so no click in this fold can cost you the present version. Records that
+fail migration on read are quarantined — moved aside, never deleted — and
+folded into the same timeline with one affordance, *download raw*: the
+recovery path is export, fix by hand, re-import, and destroying the only copy
+on disk is not a button that row gets.
+
 ## Handing missions to other tools
 
-A mission plan is only useful if it can leave. The mission fold in Plan
-exports the open mission to the formats the rest of the ecosystem actually
-speaks — **GPX 1.1** (any GIS or track viewer), **KML** (Google Earth),
+A mission plan is only useful if it can leave. The missions card in the
+Library exports the open mission to the formats the rest of the ecosystem
+actually speaks — **GPX 1.1** (any GIS or track viewer), **KML** (Google Earth),
 **QGroundControl `.plan`**, **ArduPilot/MAVLink `.waypoints`**, and **INAV
 Configurator `.mission`** — and reads all of them back except KML, which has no
 mission semantics to read. "Open a mission file" takes any of those alongside
 the planner's own JSON; the format is detected from the extension, or from the
-content when a download dialog has renamed the file to `.txt`.
+content when a download dialog has renamed the file to `.txt`. A picked file
+is parsed and previewed — what would arrive, and what the format couldn't
+carry — before anything is written, so cancelling really is "nothing
+happened" rather than "imported and deleted".
 
 No two of those formats agree on what a mission *is*, so the planner refuses to
 pretend otherwise. Every export runs the mission through one compiler that
