@@ -57,7 +57,8 @@ import {
   missionSeed, restoreLaunch, pushLaunch, pushLoadout, pushEnvironment, pushPolicy,
 } from './mission-commands.js';
 import { renderMissions, renderMissionStorage, bindMissions } from './render/missions.js';
-import { renderSpots, bindSpots } from './render/spots.js';
+import { renderSpots, bindSpots, flyToSpot, loadoutLabel } from './render/spots.js';
+import { bindSpotDetail } from './render/spot-detail.js';
 import { setupShare, bindShare } from './render/share.js';
 import { renderSessionPlanner } from './render/session.js';
 import { setupField, renderFieldHome, renderFieldReadiness } from './render/field.js';
@@ -760,6 +761,9 @@ function bind() {
 
   $('in-forecast-hour').addEventListener('input', e => setForecastHour(+e.target.value));
   bindSpots();
+  // spot-detail never imports spots.js back (spots.js imports its opener), so
+  // the roster's own moves arrive here through injection instead of a cycle.
+  bindSpotDetail({ flyToSpot, loadoutLabel, openPlan: () => setDest('plan') });
   bindMissions();
   // Bound synchronously so the button works from first paint; the chunk loads
   // inside the first click. The brief itself is async either way (it already

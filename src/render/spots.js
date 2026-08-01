@@ -13,6 +13,7 @@ import { f0, f1 } from './format.js';
 import { $ } from './dom.js';
 import { populateControls } from './controls.js';
 import { goLive } from './live.js';
+import { openSpotDetail } from './spot-detail.js';
 import { pushLaunch, pushLoadout } from '../mission-commands.js';
 
 /* ---------- saved launch spots ----------
@@ -46,7 +47,7 @@ function loadoutIsLive(l) {
     && PAYLOADS.some(p => p.id === l.payloadId);
 }
 
-function loadoutLabel(l) {
+export function loadoutLabel(l) {
   if (!l) return 'no saved rig';
   const d = allDrones().find(x => x.id === l.droneId);
   const b = allBatteries().find(x => x.id === l.batteryId);
@@ -80,9 +81,13 @@ export function renderSpots() {
     row.className = 'spot-row';
     const text = document.createElement('div');
     text.className = 'spot-text';
-    const name = document.createElement('span');
-    name.className = 'spot-name';
+    // The name is the door to the spot's detail page (L-02) — a real button,
+    // so the affordance is keyboard-reachable, not a click on decoration.
+    const name = document.createElement('button');
+    name.type = 'button';
+    name.className = 'spot-name spot-open';
     name.textContent = spot.name;
+    name.addEventListener('click', () => openSpotDetail(spot.id));
     const meta = document.createElement('span');
     meta.className = 'spot-meta';
     meta.textContent = spotMeta(spot);
@@ -121,8 +126,11 @@ export function renderSpots() {
  * weather owns the environment (it will fetch the real one for the new point),
  * and the loadout applies only if every id in the snapshot still resolves —
  * a half-restored rig is a plan for an aircraft the pilot never picked.
+ * @returns {Promise<void>|null} the live-weather refetch when live mode owns
+ *   the environment, so a caller can sequence on the forecast being in state
+ *   (spot-detail's "Plan at this time" does); null otherwise
  */
-function flyToSpot(spot) {
+export function flyToSpot(spot) {
   const pt = { lat: spot.lat, lng: spot.lng };
   const live = state.weatherId === 'live';
   const saved = loadMapState();
@@ -162,7 +170,7 @@ function flyToSpot(spot) {
   pushLoadout();
   setLaunchPoint(pt);
   populateControls();
-  if (live) goLive(pt);
+  return live ? goLive(pt) : null;
 }
 
 export function bindSpots() {

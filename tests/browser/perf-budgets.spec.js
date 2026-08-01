@@ -146,7 +146,17 @@ test.describe('performance budgets', () => {
    * chunk behind the fold toggle the way the brief already is. Verified at
    * this re-base that the split graph is intact (scene3d ×3, brief,
    * import-router, compile, adapter-contracts all still separate chunks). */
-  const ENTRY_BUDGET_KB = 187;
+  /* Re-based 187 → 191 at M14 wave D: the spot detail page and its forecast
+   * chart component, 187.4 on landing. Both sit behind the Library's spots
+   * card, which is entry-chunk shell. The claw-back here is the pair itself:
+   * the planner (L-03) cannot work without the network anyway — its whole
+   * job is a fresh forecast fetch — so spot-detail.js and forecast-chart.js
+   * could become a lazy chunk behind the roster's name button, with the
+   * click awaiting the import (mind the Chromium failed-import cache: the
+   * retry would have to reload, not re-import). Verified at this re-base
+   * that the split graph is intact (scene3d ×3, brief, import-router,
+   * compile, adapter-contracts all still separate chunks). */
+  const ENTRY_BUDGET_KB = 191;
   const SCENE3D_BUDGET_KB = 500;
 
   test('the built bundles are inside their gzip budgets', async () => {

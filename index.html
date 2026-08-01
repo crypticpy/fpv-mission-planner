@@ -774,6 +774,10 @@
       <div class="card-head"><h3>Saved spots</h3></div>
       <p class="card-sub">Your launch points, kept — with the elevation and rig you flew there. Fly here moves the pin;
         each spot also sits on the map as a small amber dot you can click.</p>
+      <!-- L-02/L-03: one spot's own page — facts, current sky, three-day
+           planner. render/spot-detail.js fills it and hides the roster and
+           save form below while it is open. -->
+      <div id="spot-detail" hidden></div>
       <div id="spots-list" class="spots-list"></div>
       <form id="spot-form" class="spot-form" autocomplete="off">
         <input id="spot-name" name="name" type="text" maxlength="60" placeholder="Name this spot" aria-label="Spot name">

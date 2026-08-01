@@ -1539,6 +1539,73 @@ body {
   .spot-form .map-btn { width: 100%; }
 }
 
+/* ---------- spot detail + forecast planner (M14, L-02/L-03) ---------- */
+
+/* The roster row's name doubles as the door to the spot's page — a real button
+   that still reads as the name it always was. */
+.spot-open {
+  background: none;
+  border: none;
+  padding: 0;
+  /* family only: .spot-name (earlier in this file) owns the size and weight,
+     and a `font` shorthand here would win the source-order tie and undo it */
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.spot-open:hover, .spot-open:focus-visible { color: var(--accent); text-decoration: underline; }
+
+.spot-back { display: inline-block; margin-bottom: var(--sp-2); }
+.spot-detail-head h4 {
+  margin: 0 0 2px;
+  font-family: var(--font-display);
+  font-size: 16px;
+  color: var(--ink);
+}
+.spot-detail-head .spot-meta { display: block; }
+.spot-detail-actions { display: flex; gap: var(--sp-2); margin: var(--sp-2) 0; }
+
+.spot-now-reading { margin: var(--sp-2) 0; font-size: 13px; color: var(--ink-2); }
+.spot-fetch-error { margin: var(--sp-2) 0 4px; font-size: 12.5px; color: var(--status-serious); }
+
+.spot-day-tabs, .spot-alt-toggle { display: flex; flex-wrap: wrap; gap: 6px; margin-top: var(--sp-2); }
+
+/* The chart itself: series colors by the app's fixed order — wind 1, gust 2,
+   rain 3, golden hour 4 — text and scaffolding in ink/grid tokens. */
+.fc-host { margin-top: var(--sp-2); }
+.forecast-chart-svg { display: block; width: 100%; height: auto; touch-action: pan-y; }
+.fc-grid { stroke: var(--grid); stroke-width: 1; }
+.fc-base { stroke: var(--baseline); stroke-width: 1; }
+.fc-axis { fill: var(--muted); font-family: var(--font-body); font-size: 10px; }
+.fc-wind { fill: none; stroke: var(--series-1); stroke-width: 2; stroke-linejoin: round; }
+.fc-gust { fill: var(--series-2); opacity: 0.22; }
+.fc-rain { fill: var(--series-3); opacity: 0.7; }
+.fc-gold-track { fill: var(--grid); }
+.fc-gold { fill: var(--series-4); }
+.fc-cursor { stroke: var(--ink); stroke-width: 1.25; opacity: 0.8; }
+.fc-cursor-dot { fill: var(--series-1); stroke: var(--surface-1); stroke-width: 2; }
+
+/* The accessible control under the picture, full width like the strip's. */
+#spot-hour { width: 100%; margin: 4px 0 0; }
+
+.fc-reading { margin: var(--sp-1) 0 0; font-size: 13px; color: var(--ink); }
+.fc-golden { margin: 2px 0 0; font-size: 12px; color: var(--muted); }
+.fc-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin: var(--sp-1) 0 0;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.fc-legend > span { display: inline-flex; align-items: center; gap: 5px; }
+.fc-dot { width: 8px; height: 8px; border-radius: 50%; }
+.fc-dot-wind { background: var(--series-1); }
+.fc-dot-gust { background: var(--series-2); opacity: 0.5; }
+.fc-dot-rain { background: var(--series-3); }
+.fc-dot-gold { background: var(--series-4); }
+#btn-spot-plan { margin-top: var(--sp-2); }
+
 /* Secondary pins: readable over satellite, never mistaken for the launch dot. */
 .spot-dot {
   width: 12px;
