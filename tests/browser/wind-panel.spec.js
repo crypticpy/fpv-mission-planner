@@ -20,6 +20,10 @@
 //     preset and the legend kept naming a height for a wind that was never
 //     read at one.
 //   * does the panel's door land on the Plan 2D map with the panel folded?
+//   * does a height-only resize — the mobile URL bar collapsing — re-measure
+//     the arrow canvas? The stage is viewport-relative and the canvas is
+//     stretched by CSS, so a backing store that missed the resize skews every
+//     bearing until the next render pass happens to run.
 //
 // The arrows are canvas pixels, so the one probe that touches them counts lit
 // pixels through getImageData rather than guessing at geometry. Everything
@@ -208,6 +212,72 @@ test.describe('the wind panel in a browser', () => {
     await expect.poll(() => litArrowPixels(page), {
       message: 'calm air left arrows on the map',
     }).toBe(0);
+
+    expect(errors, `console errors:\n${errors.join('\n')}`).toEqual([]);
+  });
+
+  test('a height-only resize re-measures the arrow canvas', async ({ context, page }) => {
+    test.setTimeout(90_000);
+    await stubExternals(context, { sky: {} });
+    const errors = watchConsole(page);
+    /* The masking this test once fell for: landing on the map schedules the
+     * debounced terrain fetches (analysis-host.js, 500 ms), and each answer
+     * ends in a full update() — a render pass that redraws the arrows and
+     * quietly heals exactly the staleness this test exists to catch. So wait
+     * for the app to stop asking the world questions before opening the
+     * window: after the last elevation answer the render passes settle, and
+     * from there nothing redraws the arrows but the code under test. */
+    let lastFetch = Date.now();
+    page.on('request', (r) => { if (r.url().includes('open-meteo.com')) lastFetch = Date.now(); });
+    await boot(page);
+
+    await page.locator('#tab-2d').click();
+    await expect(page.locator('#map-canvas.leaflet-container')).toBeVisible();
+    await expect.poll(() => litArrowPixels(page), {
+      message: 'the arrow canvas never lit a pixel under a 12 mph wind',
+    }).toBeGreaterThan(0);
+    await expect.poll(() => Date.now() - lastFetch, {
+      message: 'the app never went quiet after landing on the map',
+      timeout: 20_000,
+    }).toBeGreaterThan(1200);
+
+    /* The canvas's backing store against the box CSS stretches it over. Height
+     * only — the app's resize handler routes a width change through a full
+     * update(), and it is the cheap height-only path this test is about. */
+    const staleness = () => page.evaluate(() => {
+      const host = document.querySelector('#map-canvas');
+      const c = document.querySelector('#map-canvas canvas.wind-arrows');
+      if (!(host instanceof HTMLElement) || !(c instanceof HTMLCanvasElement)) return null;
+      const dpr = window.devicePixelRatio || 1;
+      return { store: c.height, box: Math.round(host.clientHeight * dpr) };
+    });
+
+    const before = await staleness();
+    expect(before, 'the arrow canvas is not on the map').not.toBeNull();
+    expect(before?.store).toBe(before?.box);
+
+    /* Same width, new height: the debounced handler in src/app.js takes the
+     * resizeMapView() branch and never runs a render pass — which is exactly
+     * the window the arrows used to go stale in. The stage height is
+     * viewport-relative (css/style.css), so the box really changes. */
+    const viewport = page.viewportSize();
+    if (!viewport) throw new Error('the test browser has no viewport to resize');
+    await page.setViewportSize({ width: viewport.width, height: viewport.height - 160 });
+
+    await expect.poll(async () => (await staleness())?.box, {
+      message: 'the stage never changed height under the viewport resize',
+    }).not.toBe(before?.box);
+    await expect.poll(async () => {
+      const now = await staleness();
+      return now ? now.box - now.store : null;
+    }, {
+      message: 'the arrow canvas backing store never re-measured after the height-only resize',
+    }).toBe(0);
+    // Re-measured and redrawn: setting a canvas dimension clears the bitmap, so
+    // a fix that resized without stroking would leave a blank, honest-looking canvas.
+    await expect.poll(() => litArrowPixels(page), {
+      message: 'the resize left the arrow canvas blank',
+    }).toBeGreaterThan(0);
 
     expect(errors, `console errors:\n${errors.join('\n')}`).toEqual([]);
   });

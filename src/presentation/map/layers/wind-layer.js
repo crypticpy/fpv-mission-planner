@@ -21,10 +21,15 @@
 // changes the OS setting mid-session gets the change on the next load, which
 // is what this has always done.
 //
-// `start` and `stop` sit beside the layer contract rather than inside it: an
-// animation is not a render, and the host is the only thing that knows the map
-// tab just went off screen. Frames are not burned behind a hidden panel. The
-// arrows redraw on render passes instead, which is when the wind can move.
+// `start`, `stop` and `resized` sit beside the layer contract rather than
+// inside it: an animation is not a render, and the host is the only thing that
+// knows the map tab just went off screen or the stage just changed shape.
+// Frames are not burned behind a hidden panel. The arrows redraw on render
+// passes, which is when the wind can move — and on `resized`, which is when the
+// box can: a height-only reflow (the mobile URL bar collapsing) stretches the
+// canvas by CSS before any render pass runs, and a stretched backing store
+// skews every bearing it shows. The particles never need the cue, because
+// their canvas re-measures every frame in tick().
 
 /**
  * @typedef {import('../map-adapter.js').ControlOverlay} ControlOverlay
@@ -35,7 +40,7 @@
 
 /** @typedef {{ x: number, y: number, life: number, jitter: number }} Particle */
 
-/** @typedef {MapLayer & { start: (adapter: MapAdapter) => void, stop: () => void }} WindLayer */
+/** @typedef {MapLayer & { start: (adapter: MapAdapter) => void, stop: () => void, resized: () => void }} WindLayer */
 
 /** Fallback when the theme has no `--wind-particle` of its own. */
 const PARTICLE_STROKE = 'rgba(190, 226, 255, 0.62)';
@@ -251,6 +256,12 @@ export function createWindLayer({ reducedMotion }) {
           levelM: frame.snapshot.advisories?.provenance?.wind?.levelM ?? null,
         });
       }
+    },
+
+    /** The host's cue that the stage changed shape without a render pass —
+     * see the header. Same wind, new box; drawArrows re-measures and redraws. */
+    resized() {
+      drawArrows();
     },
 
     start(adapter) {

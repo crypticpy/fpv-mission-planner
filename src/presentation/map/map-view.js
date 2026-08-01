@@ -178,9 +178,14 @@ export function pauseMapView() {
   windLayer.stop();
 }
 
-/** Cheap reflow for height-only resizes (mobile URL bar, keyboard) — no re-render. */
+/** Cheap reflow for height-only resizes (mobile URL bar, keyboard) — no render
+ * pass. The arrow canvas still gets the cue: it is screen-space and stretched by
+ * CSS, so a height change it never heard about skews every bearing it shows
+ * until the next pass. Re-measuring it here is one grid stroke per settled
+ * resize, not a per-frame render. */
 export function resizeMapView() {
   adapter?.resized();
+  windLayer.resized();
   if (mode === '3d') scene?.resized();
 }
 
