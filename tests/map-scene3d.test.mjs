@@ -3,14 +3,21 @@ import assert from 'node:assert/strict';
 
 import {
   DRAPE_LIFT_M,
+  GEOGRAPHIC_SPACE,
   SCENE_ZOOM_OFFSET,
+  boundsInSpace,
   boundsOf,
   buildRouteGeometry,
   buildShotGeometry,
+  cartesianSpace,
+  fromSpaceXY,
+  orthoExtentM,
   parseCssRgb,
   ringPositions,
   toFlatZoom,
+  toOrthoZoom,
   toSceneZoom,
+  toSpaceXY,
 } from '../src/presentation/map/scene3d/scene-geometry.js';
 
 /* The arithmetic behind the 3D scene, tested where it can be: without a GPU.
@@ -565,4 +572,229 @@ test('an empty scene is empty rather than absent', () => {
   const g = buildShotGeometry({ legs: [], subjects: [], selectedSegmentId: null },
     { segments: {}, exaggeration: 1, groundZAt: flatGround() });
   assert.deepEqual(g, { subjects: [], shots: [], frustum: null });
+});
+
+/* ---------- the frame the positions come out in (M12 wave B) ---------- */
+
+/* The builders learned a second coordinate space for the standalone
+ * orthographic view, whose viewport is not geospatial and reads plain metres.
+ * Everything above this line is the first space, and the first thing to prove is
+ * that it did not move: the test below was written and run against the source
+ * before the parameter existed, and it is a whole geometry rather than a spot
+ * check because "the MapLibre scene is unchanged" is the claim being made. */
+
+test('with no space named, a geometry is the lng/lat one it has always been', () => {
+  const geometry = buildRouteGeometry({
+    points: points(2),
+    waypointCount: 2,
+    returnMode: 'direct',
+    worstIndex: 1,
+    waypoints: waypoints(2),
+  }, {
+    // Only the first leg resolved, so both the altitude branch and the
+    // ground-draped one are in the answer.
+    segments: { s0: { index: 0, altitudeMslM: 250 } },
+    exaggeration: 1,
+    groundZAt: flatGround(),
+    launchElevMslM: 100,
+  });
+
+  // Longitude, latitude, metres up — and the two metres of drape lift on every
+  // vertex that came off the ground rather than off a solved altitude.
+  const launch = [0, 0, 100 + DRAPE_LIFT_M];
+  const w0 = [1, 0, 250];
+  const w1 = [2, 0, 100 + DRAPE_LIFT_M];
+
+  assert.deepEqual(geometry, {
+    vertices: [
+      { position: launch, resolved: true },
+      { position: w0, resolved: true },
+      { position: w1, resolved: false },
+    ],
+    runs: [
+      { resolved: true, phase: 'out', path: [launch, w0] },
+      { resolved: false, phase: 'out', path: [w0, w1] },
+      { resolved: false, phase: 'home', path: [w1, launch] },
+    ],
+    legs: [
+      { kind: 'leg', segmentId: 's0', path: [launch, w0], resolved: true, phase: 'out' },
+      { kind: 'leg', segmentId: null, path: [w0, w1], resolved: false, phase: 'out' },
+      { kind: 'leg', segmentId: null, path: [w1, launch], resolved: false, phase: 'home' },
+    ],
+    pins: [
+      { kind: 'waypoint', id: 'w0', index: 0, position: w0, resolved: true, worst: false, label: '1' },
+      { kind: 'waypoint', id: 'w1', index: 1, position: w1, resolved: false, worst: true, label: '2' },
+    ],
+    count: 2,
+  });
+});
+
+/* Metres per degree of latitude, restated from the sphere rather than read off
+ * the module: a projection checked against its own constant checks nothing. */
+const M_PER_DEG = (6371000 * Math.PI) / 180;
+
+/** Within a millimetre — floating point, not approximation, is the tolerance. */
+const closeTo = (a, b, tol = 1e-3) => Math.abs(a - b) < tol;
+
+test('a local frame is metres east and north of the launch point', () => {
+  const space = cartesianSpace({ lat: 30, lng: -97 });
+
+  // A degree of latitude is the same length everywhere on a sphere.
+  const [, north] = toSpaceXY(space, -97, 31);
+  assert.ok(closeTo(north, M_PER_DEG), `${north} m north`);
+
+  // A degree of longitude is that times the cosine of the latitude — 96.6 km at
+  // 30° north, and getting this wrong stretches the whole scene east–west by
+  // 15% with nothing on screen to say so.
+  const [east] = toSpaceXY(space, -96, 30);
+  assert.ok(closeTo(east, M_PER_DEG * Math.cos(Math.PI / 6)), `${east} m east`);
+
+  // The origin is the frame's zero, exactly.
+  assert.deepEqual(toSpaceXY(space, -97, 30), [0, 0]);
+  // South and west are negative: this is ENU, not a distance.
+  const [w, s] = toSpaceXY(space, -98, 29);
+  assert.ok(w < 0 && s < 0);
+});
+
+test('a click comes back off the local frame as the place on earth it was', () => {
+  const places = [
+    { lat: 30.2672, lng: -97.7431 },
+    { lat: 30.3, lng: -97.7 },
+    { lat: 30.2, lng: -97.8 },
+    { lat: 61.2181, lng: -149.9003 },
+  ];
+  for (const space of [GEOGRAPHIC_SPACE, cartesianSpace({ lat: 30.2672, lng: -97.7431 })]) {
+    for (const p of places) {
+      const [x, y] = toSpaceXY(space, p.lng, p.lat);
+      const back = fromSpaceXY(space, x, y);
+      assert.ok(closeTo(back.lat, p.lat, 1e-9) && closeTo(back.lng, p.lng, 1e-9),
+        `${space.kind}: ${back.lat},${back.lng}`);
+    }
+  }
+  // And the geographic frame is a pass-through rather than a projection at 1.0.
+  assert.deepEqual(toSpaceXY(GEOGRAPHIC_SPACE, -97.7431, 30.2672), [-97.7431, 30.2672]);
+});
+
+test('a ring drawn at one kilometre is one kilometre across the local frame', () => {
+  const from = { lat: 30, lng: -97 };
+  const space = cartesianSpace(from);
+  const ring = ringPositions(from, [0, 90, 180, 270], [1, 1, 1, 1], () => 400, space);
+
+  assert.equal(ring.length, 5, 'four vertices and the closing repeat');
+  for (const [x, y, z] of ring) {
+    // The radius survives the round trip through `destination` and back out of
+    // the projection — the reason the metres-per-degree constant is measured off
+    // that same sphere rather than restated.
+    assert.ok(closeTo(Math.hypot(x, y), 1000, 1), `${Math.hypot(x, y)} m from centre`);
+    // Ground height, and nothing added to it: the two metres of drape lift are
+    // MapLibre's z-fight, and there is no MapLibre here.
+    assert.equal(z, 400);
+  }
+});
+
+test('in the local frame a route is metres, and only a solved altitude is MSL', () => {
+  const input = {
+    points: points(2),
+    waypointCount: 2,
+    returnMode: 'direct',
+    worstIndex: 1,
+    waypoints: waypoints(2),
+  };
+  const opts = {
+    segments: { s0: { index: 0, altitudeMslM: 250 } },
+    exaggeration: 1,
+    groundZAt: flatGround(),
+    launchElevMslM: 100,
+  };
+  // The launch point is the origin, so the fixture's waypoints are one and two
+  // degrees due east of it at the equator, where a degree of longitude is a
+  // degree of latitude.
+  const cartesian = buildRouteGeometry(input, { ...opts, space: cartesianSpace(points(2)[0]) });
+  const [launch, w0, w1] = cartesian.vertices.map((v) => v.position);
+
+  assert.ok(closeTo(w0[0], M_PER_DEG) && closeTo(w1[0], 2 * M_PER_DEG), 'east in metres');
+  assert.deepEqual([launch[0], launch[1], w0[1], w1[1]], [0, 0, 0, 0], 'nothing off the axis');
+
+  // Z is metres MSL in both frames, and the drape lift is the difference: the
+  // resolved vertex is at its own altitude either way, and the two that came off
+  // the terrain sit on it here and two metres over it under MapLibre.
+  const geographic = buildRouteGeometry(input, opts).vertices.map((v) => v.position);
+  assert.deepEqual([launch[2], w0[2], w1[2]], [100, 250, 100]);
+  assert.deepEqual(geographic.map((p) => p[2]), [100 + DRAPE_LIFT_M, 250, 100 + DRAPE_LIFT_M]);
+
+  // Everything that is not a position is the same answer in both frames.
+  assert.deepEqual(cartesian.vertices.map((v) => v.resolved), [true, true, false]);
+  assert.equal(cartesian.count, 2);
+  assert.deepEqual(cartesian.pins.map((p) => p.label), ['1', '2']);
+});
+
+test('the frustum is the same pyramid in the local frame, without the geodesic', () => {
+  const space = cartesianSpace({ lat: 0, lng: 0 });
+  const build = (over) => buildShotGeometry({
+    legs: [leg(over.leg ?? {})], subjects: [subject()], selectedSegmentId: 'seg-0',
+  }, {
+    segments: { 'seg-0': { shot: shotOf() } },
+    exaggeration: 1,
+    groundZAt: flatGround(),
+    space: over.space,
+  });
+
+  const geographic = build({});
+  // The same leg, handed over in the frame the caller is drawing in: the apex is
+  // the midpoint of whatever path it was given.
+  const local = build({ space, leg: { path: [[0, 0, 100], [0.002 * M_PER_DEG, 0, 100]] } });
+
+  // A measured subject stands at its own height in metres east and north.
+  assert.deepEqual(local.subjects[0].position.map((n) => Math.round(n * 1e3) / 1e3),
+    [Math.round(0.001 * M_PER_DEG * 1e3) / 1e3, Math.round(0.001 * M_PER_DEG * 1e3) / 1e3, 220]);
+
+  // And every corner of the frame lands where the geodesic put it, read in the
+  // other frame's units — the flat offset is not a different pyramid.
+  assert.equal(local.frustum.outline.length, geographic.frustum.outline.length);
+  geographic.frustum.outline.forEach((want, i) => {
+    const [x, y] = toSpaceXY(space, want[0], want[1]);
+    const got = local.frustum.outline[i];
+    assert.ok(closeTo(got[0], x, 0.01) && closeTo(got[1], y, 0.01), `corner ${i}: ${got}`);
+    assert.equal(got[2], want[2], `corner ${i} height`);
+  });
+});
+
+/* ---------- the third zoom numbering ---------- */
+
+test('an orbit zoom is the scale that puts the mission across the viewport', () => {
+  // 5 km of ground across 1250 px is 0.25 px per metre — log2(1/4) = −2. Not a
+  // tile zoom, and a level away from being one is a factor of two in scale.
+  assert.equal(toOrthoZoom(5000, 1250), -2);
+  assert.equal(orthoExtentM(-2, 1250), 5000);
+  // One metre per pixel is zoom 0, whatever the viewport.
+  assert.equal(toOrthoZoom(800, 800), 0);
+
+  for (const [m, px] of [[250, 1000], [5000, 1250], [1, 1], [37000, 640]]) {
+    assert.ok(closeTo(orthoExtentM(toOrthoZoom(m, px), px), m, 1e-6), `${m} m over ${px} px`);
+  }
+
+  // Nothing to frame is no answer rather than a camera at infinity.
+  for (const bad of [0, -1, NaN, Infinity]) {
+    assert.equal(toOrthoZoom(bad, 1000), null);
+    assert.equal(toOrthoZoom(1000, bad), null);
+  }
+  assert.equal(orthoExtentM(NaN, 1000), null);
+  assert.equal(orthoExtentM(0, 0), null);
+});
+
+test('an extent in the local frame is what the orbit camera is framed on', () => {
+  const from = { lat: 30, lng: -97 };
+  const bounds = boundsOf([from, { lat: 30.01, lng: -96.99 }]);
+  const extent = boundsInSpace(bounds, cartesianSpace(from));
+
+  assert.deepEqual(extent.min, [0, 0], 'the origin is the south-west corner here');
+  assert.ok(closeTo(extent.height, 0.01 * M_PER_DEG), `${extent.height} m tall`);
+  assert.ok(closeTo(extent.width, 0.01 * M_PER_DEG * Math.cos(Math.PI / 6)));
+  assert.deepEqual(extent.centre, [extent.width / 2, extent.height / 2]);
+
+  // And in the geographic frame it is the same extent in degrees, so the one
+  // `boundsOf` both hosts share does not have to change shape.
+  const degrees = boundsInSpace(bounds, GEOGRAPHIC_SPACE);
+  assert.deepEqual(degrees.min, [-97, 30]);
+  assert.ok(closeTo(degrees.width, 0.01, 1e-9) && closeTo(degrees.height, 0.01, 1e-9));
 });

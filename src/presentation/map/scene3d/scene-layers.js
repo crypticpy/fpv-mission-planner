@@ -25,11 +25,13 @@
 //     to a hairline at 70° of pitch, which is most of why anyone pitches); the
 //     footprint rings and the unresolved legs lie flat, where flat is correct.
 
+import { COORDINATE_SYSTEM } from '@deck.gl/core';
 import { PathLayer, PolygonLayer, ScatterplotLayer, TextLayer } from '@deck.gl/layers';
 
 import { ADVISORY_CLASS_STYLE, advisoryZones } from '../layers/advisory-layer.js';
 import {
-  DRAPE_LIFT_M, buildRouteGeometry, buildShotGeometry, parseCssRgb, ringPositions,
+  GEOGRAPHIC_SPACE, buildRouteGeometry, buildShotGeometry, parseCssRgb, ringPositions,
+  spacePosition,
 } from './scene-geometry.js';
 
 /**
@@ -38,6 +40,7 @@ import {
  * @typedef {import('./scene-geometry.js').PathRun} PathRun
  * @typedef {import('./scene-geometry.js').RouteLeg3} RouteLeg3
  * @typedef {import('./scene-geometry.js').RoutePin} RoutePin
+ * @typedef {import('./scene-geometry.js').SceneSpace} SceneSpace
  * @typedef {import('./scene-geometry.js').SceneSubject3} SceneSubject3
  * @typedef {import('./scene-geometry.js').ShotGeometry} ShotGeometry
  */
@@ -68,7 +71,41 @@ import {
  * @property {ScenePalette} palette
  * @property {number} exaggeration
  * @property {(lng: number, lat: number) => number|null} groundZAt
+ * @property {SceneSpace} [space]  the frame the host draws in; MapLibre's by
+ *   default, which is the only one that existed before M12
  */
+
+/**
+ * The two props a layer carries only when it is drawn by a standalone Deck.
+ *
+ * `OrbitViewport` is not geospatial, so a layer under it reads its positions as
+ * plain Cartesian numbers rather than as lng/lat. And a standalone Deck on WebGL
+ * gets no depth state at all: deck applies its own draw parameters only when the
+ * device is WebGPU, and every deck layer this app has drawn until now has been
+ * interleaved into MapLibre, which had already configured depth for its terrain
+ * pass. Both failures are silent and both look plausible — the second one draws
+ * a route straight through a mountain (spike/ortho/SPIKE-VERDICT.md, "Risks").
+ *
+ * One object, shared: deck reads these and does not write them, and an identical
+ * reference across a pass is one fewer prop that looks like it changed.
+ */
+const CARTESIAN_LAYER_PROPS = Object.freeze({
+  coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
+  parameters: Object.freeze({ depthWriteEnabled: true, depthCompare: 'less-equal' }),
+});
+
+/**
+ * …and nothing at all in the geographic frame.
+ *
+ * Null rather than deck's defaults spelled out. The MapLibre-hosted layers are
+ * the ones that work today, and the only change this parameter is allowed to
+ * make to them is none — `tests/map-scene3d-layers.test.mjs` asserts the absence.
+ *
+ * @param {SceneSpace} space
+ */
+function spaceProps(space) {
+  return space.kind === 'cartesian' ? CARTESIAN_LAYER_PROPS : null;
+}
 
 /** Falls back to the dark theme's own values, so a missing variable is still a map. */
 const FALLBACK = /** @type {Record<Exclude<keyof ScenePalette, 'advisory'>, Rgb>} */ ({
@@ -146,12 +183,16 @@ function advisoryColors(cs) {
  */
 export function buildSceneLayers(frame, ctx) {
   const { palette } = ctx;
+  /* Resolved once and passed down rather than read from `ctx` in seven places:
+   * the frame a scene is drawn in is one decision, and a helper that defaulted
+   * it for itself could disagree with its siblings about which world it is in. */
+  const space = ctx.space ?? GEOGRAPHIC_SPACE;
   const layers = [];
 
   // Under everything: the zones are about the ground, and the plan is drawn on
   // top of the ground in both engines.
-  layers.push(...advisoryLayers(frame, ctx));
-  layers.push(...footprintLayers(frame, ctx));
+  layers.push(...advisoryLayers(frame, ctx, space));
+  layers.push(...footprintLayers(frame, ctx, space));
 
   const route = frame.snapshot.route;
   const geometry = (frame.routeMode && route && !route.empty)
@@ -169,11 +210,13 @@ export function buildSceneLayers(frame, ctx) {
       exaggeration: ctx.exaggeration,
       groundZAt: ctx.groundZAt,
       launchElevMslM: frame.env?.elevM ?? null,
+      space,
     })
     : { vertices: [], runs: [], legs: [], pins: [], count: 0 };
 
   const routeColor = route?.fits === false ? palette.routeCritical : palette.route;
-  layers.push(...routeLayers(geometry, routeColor, palette, frame.selectedSegmentId ?? null));
+  layers.push(
+    ...routeLayers(geometry, routeColor, palette, frame.selectedSegmentId ?? null, space));
 
   /* What the flight is filming, over the flight itself. The shot lines and the
    * frustum are drawn off the same `legs` the route was, so a leg and the shot
@@ -186,13 +229,14 @@ export function buildSceneLayers(frame, ctx) {
     segments: frame.snapshot.segments ?? {},
     exaggeration: ctx.exaggeration,
     groundZAt: ctx.groundZAt,
-  }), palette));
+    space,
+  }), palette, space));
 
   /* The launch pin last-but-one and the numbers last: in a pitched view the pins
    * are what the pilot points at, and a pin behind a ribbon is a pin they cannot
    * click. Depth still decides what a *hill* hides. */
-  layers.push(launchLayer(frame, ctx));
-  layers.push(...pinLayers(geometry.pins, palette));
+  layers.push(launchLayer(frame, ctx, space));
+  layers.push(...pinLayers(geometry.pins, palette, space));
 
   return layers;
 }
@@ -214,17 +258,18 @@ export function buildSceneLayers(frame, ctx) {
  *
  * @param {MapFrame} frame
  * @param {SceneContext} ctx
+ * @param {SceneSpace} space
  */
-function advisoryLayers(frame, ctx) {
+function advisoryLayers(frame, ctx, space) {
   if (frame.advisoryVisible === false) return [];
   const zones = advisoryZones(frame.snapshot.advisories);
   if (!zones?.fills.length) return [];
 
   const data = zones.fills.map((fill) => ({
     classId: fill.classId,
-    polygon: fill.corners.map((corner) => [
-      corner.lng, corner.lat, cornerZ(corner, fill.elevM, ctx),
-    ]),
+    polygon: fill.corners.map((corner) => spacePosition(
+      space, corner.lng, corner.lat, cornerZ(corner, fill.elevM, ctx, space),
+    )),
   }));
 
   /** @param {{ classId: string }} d */
@@ -252,6 +297,7 @@ function advisoryLayers(frame, ctx) {
     lineWidthMinPixels: 1,
     // A wash over the terrain: the pilot picks routes and pins, not ground.
     pickable: false,
+    ...spaceProps(space),
   })];
 }
 
@@ -263,14 +309,15 @@ function advisoryLayers(frame, ctx) {
  * @param {LatLng} at
  * @param {number|null} elevM
  * @param {SceneContext} ctx
+ * @param {SceneSpace} space
  * @returns {number}
  */
-function cornerZ(at, elevM, ctx) {
+function cornerZ(at, elevM, ctx, space) {
   const ground = ctx.groundZAt(at.lng, at.lat);
   const fallback = typeof elevM === 'number' && Number.isFinite(elevM)
     ? elevM * ctx.exaggeration
     : 0;
-  return (ground ?? fallback) + DRAPE_LIFT_M;
+  return (ground ?? fallback) + space.drapeLiftM;
 }
 
 /**
@@ -283,8 +330,9 @@ function cornerZ(at, elevM, ctx) {
  *
  * @param {MapFrame} frame
  * @param {SceneContext} ctx
+ * @param {SceneSpace} space
  */
-function footprintLayers(frame, ctx) {
+function footprintLayers(frame, ctx, space) {
   const { footprint } = frame.snapshot;
   if (!footprint) return [];
 
@@ -296,9 +344,11 @@ function footprintLayers(frame, ctx) {
    * follows, so a ring can never be drawn around a place it was not computed
    * for. */
   const from = footprint.launch;
+  const spatial = spaceProps(space);
   const out = [];
 
-  const best = ringPositions(from, footprint.bestCourses, footprint.bestRadii, ctx.groundZAt);
+  const best = ringPositions(
+    from, footprint.bestCourses, footprint.bestRadii, ctx.groundZAt, space);
   if (best.length > 1) {
     out.push(new PathLayer({
       id: 'footprint-best',
@@ -310,11 +360,13 @@ function footprintLayers(frame, ctx) {
       widthMinPixels: 2,
       billboard: false,
       pickable: false,
+      ...spatial,
     }));
   }
 
   if (anyReal) {
-    const planned = ringPositions(from, footprint.courses, footprint.radii, ctx.groundZAt);
+    const planned = ringPositions(
+      from, footprint.courses, footprint.radii, ctx.groundZAt, space);
     if (planned.length > 1) {
       out.push(new PathLayer({
         id: 'footprint-planned-casing',
@@ -326,6 +378,7 @@ function footprintLayers(frame, ctx) {
         widthMinPixels: 5,
         billboard: false,
         pickable: false,
+        ...spatial,
       }));
       out.push(new PathLayer({
         id: 'footprint-planned',
@@ -337,6 +390,7 @@ function footprintLayers(frame, ctx) {
         widthMinPixels: 2.5,
         billboard: false,
         pickable: false,
+        ...spatial,
       }));
     }
   }
@@ -363,14 +417,16 @@ function footprintLayers(frame, ctx) {
  * @param {Rgb} color
  * @param {ScenePalette} palette
  * @param {string|null} selectedSegmentId
+ * @param {SceneSpace} space
  */
-function routeLayers(geometry, color, palette, selectedSegmentId) {
+function routeLayers(geometry, color, palette, selectedSegmentId, space) {
   const casing = geometry.runs.filter((r) => r.resolved);
   const air = geometry.legs.filter((l) => l.resolved);
   const ground = geometry.legs.filter((l) => !l.resolved);
   const chosen = selectedSegmentId
     ? geometry.legs.filter((l) => l.segmentId === selectedSegmentId)
     : [];
+  const spatial = spaceProps(space);
   const out = [];
 
   /** @param {{ phase: 'out'|'home' }} d */
@@ -389,6 +445,7 @@ function routeLayers(geometry, color, palette, selectedSegmentId) {
       jointRounded: true,
       capRounded: true,
       pickable: false,
+      ...spatial,
     }));
   }
 
@@ -413,6 +470,7 @@ function routeLayers(geometry, color, palette, selectedSegmentId) {
       jointRounded: true,
       capRounded: true,
       pickable: false,
+      ...spatial,
     }));
   }
 
@@ -433,6 +491,7 @@ function routeLayers(geometry, color, palette, selectedSegmentId) {
       // The pick is what opens the inspector; scene.js reads `kind` and
       // `segmentId` off the datum and raises `frame.actions.selectSegment`.
       pickable: true,
+      ...spatial,
     }));
   }
 
@@ -451,6 +510,7 @@ function routeLayers(geometry, color, palette, selectedSegmentId) {
       jointRounded: true,
       capRounded: true,
       pickable: true,
+      ...spatial,
     }));
   }
 
@@ -476,8 +536,10 @@ function routeLayers(geometry, color, palette, selectedSegmentId) {
  *
  * @param {ShotGeometry} shot
  * @param {ScenePalette} palette
+ * @param {SceneSpace} space
  */
-function shotLayers(shot, palette) {
+function shotLayers(shot, palette, space) {
+  const spatial = spaceProps(space);
   const out = [];
 
   /* Under the markers: the pyramid is context for the line, and the line is
@@ -502,6 +564,7 @@ function shotLayers(shot, palette) {
       jointRounded: true,
       capRounded: true,
       pickable: false,
+      ...spatial,
     }));
   }
 
@@ -528,10 +591,11 @@ function shotLayers(shot, palette) {
         getColor: data.map((d) => d.selected).join(),
         getWidth: data.map((d) => d.selected).join(),
       },
+      ...spatial,
     }));
   }
 
-  out.push(...subjectLayers(shot.subjects, palette));
+  out.push(...subjectLayers(shot.subjects, palette, space));
   return out;
 }
 
@@ -547,9 +611,11 @@ function shotLayers(shot, palette) {
  *
  * @param {SceneSubject3[]} subjects
  * @param {ScenePalette} palette
+ * @param {SceneSpace} space
  */
-function subjectLayers(subjects, palette) {
+function subjectLayers(subjects, palette, space) {
   if (!subjects.length) return [];
+  const spatial = spaceProps(space);
   const stamp = subjects.map((s) => `${s.framed}${s.resolved}`).join();
   return [
     new ScatterplotLayer({
@@ -571,6 +637,7 @@ function subjectLayers(subjects, palette) {
       billboard: true,
       pickable: false,
       updateTriggers: { getFillColor: stamp },
+      ...spatial,
     }),
     new TextLayer({
       id: 'subject-labels',
@@ -590,6 +657,7 @@ function subjectLayers(subjects, palette) {
       billboard: true,
       pickable: false,
       updateTriggers: { getText: subjects.map((s) => s.name).join('\0') },
+      ...spatial,
     }),
   ];
 }
@@ -599,8 +667,9 @@ function subjectLayers(subjects, palette) {
  * `pickObject`, and `kind` is how the pick tells a pad from a waypoint.
  * @param {MapFrame} frame
  * @param {SceneContext} ctx
+ * @param {SceneSpace} space
  */
-function launchLayer(frame, ctx) {
+function launchLayer(frame, ctx, space) {
   const z = ctx.groundZAt(frame.launch.lng, frame.launch.lat);
   const elev = frame.env?.elevM;
   const fallback = typeof elev === 'number' && Number.isFinite(elev) ? elev * ctx.exaggeration : 0;
@@ -608,7 +677,8 @@ function launchLayer(frame, ctx) {
     id: 'launch',
     data: [{
       kind: 'launch',
-      position: [frame.launch.lng, frame.launch.lat, (z ?? fallback) + 2],
+      position: spacePosition(
+        space, frame.launch.lng, frame.launch.lat, (z ?? fallback) + space.drapeLiftM),
     }],
     getPosition: (d) => d.position,
     getFillColor: [...ctx.palette.launch, 255],
@@ -623,6 +693,7 @@ function launchLayer(frame, ctx) {
     // Faces the camera at every pitch, like the CSS dot it stands in for.
     billboard: true,
     pickable: true,
+    ...spaceProps(space),
   });
 }
 
@@ -632,9 +703,11 @@ function launchLayer(frame, ctx) {
  * bridge has to special-case.
  * @param {RoutePin[]} pins
  * @param {ScenePalette} palette
+ * @param {SceneSpace} space
  */
-function pinLayers(pins, palette) {
+function pinLayers(pins, palette, space) {
   if (!pins.length) return [];
+  const spatial = spaceProps(space);
   return [
     new ScatterplotLayer({
       id: 'waypoints',
@@ -659,6 +732,7 @@ function pinLayers(pins, palette) {
       pickable: true,
       // Recolour on a verdict change without rebuilding the buffers.
       updateTriggers: { getFillColor: pins.map((p) => `${p.worst}${p.resolved}`).join() },
+      ...spatial,
     }),
     new TextLayer({
       id: 'waypoint-labels',
@@ -674,6 +748,7 @@ function pinLayers(pins, palette) {
       characterSet: '0123456789',
       billboard: true,
       pickable: false,
+      ...spatial,
     }),
   ];
 }

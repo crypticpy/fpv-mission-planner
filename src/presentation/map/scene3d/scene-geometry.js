@@ -6,7 +6,7 @@
 // assert the two things a 3D route can get quietly wrong (the zoom handover and
 // the altitude of a vertex nobody resolved) without a GPU.
 //
-// Three ideas carry the whole file.
+// Four ideas carry the whole file.
 //
 //   *The zoom offset is real, not cosmetic.* Leaflet counts a zoom level as
 //     256 px of world per tile; MapLibre's camera counts 512. The same view is
@@ -24,6 +24,15 @@
 //     the ground, and the segments touching it are flagged so the scene can draw
 //     them in a muted style. It must never be possible to read a confirmed
 //     height off a leg the analysis could not place.
+//
+//   *Two coordinate spaces, one set of builders.* MapLibre's viewport is
+//     geospatial, so a position is `[lng, lat, z]` and the engine projects it.
+//     deck's `OrbitViewport` — the standalone orthographic view — reports
+//     `isGeospatial === false` and projects nothing: every layer under it is
+//     `COORDINATE_SYSTEM.CARTESIAN` in local metres about an origin
+//     (spike/ortho/SPIKE-VERDICT.md, "Risks"). So the frame is a parameter and
+//     not a fork. A second copy of this arithmetic would be a second answer to
+//     where a waypoint is, and the two would drift the first time one was fixed.
 
 import { destination } from '../../../domain/geo.js';
 import { frustumCorners } from '../../../domain/camera.js';
@@ -39,7 +48,10 @@ import { routeSpans, segmentIdOrder, worstPinIndex } from '../layers/route-layer
  * @typedef {import('../../../domain/camera.js').Point3} Point3
  */
 
-/** A deck.gl vertex: longitude, latitude, metres up — in that order. */
+/**
+ * A deck.gl vertex, in whichever space built it: `[lng, lat, z]` under MapLibre,
+ * `[eastM, northM, z]` under an OrbitViewport. Z is metres up in both.
+ */
 /** @typedef {[number, number, number]} Position3 */
 
 /**
@@ -169,6 +181,42 @@ export const toSceneZoom = (flatZoom) => flatZoom - SCENE_ZOOM_OFFSET;
 export const toFlatZoom = (sceneZoom) => sceneZoom + SCENE_ZOOM_OFFSET;
 
 /**
+ * An `OrbitViewport`'s zoom, from the ground it has to show.
+ *
+ * A third numbering, and the offset above does not reach it. Leaflet and
+ * MapLibre both count tiles; an orbit viewport has no pyramid behind it, so its
+ * `zoom` is log2 of the scale about the target — `2 ** zoom` pixels per world
+ * unit, and this scene's world unit is the metre. A 5 km mission across 1250 px
+ * is zoom −2, not "z14", and handing an orbit camera a tile zoom would frame it
+ * light-years out.
+ *
+ * Null where there is nothing to frame rather than a camera at infinity: a
+ * single-waypoint mission has no extent, and the host keeps the zoom it had.
+ *
+ * @param {number} groundExtentM  the longer side of what must be on screen
+ * @param {number} viewportPx     the matching side of the canvas, padding removed
+ * @returns {number|null}
+ */
+export function toOrthoZoom(groundExtentM, viewportPx) {
+  if (!Number.isFinite(groundExtentM) || groundExtentM <= 0) return null;
+  if (!Number.isFinite(viewportPx) || viewportPx <= 0) return null;
+  return Math.log2(viewportPx / groundExtentM);
+}
+
+/**
+ * The inverse: how much ground, in metres, a zoom puts across a viewport.
+ *
+ * @param {number} orthoZoom
+ * @param {number} viewportPx
+ * @returns {number|null}
+ */
+export function orthoExtentM(orthoZoom, viewportPx) {
+  if (!Number.isFinite(orthoZoom)) return null;
+  if (!Number.isFinite(viewportPx) || viewportPx <= 0) return null;
+  return viewportPx / 2 ** orthoZoom;
+}
+
+/**
  * How far above the sampled surface anything ground-draped is drawn.
  *
  * Two metres, and it is not a fudge for a wrong elevation: a path lying exactly
@@ -177,6 +225,160 @@ export const toFlatZoom = (sceneZoom) => sceneZoom + SCENE_ZOOM_OFFSET;
  * camera this scene allows, large enough to win the depth test.
  */
 export const DRAPE_LIFT_M = 2;
+
+/**
+ * Which frame a position comes out in.
+ *
+ * Carried as a value rather than read from a flag so that the choice is made
+ * once, by the host, and every builder below is handed the same answer. The
+ * geographic frame is the default everywhere, and its arm of every branch is
+ * arithmetically nothing — a scene built for MapLibre is the same array of
+ * numbers it was before this parameter existed.
+ *
+ * @typedef {object} SceneSpace
+ * @property {'geographic'|'cartesian'} kind
+ * @property {LatLng|null} origin  the local frame's zero; null in geographic,
+ *   where there is nothing to be local to
+ * @property {number} mPerDegLng   metres of easting per degree of longitude at
+ *   `origin`'s latitude; 0 in geographic, where nothing is projected
+ * @property {number} drapeLiftM   how far a ground-hugging vertex is raised
+ */
+
+/**
+ * An extent in one space's own units.
+ *
+ * Not named for metres, because in the geographic frame they are degrees. It is
+ * the cartesian frame that asks this question — `centre` is an `OrbitView`'s
+ * target and the longer side is what `toOrthoZoom` takes.
+ *
+ * @typedef {object} SpaceBounds
+ * @property {[number, number]} min     the south-west corner
+ * @property {[number, number]} max     the north-east corner
+ * @property {[number, number]} centre
+ * @property {number} width
+ * @property {number} height
+ */
+
+/**
+ * Metres per degree of latitude, on the sphere `destination` flies over.
+ *
+ * Measured off it rather than restated as 111,320 or 111,195, so the two cannot
+ * disagree: a ring placed by `destination` at r km and then read back in a local
+ * frame is r km from its centre, which is the whole point of drawing it. A
+ * degree of longitude is this times cos(lat) — the equirectangular
+ * approximation, exact north–south and a few centimetres out east–west over the
+ * kilometres a battery buys. It is the wrong projection for a continent; nothing
+ * this scene draws is one.
+ */
+const M_PER_DEG_LAT = 1000 / destination(0, 0, 0, 1)[0];
+
+/** The MapLibre host's frame: `[lng, lat, z]`, and the default everywhere. */
+export const GEOGRAPHIC_SPACE = /** @type {SceneSpace} */ (Object.freeze({
+  kind: 'geographic',
+  origin: null,
+  mPerDegLng: 0,
+  drapeLiftM: DRAPE_LIFT_M,
+}));
+
+/**
+ * A local ENU frame about `origin`: X metres east, Y metres north, Z metres MSL
+ * — times whatever exaggeration the host is drawing its terrain at, exactly as
+ * in the geographic frame, which for a true-scale mesh is 1.
+ *
+ * The origin is the launch point, and it belongs to the host for the life of the
+ * scene rather than being re-derived per frame: it is the one place in a mission
+ * every other number is already measured from (the footprint sweeps from it, the
+ * route starts at it), and moving it slides the whole world under a camera that
+ * has not moved.
+ *
+ * `drapeLiftM` is zero here, and that is a reading of what the lift is for
+ * rather than an omission. The two metres beat z-fighting against *MapLibre's*
+ * draped terrain mesh under the cameras this scene allows; a standalone Deck
+ * has no basemap to drape and builds its own mesh from its own height grid
+ * (spike/ortho/SPIKE-VERDICT.md, option B), so what a ground-hugging vertex
+ * needs to clear there is that mesh's business and not this frame's.
+ *
+ * @param {LatLng} origin
+ * @returns {SceneSpace}
+ */
+export function cartesianSpace(origin) {
+  return {
+    kind: 'cartesian',
+    origin: { lat: origin.lat, lng: origin.lng },
+    mPerDegLng: M_PER_DEG_LAT * Math.cos(origin.lat * Math.PI / 180),
+    drapeLiftM: 0,
+  };
+}
+
+/**
+ * A point in the space's own units: `[lng, lat]`, or metres east and north.
+ *
+ * @param {SceneSpace} space
+ * @param {number} lng
+ * @param {number} lat
+ * @returns {[number, number]}
+ */
+export function toSpaceXY(space, lng, lat) {
+  const origin = space.origin;
+  if (space.kind !== 'cartesian' || !origin) return [lng, lat];
+  return [(lng - origin.lng) * space.mPerDegLng, (lat - origin.lat) * M_PER_DEG_LAT];
+}
+
+/**
+ * Back out again, because a click is a place on the earth wherever it landed.
+ *
+ * @param {SceneSpace} space
+ * @param {number} x
+ * @param {number} y
+ * @returns {LatLng}
+ */
+export function fromSpaceXY(space, x, y) {
+  const origin = space.origin;
+  if (space.kind !== 'cartesian' || !origin) return { lat: y, lng: x };
+  return {
+    lat: origin.lat + y / M_PER_DEG_LAT,
+    lng: origin.lng + x / space.mPerDegLng,
+  };
+}
+
+/**
+ * One vertex: a geographic point and a height, in the space that will draw it.
+ *
+ * @param {SceneSpace} space
+ * @param {number} lng
+ * @param {number} lat
+ * @param {number} z
+ * @returns {Position3}
+ */
+export function spacePosition(space, lng, lat, z) {
+  const [x, y] = toSpaceXY(space, lng, lat);
+  return [x, y, z];
+}
+
+/**
+ * A geographic extent, in the space that will draw it.
+ *
+ * `boundsOf` stays geographic and this is the step after it, rather than a
+ * second return shape on the same function: `LatLngBounds` is the vocabulary
+ * `SceneHandle.fit` is written in and both hosts share it
+ * (spike/ortho/SPIKE-VERDICT.md, "Integration sketch"), so a bounds that changed
+ * shape with the frame would make one seam into two.
+ *
+ * @param {LatLngBounds} bounds
+ * @param {SceneSpace} space
+ * @returns {SpaceBounds}
+ */
+export function boundsInSpace(bounds, space) {
+  const [x0, y0] = toSpaceXY(space, bounds.southWest.lng, bounds.southWest.lat);
+  const [x1, y1] = toSpaceXY(space, bounds.northEast.lng, bounds.northEast.lat);
+  return {
+    min: [x0, y0],
+    max: [x1, y1],
+    centre: [(x0 + x1) / 2, (y0 + y1) / 2],
+    width: x1 - x0,
+    height: y1 - y0,
+  };
+}
 
 /**
  * The route as three drawable things: vertices, runs of line between them, and
@@ -200,11 +402,14 @@ export const DRAPE_LIFT_M = 2;
  * @param {(lng: number, lat: number) => number|null} opts.groundZAt  already
  *   exaggerated, as MapLibre reports it
  * @param {number|null} opts.launchElevMslM  true MSL, used only if the ground is silent
+ * @param {SceneSpace} [opts.space]  which frame the positions come out in
  * @returns {RouteGeometry}
  */
 export function buildRouteGeometry(input, opts) {
   const { points, waypointCount, returnMode, worstIndex, waypoints } = input;
-  const { segments, exaggeration, groundZAt, launchElevMslM } = opts;
+  const {
+    segments, exaggeration, groundZAt, launchElevMslM, space = GEOGRAPHIC_SPACE,
+  } = opts;
 
   const empty = /** @type {RouteGeometry} */
     ({ vertices: [], runs: [], legs: [], pins: [], count: 0 });
@@ -225,7 +430,7 @@ export function buildRouteGeometry(input, opts) {
   const draped = (p) => {
     const ground = groundZAt(p.lng, p.lat);
     return {
-      position: [p.lng, p.lat, (ground ?? 0) + DRAPE_LIFT_M],
+      position: spacePosition(space, p.lng, p.lat, (ground ?? 0) + space.drapeLiftM),
       resolved: false,
     };
   };
@@ -243,7 +448,7 @@ export function buildRouteGeometry(input, opts) {
     : null;
   const launchZ = launchGround ?? launchFallback;
   vertices.push({
-    position: [points[0].lng, points[0].lat, (launchZ ?? 0) + DRAPE_LIFT_M],
+    position: spacePosition(space, points[0].lng, points[0].lat, (launchZ ?? 0) + space.drapeLiftM),
     resolved: launchZ != null,
   });
 
@@ -251,7 +456,10 @@ export function buildRouteGeometry(input, opts) {
     const authored = worstPinIndex(k - 1, n, returnMode);
     const msl = authored != null ? mslByIndex.get(authored) : undefined;
     if (msl == null) { vertices.push(draped(points[k])); continue; }
-    vertices.push({ position: [points[k].lng, points[k].lat, msl * exaggeration], resolved: true });
+    vertices.push({
+      position: spacePosition(space, points[k].lng, points[k].lat, msl * exaggeration),
+      resolved: true,
+    });
   }
 
   /* The same split the 2D layer draws: everything up to the far waypoint is the
@@ -365,11 +573,12 @@ function runsOf(vs, phase) {
  * @param {Record<string, ShotSource>} opts.segments
  * @param {number} opts.exaggeration
  * @param {(lng: number, lat: number) => number|null} opts.groundZAt
+ * @param {SceneSpace} [opts.space]  which frame the positions come out in
  * @returns {ShotGeometry}
  */
 export function buildShotGeometry(input, opts) {
   const { legs, subjects, selectedSegmentId } = input;
-  const { segments, exaggeration, groundZAt } = opts;
+  const { segments, exaggeration, groundZAt, space = GEOGRAPHIC_SPACE } = opts;
 
   const selected = selectedSegmentId ?? null;
   const framedId = selected ? segments?.[selected]?.shot?.subjectId ?? null : null;
@@ -385,11 +594,12 @@ export function buildShotGeometry(input, opts) {
       kind: 'subject',
       id: s.id,
       name: s.name,
-      position: /** @type {Position3} */ ([
+      position: spacePosition(
+        space,
         s.lng,
         s.lat,
-        msl != null ? msl * exaggeration : (groundZAt(s.lng, s.lat) ?? 0) + DRAPE_LIFT_M,
-      ]),
+        msl != null ? msl * exaggeration : (groundZAt(s.lng, s.lat) ?? 0) + space.drapeLiftM,
+      ),
       resolved: msl != null,
       framed: s.id === framedId,
     });
@@ -423,7 +633,8 @@ export function buildShotGeometry(input, opts) {
       selected: isSelected,
     });
     if (isSelected && !frustum) {
-      frustum = frustumOf(id, apex, shot, source?.camera ?? null, exaggeration, leg.resolved);
+      frustum = frustumOf(
+        id, apex, shot, source?.camera ?? null, exaggeration, leg.resolved, space);
     }
   }
 
@@ -463,9 +674,10 @@ function midpointOf(path) {
  * @param {SegmentCamera|null} camera
  * @param {number} exaggeration
  * @param {boolean} resolved
+ * @param {SceneSpace} space
  * @returns {ShotFrustum|null}
  */
-function frustumOf(segmentId, apex, shot, camera, exaggeration, resolved) {
+function frustumOf(segmentId, apex, shot, camera, exaggeration, resolved, space) {
   const bearing = finite(shot.bearingToSubjectDeg);
   if (bearing == null) return null;
   const pitch = finite(camera?.pitchDeg) ?? finite(shot.elevationAngleDeg);
@@ -482,7 +694,7 @@ function frustumOf(segmentId, apex, shot, camera, exaggeration, resolved) {
   );
   if (!corners) return null;
 
-  const outline = corners.map((c) => cornerPosition(apex, c, exaggeration));
+  const outline = corners.map((c) => cornerPosition(apex, c, exaggeration, space));
   return {
     kind: 'frustum',
     segmentId,
@@ -513,12 +725,20 @@ function meanRange(shot) {
  * takes, in kilometres. The vertical part is a true-metre offset and picks up the
  * exaggeration the apex's own Z already carries.
  *
+ * A local frame's axes are already the camera frame's own east and north, so
+ * there the offset is the answer and the round trip through a geodesic is not
+ * merely unnecessary but a source of disagreement about a hundred-metre frame.
+ *
  * @param {Position3} apex
  * @param {Point3} corner
  * @param {number} exaggeration
+ * @param {SceneSpace} space
  * @returns {Position3}
  */
-function cornerPosition(apex, corner, exaggeration) {
+function cornerPosition(apex, corner, exaggeration, space) {
+  if (space.kind === 'cartesian') {
+    return [apex[0] + corner.eM, apex[1] + corner.nM, apex[2] + corner.uM * exaggeration];
+  }
   const horizM = Math.hypot(corner.eM, corner.nM);
   const [lat, lng] = horizM > 0
     ? destination(apex[1], apex[0], Math.atan2(corner.eM, corner.nM) * 180 / Math.PI, horizM / 1000)
@@ -538,19 +758,24 @@ function cornerPosition(apex, corner, exaggeration) {
  * @param {readonly number[]} courses
  * @param {readonly number[]} radii
  * @param {(lng: number, lat: number) => number|null} groundZAt
+ * @param {SceneSpace} [space]  which frame the positions come out in
  * @returns {Position3[]}
  */
-export function ringPositions(from, courses, radii, groundZAt) {
+export function ringPositions(from, courses, radii, groundZAt, space = GEOGRAPHIC_SPACE) {
   /** @type {Position3[]} */
   const out = [];
+  /* The last vertex in degrees, because that is what the collapse test is about
+   * and a nanometre is not the tolerance a billionth of a degree is. */
+  /** @type {[number, number]|null} */
+  let last = null;
   for (let i = 0; i < courses.length; i++) {
     const r = radii[i];
     const [lat, lng] = r > 0
       ? destination(from.lat, from.lng, courses[i], r)
       : [from.lat, from.lng];
-    const prev = out[out.length - 1];
-    if (prev && Math.abs(prev[0] - lng) < 1e-9 && Math.abs(prev[1] - lat) < 1e-9) continue;
-    out.push([lng, lat, (groundZAt(lng, lat) ?? 0) + DRAPE_LIFT_M]);
+    if (last && Math.abs(last[0] - lng) < 1e-9 && Math.abs(last[1] - lat) < 1e-9) continue;
+    last = [lng, lat];
+    out.push(spacePosition(space, lng, lat, (groundZAt(lng, lat) ?? 0) + space.drapeLiftM));
   }
   // A PathLayer draws an open line; the 2D ring is a polygon and closes itself.
   if (out.length > 1) out.push([...out[0]]);
