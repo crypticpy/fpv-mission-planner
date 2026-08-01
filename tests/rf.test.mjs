@@ -236,7 +236,7 @@ test('a link band survives a save/restore round trip', async () => {
   assert.equal(blob.linkBand, '900');
   const mod = await freshState(makeStorage(blob));
   assert.equal(mod.state.linkBand, LINK_BAND_DEFAULT, 'a fresh boot plans the video band');
-  assert.equal(mod.restoreSession(), 'dash');
+  assert.equal(mod.restoreSession(), '2d');
   assert.equal(mod.state.linkBand, '900');
 });
 
@@ -244,7 +244,7 @@ test('a session written before the link check existed restores unharmed', async 
   const blob = await savedBlob();
   delete blob.linkBand;
   const mod = await freshState(makeStorage(blob));
-  assert.equal(mod.restoreSession(), 'dash', 'a missing knob must not void the loadout');
+  assert.equal(mod.restoreSession(), '2d', 'a missing knob must not void the loadout');
   assert.equal(mod.state.linkBand, LINK_BAND_DEFAULT);
 });
 

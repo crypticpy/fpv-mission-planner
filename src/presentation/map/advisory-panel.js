@@ -231,22 +231,30 @@ const pct = (frac) => `${Math.round(frac * 100)}%`;
 /* ---------- the DOM half ---------- */
 
 /**
- * The legend and the explanation card, or neither.
- *
- * Called on every map render pass. The legend follows the toggle — it is a key
- * to marks, and there is nothing to key when the zones are off — while the card
- * stays up whenever the advisory is ready, because what was computed and what it
- * cannot say are true whether or not the pilot is looking at the colours.
+ * The map's key to the zone colours. Called on every map render pass; the
+ * legend follows the toggle — it is a key to marks, and there is nothing to
+ * key when the zones are off. Split from the card (M10): the legend belongs to
+ * the canvas drawing the zones, the explanation card lives in Analyze now.
  *
  * @param {object} view
  * @param {AdvisoryField|null|undefined} view.advisories
  * @param {boolean} view.visible  whether the zones layer is drawing
- * @param {number} [view.now]     epoch ms; injected only by tests
  */
-export function renderAdvisoryPanel({ advisories, visible, now = Date.now() }) {
+export function renderAdvisoryLegend({ advisories, visible }) {
   const ready = advisories?.status === 'ready' && !!advisories.forcing;
   fillLegend(ready && visible ? legendRows(advisories) : []);
+}
 
+/**
+ * The explanation card, up whenever the advisory is ready: what was computed
+ * and what it cannot say are true whether or not the zones layer is drawing.
+ *
+ * @param {object} view
+ * @param {AdvisoryField|null|undefined} view.advisories
+ * @param {number} [view.now]     epoch ms; injected only by tests
+ */
+export function renderAdvisoryCard({ advisories, now = Date.now() }) {
+  const ready = advisories?.status === 'ready' && !!advisories.forcing;
   const card = $('advisory-card');
   if (!card) return;
   if (!ready || !advisories) { card.hidden = true; return; }

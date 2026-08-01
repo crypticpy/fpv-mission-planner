@@ -81,15 +81,17 @@ test.describe('built app', () => {
 
     // ...and the plan behind it. The hero figure is the mission radius; the
     // margins line is the chip string the verdict builds out of the solve.
-    await expect(page.locator('#hero-value')).toHaveText(/^\d+(\.\d+)?$/);
+    // Both draw on the Analyze mode — Plan boots map-first (M10).
     await expect(page.locator('#verdict-margins')).not.toBeEmpty();
+    await page.locator('#tab-analyze').click();
+    await expect(page.locator('#hero-value')).toHaveText(/^\d+(\.\d+)?$/);
     await expect(page.locator('#tile-energy .tile-value')).not.toHaveText('—');
 
-    // ---- the map tab renders a real Leaflet map ----
+    // ---- the map mode renders a real Leaflet map ----
     // This is the assertion that catches vendored assets missing from dist/:
     // .leaflet-container only exists once leaflet-src.esm.js has run, and the
     // tile pane only fills once leaflet.css has been applied.
-    await page.locator('#tab-map').click();
+    await page.locator('#tab-2d').click();
     await expect(page.locator('#view-map')).toBeVisible();
     const leaflet = page.locator('#map-canvas.leaflet-container');
     await expect(leaflet).toBeVisible();
@@ -116,13 +118,15 @@ test.describe('built app', () => {
   test('the elevation licence is on screen wherever the ground is', async ({ context, page }) => {
     await stubExternals(context);
     await page.goto('/');
-    await page.locator('#tab-map').click();
+    // The terrain card draws on Analyze, the brief button on Review (M10).
+    await page.locator('#tab-analyze').click();
 
     const note = page.locator('#terrain-note');
     await expect(note).toBeVisible();
     await expect(note).toContainText('CC BY 4.0');
     await expect(note).toContainText('Open-Meteo.com');
 
+    await page.locator('#tab-review').click();
     await page.locator('#btn-brief').click();
     await expect(page.locator('.brief-attribution')).toContainText('CC BY 4.0');
   });
@@ -166,6 +170,9 @@ test.describe('built app', () => {
       // Not just the HTML: a verdict means the precached JS bundle was served
       // and executed from cache too.
       await expect(page.locator('#verdict-badge')).toHaveText(/^(GO|CAUTION|DON’T FLY)$/);
+      // The hero figure draws on Analyze (M10) — and switching modes offline is
+      // itself part of the shell working from cache.
+      await page.locator('#tab-analyze').click();
       await expect(page.locator('#hero-value')).toHaveText(/^\d+(\.\d+)?$/);
 
       // ...and the worker really was in front of the request that served this

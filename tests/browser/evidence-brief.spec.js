@@ -66,8 +66,8 @@ test.describe('mission brief evidence', () => {
     await page.locator('#btn-live').click();
     await page.waitForTimeout(500);
 
-    // #btn-brief lives inside the Map tab's card (see interop.spec.js).
-    await page.locator('#tab-map').click();
+    // #btn-brief lives on the Review mode (M10).
+    await page.locator('#tab-review').click();
     await page.locator('#btn-brief').click();
     const evidence = briefSection(page, 'Evidence');
     await expect(evidence).toBeVisible();
@@ -88,15 +88,16 @@ test.describe('mission brief evidence', () => {
     await page.goto('/');
     await expect(page.locator('#verdict-badge')).not.toHaveText('—');
 
-    // #btn-brief lives inside the Map tab's card (see interop.spec.js).
-    await page.locator('#tab-map').click();
     // The brief prints the footprint's own launch (renderCurrent() reads
     // fp.launch), and the first verdict can render before the mission
     // repository's IndexedDB open seeds a document for the sweep to center on
     // (the boot race in this file's header comment). The footprint ring is the
     // deterministic signal: it is drawn from the same snapshot field the brief
-    // is about to print, so once it is on the map the coordinates exist.
+    // is about to print, so once it is on the map — up by default (M10) — the
+    // coordinates exist.
     await expect(page.locator('#map-canvas .leaflet-overlay-pane path').first()).toBeAttached();
+    // #btn-brief lives on the Review mode (M10).
+    await page.locator('#tab-review').click();
     await page.locator('#btn-brief').click();
     const launch = briefSection(page, 'Launch point');
     const energy = briefSection(page, 'Energy budget');
@@ -134,13 +135,15 @@ test.describe('evidence offline', () => {
 
     await page.goto('/');
     await expect(page.locator('#verdict-badge')).not.toHaveText('—');
-    await page.locator('#tab-map').click();
+    // The terrain card draws on the Analyze mode (M10).
+    await page.locator('#tab-analyze').click();
     await expect(page.locator('#terrain-note')).toContainText('CC BY 4.0');
 
     // "Still named in the brief" (this test's own title), proven online while
     // it's cheap to: opening the brief warms its lazy chunk over the real
     // network, which is exactly the state a pilot who checked their brief
-    // before departing would be in.
+    // before departing would be in. #btn-brief lives on Review (M10).
+    await page.locator('#tab-review').click();
     await page.locator('#btn-brief').click();
     await expect(briefSection(page, 'Evidence')).toContainText('Open-Meteo elevation API');
     await page.locator('#brief-close').click();
@@ -167,7 +170,7 @@ test.describe('evidence offline', () => {
       // The claim this reload can prove (see header comment for why the brief
       // itself isn't reopened here): the terrain evidence gathered online is
       // still on disk and still named, read back with no network at all.
-      await page.locator('#tab-map').click();
+      await page.locator('#tab-analyze').click();
       await expect(page.locator('#terrain-note')).toContainText('CC BY 4.0');
     } finally {
       await context.setOffline(false);

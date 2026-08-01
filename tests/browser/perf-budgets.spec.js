@@ -152,7 +152,7 @@ test.describe('performance budgets', () => {
     const errors = watchConsole(page);
 
     await page.goto('/');
-    await page.locator('#tab-map').click();
+    await page.locator('#tab-2d').click();
     await expect(page.locator('#map-canvas.leaflet-container')).toBeVisible();
     await importMissionFile(page, seed());
     const canvas2d = page.locator('#map-canvas');

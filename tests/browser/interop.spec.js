@@ -52,7 +52,7 @@ test.describe('interop', () => {
     await page.goto('/');
     // #route-rows only exists on the Map tab (importMissionFile checks it); the
     // export controls sit in the mission fold, over in Library.
-    await page.locator('#tab-map').click();
+    await page.locator('#tab-2d').click();
     await expect(page.locator('#map-canvas.leaflet-container')).toBeVisible();
     await importMissionFile(page, missionDoc({
       launch: { lat: 47.6, lng: -122.1 },
@@ -91,7 +91,7 @@ test.describe('interop', () => {
     // #route-rows only exists on the Map tab, checked below — and the card is
     // drawn by Plan's own render, so the mode is armed before Library takes the
     // file (src/app.js update()).
-    await page.locator('#tab-map').click();
+    await page.locator('#tab-2d').click();
     await expect(page.locator('#map-canvas.leaflet-container')).toBeVisible();
     await gotoDest(page, 'library');
     await openMissionFold(page);
@@ -144,10 +144,11 @@ test.describe('interop', () => {
 
     await page.goto('/');
     await expect(page.locator('#verdict-badge')).not.toHaveText('—');
-    // #btn-brief lives inside the Map tab's card.
-    await page.locator('#tab-map').click();
+    await page.locator('#tab-2d').click();
     await expect(page.locator('#map-canvas.leaflet-container')).toBeVisible();
 
+    // #btn-brief lives on the Review mode (M10).
+    await page.locator('#tab-review').click();
     await page.locator('#btn-brief').click();
     await expect(page.locator('#brief')).toBeVisible();
 

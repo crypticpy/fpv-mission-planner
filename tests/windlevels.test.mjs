@@ -300,7 +300,7 @@ test('a cruise altitude survives a save/restore round trip', async () => {
   assert.equal(blob.cruiseAltM, 180);
   const mod = await freshState(makeStorage(blob));
   assert.equal(mod.state.cruiseAltM, 80, 'a fresh boot flies the default');
-  assert.equal(mod.restoreSession(), 'dash');
+  assert.equal(mod.restoreSession(), '2d');
   assert.equal(mod.state.cruiseAltM, 180);
 });
 
@@ -308,7 +308,7 @@ test('a session written before the cruise-altitude control existed restores unha
   const blob = await savedBlob();
   delete blob.cruiseAltM;
   const mod = await freshState(makeStorage(blob));
-  assert.equal(mod.restoreSession(), 'dash', 'a missing knob must not void the loadout');
+  assert.equal(mod.restoreSession(), '2d', 'a missing knob must not void the loadout');
   assert.equal(mod.state.cruiseAltM, 80);
 });
 

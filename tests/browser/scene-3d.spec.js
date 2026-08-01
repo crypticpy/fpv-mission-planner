@@ -6,8 +6,8 @@
 // demand from playwright.spike.config.js and costs a minute of WebGL. This one
 // runs on every `npm run check`, so it asks only what a build can break:
 //
-//   * is the toggle on the map tab at all?
-//   * does pressing it fetch the lazy chunk, start MapLibre, and get all the way
+//   * is the 3D mode tab offered at all?
+//   * does selecting it fetch the lazy chunk, start MapLibre, and get all the way
 //     through the terrain-then-overlay handshake that the ADR says fails
 //     silently when it is done in the wrong order?
 //   * are the two controls that only exist in 3D really there?
@@ -85,37 +85,38 @@ function watchConsole(page) {
 }
 
 test.describe('the 3D scene', () => {
-  test('the toggle starts MapLibre, and coming back leaves 2D intact', async ({ context, page }) => {
+  test('the 3D tab starts MapLibre, and coming back leaves 2D intact', async ({ context, page }) => {
     await stubTiles(context);
     const errors = watchConsole(page);
 
     await page.goto('/');
-    await page.locator('#tab-map').click();
     await expect(page.locator('#view-map')).toBeVisible();
 
-    // ---- the toggle is offered ----
-    // Hidden where WebGL2 is missing, which headless Chromium has (SwiftShader).
+    // ---- the mode tab is offered ----
+    // Disabled where WebGL2 is missing, which headless Chromium has (SwiftShader).
     // If this ever fails on a CI image, the fallback is the thing to check, not
     // this assertion.
-    const toggle = page.locator('#btn-3d');
-    await expect(toggle).toBeVisible();
-    await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    const tab3d = page.locator('#tab-3d');
+    await expect(tab3d).toBeEnabled();
+    await expect(tab3d).toHaveAttribute('aria-selected', 'false');
     // 2D first, always: nothing of the 442 kB engine has been fetched yet.
     await expect(page.locator('#map-3d')).toBeHidden();
 
-    // ---- pressing it gets all the way through the init handshake ----
-    await toggle.click();
+    // ---- selecting it gets all the way through the init handshake ----
+    await tab3d.click();
 
-    /* `aria-pressed` flips only after `scene.ready` resolves, and that promise is
-     * resolved inside `map.once('idle')` *following* setTerrain — the exact
-     * ordering ADR 0004 says is load-bearing and fails silently when it is wrong.
-     * So this one attribute proves the chunk was fetched, MapLibre booted, the
-     * style and DEM loaded, the map went idle, and the deck overlay was added
-     * against a settled view state. A visible canvas alone would prove much
-     * less. The timeout is generous because this is a cold 1.7 MB chunk plus a
-     * software GPU. */
-    await expect(toggle).toHaveAttribute('aria-pressed', 'true', { timeout: 30_000 });
-    await expect(toggle).toHaveText('3D · on');
+    /* The tab disables the moment the click lands and re-enables only after
+     * `scene.ready` resolves, and that promise is resolved inside
+     * `map.once('idle')` *following* setTerrain — the exact ordering ADR 0004
+     * says is load-bearing and fails silently when it is wrong. So
+     * enabled-while-still-selected proves the chunk was fetched, MapLibre
+     * booted, the style and DEM loaded, the map went idle, and the deck overlay
+     * was added against a settled view state — the failure path deselects the
+     * tab back to 2D instead. A visible canvas alone would prove much less. The
+     * timeout is generous because this is a cold 1.7 MB chunk plus a software
+     * GPU. */
+    await expect(tab3d).toBeEnabled({ timeout: 30_000 });
+    await expect(tab3d).toHaveAttribute('aria-selected', 'true');
 
     const canvas = page.locator('#map-3d canvas.maplibregl-canvas');
     await expect(canvas).toBeVisible();
@@ -144,8 +145,8 @@ test.describe('the 3D scene', () => {
     await page.locator('#btn-scene3d-field').click();
 
     // ---- and back, to a live 2D map rather than a dead container ----
-    await toggle.click();
-    await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    await page.locator('#tab-2d').click();
+    await expect(tab3d).toHaveAttribute('aria-selected', 'false');
     await expect(page.locator('#map-3d')).toBeHidden();
 
     const leaflet = page.locator('#map-canvas.leaflet-container');

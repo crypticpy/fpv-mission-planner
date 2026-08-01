@@ -25,8 +25,9 @@ function inertTargets() {
     document.querySelector('.masthead'),
     $('verdict'),
     $('warnings'),
-    $('view-dash'),
     $('view-map'),
+    $('view-analyze'),
+    $('view-review'),
   ].filter(Boolean);
 }
 

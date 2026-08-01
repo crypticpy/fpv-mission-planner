@@ -379,7 +379,7 @@ input[type="range"] { width: 100%; margin-top: 6px; accent-color: var(--series-1
 /* ---------- content ---------- */
 
 /* Holds the four destination sections; inside Plan, the verdict and warnings
-   sit above both workspace modes so they survive an Overview/Map switch.
+   sit above all four workspace modes so they survive a mode switch.
    Static flow, so the fixed mobile dock never covers it. */
 .stage { display: flex; flex-direction: column; gap: var(--sp-3); min-width: 0; }
 .content { display: flex; flex-direction: column; gap: var(--sp-3); min-width: 0; }
@@ -389,7 +389,7 @@ input[type="range"] { width: 100%; margin-top: 6px; accent-color: var(--series-1
    Planner dashboard is blanked — the map stays usable on purpose (tiles,
    launch marker, zoom/controls), with just the stale reachability rings
    removed via the overlay-pane rule below. */
-body[data-plan="none"] #view-dash.content { display: none; }
+body[data-plan="none"] :is(#view-analyze, #view-review).content { display: none; }
 /* Same honesty across destinations: Field's session math and Aircraft's
    performance cards read a plan, so they blank with it — but Aircraft's
    hangar controls stay, because they are how the no-pack state gets fixed,

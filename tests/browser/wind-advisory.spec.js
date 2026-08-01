@@ -96,7 +96,7 @@ const WAYPOINTS = [at(HALF_M, -HALF_M), at(HALF_M, HALF_M), at(-HALF_M, HALF_M)]
 async function boot(page, { altitudeMslM = 400, title = 'Ridge advisory' } = {}) {
   await page.goto('/');
   await expect(page.locator('#verdict-badge')).toHaveText(/^(GO|CAUTION|DON’T FLY)$/);
-  await page.locator('#tab-map').click();
+  await page.locator('#tab-2d').click();
   await expect(page.locator('#map-canvas.leaflet-container')).toBeVisible();
   await importMissionFile(page, missionDoc({
     launch: LAUNCH, waypoints: WAYPOINTS, altitudeMslM, title,
@@ -202,14 +202,14 @@ function readRows(page, selector) {
 }
 
 /**
- * Wait until the advisory has drawn a field: the card is up, cells are on the
- * map, and the key names them. Every one of those is written by the same render
- * pass, so this is one wait rather than three.
+ * Wait until the advisory has drawn a field: cells are on the map and the key
+ * names them. Both are written by the same map render pass, so this is one wait
+ * rather than two. The explanation card is no longer part of this signal — it
+ * moved to the Analyze mode (M10), where the tests that read it switch to it.
  * @param {import('@playwright/test').Page} page
  */
 async function waitForZones(page) {
-  await expect(page.locator('#advisory-card')).toBeVisible({ timeout: 30_000 });
-  await expect(page.locator('#map-canvas path.advisory-cell').first()).toBeAttached();
+  await expect(page.locator('#map-canvas path.advisory-cell').first()).toBeAttached({ timeout: 30_000 });
   await expect(page.locator('#advisory-legend')).toBeVisible();
 }
 
@@ -288,7 +288,9 @@ test.describe('the mountain-flow advisory in a browser', () => {
     expect(legend.at(-1)).toContain('not a safety claim');
 
     // The two claims M5 is forbidden from making are denied on screen before any
-    // click — the card's standing line, not something behind the fold.
+    // click — the card's standing line, not something behind the fold. The card
+    // lives on the Analyze mode with the rest of the numbers (M10).
+    await page.locator('#tab-analyze').click();
     const heading = page.locator('#advisory-card .card-sub');
     await expect(heading).toBeVisible();
     await expect(heading).toContainText('it cannot locate a rotor');
@@ -394,9 +396,12 @@ test.describe('the mountain-flow advisory in a browser', () => {
     await expect(page.locator('#map-canvas path.advisory-extent')).toHaveCount(0);
     // The key follows the marks it is a key to; the card does not, because what
     // was computed and what it cannot say are true whether or not the colours
-    // are up.
+    // are up. The card lives on Analyze now (M10), so it is read from there —
+    // then back to the map, where the toggle is.
     await expect(page.locator('#advisory-legend')).toBeHidden();
+    await page.locator('#tab-analyze').click();
     await expect(page.locator('#advisory-card')).toBeVisible();
+    await page.locator('#tab-2d').click();
 
     await toggle.click();
     await expect(toggle).toHaveAttribute('aria-pressed', 'true');
@@ -426,7 +431,10 @@ test.describe('the mountain-flow advisory in a browser', () => {
     expect(counts.lee ?? 0, 'a preset wind drew no lee cells').toBeGreaterThan(0);
 
     // Baseline 2 needs a sounding, which it does not have — and says so in
-    // words, in both rows, rather than showing a default.
+    // words, in both rows, rather than showing a default. The provenance rows
+    // are on the Analyze mode's card (M10), which only fills when it renders.
+    await page.locator('#tab-analyze').click();
+    await expect(page.locator('#advisory-card')).toBeVisible();
     const facts = await readFacts(page);
     expect(facts.Sounding.value).toBe('none — no regime could be read');
     expect(facts['Stability regime'].value).toContain('unknown');
@@ -466,6 +474,9 @@ test.describe('the mountain-flow advisory in a browser', () => {
     await boot(page);
     await waitForZones(page);
 
+    // The provenance rows are on the Analyze mode's card (M10).
+    await page.locator('#tab-analyze').click();
+    await expect(page.locator('#advisory-card')).toBeVisible();
     const facts = await readFacts(page);
     expect(facts.Sounding.value, 'the pressure levels never reached the advisory')
       .toBe('3 pressure levels');
@@ -498,6 +509,8 @@ test.describe('the mountain-flow advisory in a browser', () => {
     expect(railWind.length, `no advisory codes on the rail: ${rail.map((r) => r.code).join(', ')}`)
       .toBeGreaterThan(0);
 
+    // #btn-brief lives on the Review mode (M10).
+    await page.locator('#tab-review').click();
     await page.locator('#btn-brief').click();
     await expect(page.locator('#brief')).toBeVisible();
     const brief = await readRows(page, '#brief-sheet .brief-warn');

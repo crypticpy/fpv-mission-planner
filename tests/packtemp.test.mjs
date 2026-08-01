@@ -191,7 +191,7 @@ test('a pack temperature survives a save/restore round trip', async () => {
   globalThis.localStorage = makeStorage(blob);
   const mod = await freshState();
   assert.equal(mod.state.packTempF, null, 'a fresh boot tracks the air');
-  assert.equal(mod.restoreSession(), 'dash');
+  assert.equal(mod.restoreSession(), '2d');
   assert.equal(mod.state.packTempF, 95);
   assert.equal(mod.packTemp().overridden, true);
   assert.equal(mod.missionInputs().packTempC.toFixed(6), '35.000000');
@@ -203,7 +203,7 @@ test('a session written before pack temperature existed restores unharmed', asyn
   delete blob.packTempF;
   globalThis.localStorage = makeStorage(blob);
   const mod = await freshState();
-  assert.equal(mod.restoreSession(), 'dash', 'a missing knob must not void the loadout');
+  assert.equal(mod.restoreSession(), '2d', 'a missing knob must not void the loadout');
   assert.equal(mod.state.packTempF, null);
   // And the plan it hands back is the air-temperature one.
   const inp = mod.missionInputs();
@@ -216,7 +216,7 @@ test('a stored null is a real value, not a missing one', async () => {
   assert.equal(blob.packTempF, null);
   globalThis.localStorage = makeStorage(blob);
   const mod = await freshState();
-  assert.equal(mod.restoreSession(), 'dash');
+  assert.equal(mod.restoreSession(), '2d');
   assert.equal(mod.state.packTempF, null);
 });
 

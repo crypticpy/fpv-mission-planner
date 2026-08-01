@@ -507,20 +507,23 @@ export async function importMissionFile(page, doc) {
 }
 
 /**
- * Press the 3D toggle and wait out the whole init handshake.
+ * Select the 3D mode tab and wait out the whole init handshake.
  *
- * `aria-pressed` flips only after `scene.ready` resolves, and that resolves
- * inside `map.once('idle')` *following* `setTerrain` — ADR 0004's ordering. One
- * attribute, and it proves the chunk arrived, MapLibre booted, the DEM loaded
- * and the deck overlay went on against a settled view.
+ * The tab disables the moment the click lands and re-enables only after
+ * `scene.ready` resolves, and that resolves inside `map.once('idle')`
+ * *following* `setTerrain` — ADR 0004's ordering. Enabled while still selected
+ * therefore proves the chunk arrived, MapLibre booted, the DEM loaded and the
+ * deck overlay went on against a settled view; the failure path deselects the
+ * tab back to 2D instead.
  *
  * @param {import('@playwright/test').Page} page
  */
 export async function activate3d(page) {
-  const toggle = page.locator('#btn-3d');
-  await expect(toggle).toBeVisible();
-  await toggle.click();
-  await expect(toggle).toHaveAttribute('aria-pressed', 'true', { timeout: 45_000 });
+  const tab = page.locator('#tab-3d');
+  await expect(tab).toBeEnabled();
+  await tab.click();
+  await expect(tab).toBeEnabled({ timeout: 45_000 });
+  await expect(tab).toHaveAttribute('aria-selected', 'true');
   await expect(page.locator('#map-3d canvas.maplibregl-canvas')).toBeVisible();
 }
 

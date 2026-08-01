@@ -71,7 +71,7 @@ test.describe('subjects and the segment editor', () => {
     const errors = watchConsole(page);
 
     await page.goto('/');
-    await page.locator('#tab-map').click();
+    await page.locator('#tab-2d').click();
     await expect(page.locator('#map-canvas.leaflet-container')).toBeVisible();
 
     const canvas = page.locator('#map-canvas');
@@ -159,7 +159,8 @@ test.describe('subjects and the segment editor', () => {
     await altRow.locator('input').blur();
     await expect(page.locator('#segment-status')).toBeHidden();
 
-    // ---- the brief prints the shot ----
+    // ---- the brief prints the shot (#btn-brief lives on Review, M10) ----
+    await page.locator('#tab-review').click();
     await page.locator('#btn-brief').click();
     const sheet = page.locator('#brief-sheet');
     await expect(sheet).toBeVisible();

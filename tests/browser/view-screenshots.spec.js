@@ -58,7 +58,8 @@ const seed = () => missionDoc({
  * cannot be steered is still broken.
  */
 const PLANNER_LANDMARKS = ['.masthead', '#verdict-badge', '#hero-value'];
-const MAP_LANDMARKS = ['#btn-fit', '#btn-brief', '#map-canvas', '#route-card'];
+/* #btn-brief is not a map landmark any more — it lives on the Review mode (M10). */
+const MAP_LANDMARKS = ['#btn-fit', '#map-canvas', '#route-card'];
 
 /**
  * The controls this width steers with.
@@ -77,9 +78,9 @@ const MAP_LANDMARKS = ['#btn-fit', '#btn-brief', '#map-canvas', '#route-card'];
 async function nav(page) {
   await expect(page.locator('#nav-plan'),
     'the destnav is not on screen — this width cannot be navigated').toBeVisible();
-  await expect(page.locator('#tab-map'),
+  await expect(page.locator('#tab-2d'),
     "Plan's workspace tabs are not on screen — this width cannot reach the map").toBeVisible();
-  return { map: '#tab-map', planner: '#tab-dash' };
+  return { map: '#tab-2d', planner: '#tab-analyze' };
 }
 
 /**
@@ -132,11 +133,9 @@ async function boot(page) {
   // an analysis ran over it — the point at which a screenshot shows something.
   await expect(page.locator('#route-rows tr')).toHaveCount(WAYPOINTS.length + 2);
 
-  /* The terrain card is the app's slowest surface — it asks the elevation
-   * service for a profile along the outbound leg and says "Fetching the
-   * ground…" until one arrives. The stub answers, so this settles; waiting for
-   * it is what keeps a screenshot from catching a card mid-sentence. */
-  await expect(page.locator('#terrain-empty')).toBeHidden();
+  /* The terrain card — the app's slowest surface — lives on the Analyze mode
+   * now (M10) and only renders there, so its settling is waited for at the
+   * sites that open Analyze before a screenshot, not here. */
 
   /* Seeding is a trip to Library and back now, so nothing it does can leave a
    * sheet over the view — but a picture is only deterministic if the conditions
@@ -252,9 +251,13 @@ test.describe('view screenshots', () => {
       await expect(page.locator('#map-canvas .leaflet-overlay-pane path').first()).toBeAttached();
       await shoot(page, `${name}-map`, '.map-card');
 
-      // ...and the planner, which is the first thing anyone sees.
+      // ...and Analyze, where the numbers are.
       await page.locator(to.planner).click();
-      await expect(page.locator('#view-dash')).toBeVisible();
+      await expect(page.locator('#view-analyze')).toBeVisible();
+      /* The terrain card says "Fetching the ground…" until the elevation stub
+       * answers; waiting for it is what keeps the screenshot from catching the
+       * card mid-sentence. */
+      await expect(page.locator('#terrain-empty')).toBeHidden();
       await expectLaidOut(page, [...PLANNER_LANDMARKS, to.map, to.planner], viewport.width);
       await shoot(page, `${name}-planner`);
 
@@ -262,12 +265,13 @@ test.describe('view screenshots', () => {
     });
   }
 
-  /* The fallback is a *product* behaviour, not an error path: map-view.js hides
-   * the 3D button where WebGL2 is missing and says why, because "offering a
-   * button that cannot work is worse than not offering it, and a button that
-   * vanishes without explanation is worse than both". This is the only view
-   * class that cannot be reached by resizing a window, and the only one whose
-   * screenshot is of something a developer never sees on their own machine. */
+  /* The fallback is a *product* behaviour, not an error path: app.js disables
+   * the 3D tab where WebGL2 is missing and puts the reason on it, because
+   * "offering a button that cannot work is worse than not offering it, and a
+   * button that vanishes without explanation is worse than both" — the tab
+   * stays on screen, unpressable, saying why. This is the only view class that
+   * cannot be reached by resizing a window, and the only one whose screenshot
+   * is of something a developer never sees on their own machine. */
   test('without WebGL2 the app stays in 2D and says so', async ({ context, page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await stubExternals(context, { elevationM: GROUND_M });
@@ -289,19 +293,20 @@ test.describe('view screenshots', () => {
     const errors = watchConsole(page);
     await boot(page);
 
-    // ---- the button is gone, and the reason is on screen ----
-    await expect(page.locator('#btn-3d')).toBeHidden();
-    const note = page.locator('#map-note');
-    await expect(note).toBeVisible();
-    await expect(note).toContainText('3D needs WebGL2, which this browser or device does not provide.');
+    // ---- the tab is still there, unpressable, and the reason rides it ----
+    const tab3d = page.locator('#tab-3d');
+    await expect(tab3d).toBeVisible();
+    await expect(tab3d).toBeDisabled();
+    await expect(tab3d).toHaveAttribute('title',
+      '3D needs WebGL2, which this browser or device does not provide.');
 
     // ---- and the 2D map is unharmed, which is the actual promise ----
     await expect(page.locator('#map-canvas.leaflet-container')).toBeVisible();
     await expect(page.locator('#map-canvas .leaflet-tile').first()).toBeAttached();
     await expect(page.locator('#map-canvas .leaflet-overlay-pane path').first()).toBeAttached();
     await expect(page.locator('#map-3d')).toBeHidden();
-    // Every control except the one that was withdrawn still lays out.
-    await expectLaidOut(page, [...MAP_LANDMARKS, '#tab-map'], 1280);
+    // Every control, the withdrawn one included, still lays out.
+    await expectLaidOut(page, [...MAP_LANDMARKS, '#tab-2d', '#tab-3d'], 1280);
     await shoot(page, 'fallback-no-webgl2', '.map-card');
 
     expect(errors, `console errors:\n${errors.join('\n')}`).toEqual([]);
@@ -351,16 +356,18 @@ test.describe('view screenshots', () => {
       ['#route-rows td', 4.5],
     ]));
 
-    await expectLaidOut(page, [...MAP_LANDMARKS, '#tab-map'], 1280);
+    await expectLaidOut(page, [...MAP_LANDMARKS, '#tab-2d'], 1280);
     await shoot(page, 'high-contrast-map', '.map-card');
 
-    // ...and the planner, for the hero figure and its own body copy.
-    await page.locator('#tab-dash').click();
-    await expect(page.locator('#view-dash')).toBeVisible();
+    // ...and Analyze, for the hero figure and its own body copy.
+    await page.locator('#tab-analyze').click();
+    await expect(page.locator('#view-analyze')).toBeVisible();
+    // Settled before it is shot — the terrain card renders here now (M10).
+    await expect(page.locator('#terrain-empty')).toBeHidden();
     await measure(/** @type {const} */ ([
       // Large text (the hero figure is far past 24 px); WCAG AA asks 3:1 of it.
       ['#hero-value', 3],
-      ['#view-dash .card-sub', 4.5],
+      ['#view-analyze .card-sub', 4.5],
     ]));
     await shoot(page, 'high-contrast-planner');
 

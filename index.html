@@ -271,23 +271,30 @@
     <div id="update-notice" class="update-notice" role="status" aria-live="polite" hidden></div>
 
   <section id="dest-plan" class="dest">
-    <!-- The verdict and the warnings live inside Plan, above both workspace
-         modes, so the go/no-go answer and its callouts stay on screen whether
-         the pilot is on Overview or the Map. The card's children are built by
+    <!-- The verdict and the warnings live inside Plan, above all the workspace
+         modes, so the go/no-go answer and its callouts stay on screen whichever
+         of 2D / 3D / Analyze / Review is open. The card's children are built by
          src/components/verdict-card.js; the child ids (#verdict-badge etc.)
          are its contract with the browser specs and the brief. -->
     <section id="verdict" class="verdict" role="status" aria-live="polite"></section>
     <div id="warnings" class="warnings" hidden></div>
 
+    <!-- Plan's workspace modes (M10). 2D and 3D are two tabs over the one map
+         panel — every map tool works over either engine, and which engine is
+         drawing is map-view.js's business — while Analyze and Review have
+         panels of their own. app.js disables the 3D tab where WebGL2 is
+         missing. -->
     <nav class="view-tabs" role="tablist" aria-label="Plan workspace">
-      <button id="tab-dash" class="view-tab" role="tab" aria-selected="true" aria-controls="view-dash">Overview</button>
-      <button id="tab-map" class="view-tab" role="tab" aria-selected="false" aria-controls="view-map" tabindex="-1">Map</button>
+      <button id="tab-2d" class="view-tab" role="tab" aria-selected="true" aria-controls="view-map">2D</button>
+      <button id="tab-3d" class="view-tab" role="tab" aria-selected="false" aria-controls="view-map" tabindex="-1">3D</button>
+      <button id="tab-analyze" class="view-tab" role="tab" aria-selected="false" aria-controls="view-analyze" tabindex="-1">Analyze</button>
+      <button id="tab-review" class="view-tab" role="tab" aria-selected="false" aria-controls="view-review" tabindex="-1">Review</button>
       <!-- Mobile only: the conditions rail rides in a bottom sheet inside Plan
            now that the dock holds destinations, not Loadout. -->
       <button id="btn-plan-controls" class="plan-controls-btn" type="button" aria-expanded="false" aria-controls="rail">Conditions</button>
     </nav>
 
-  <main class="content" id="view-dash" role="tabpanel" aria-labelledby="tab-dash">
+  <main class="content" id="view-analyze" role="tabpanel" aria-labelledby="tab-analyze" hidden>
     <section class="hero-card">
       <p class="tile-label">Mission radius — how far out you can push</p>
       <!-- The band is the spread the pilot's own flights show (§6.2) — present
@@ -324,6 +331,63 @@
       <div id="chart-wind" class="chart"></div>
     </section>
 
+    <!-- The numbers half of the map (M10): the footprint tiles, the corridor,
+         the heading trade and the advisory explanation all read the analysis
+         snapshot, not the canvas, so they live here with the other charts.
+         The rings, the route and the zones stay on the map that draws them. -->
+    <section class="tiles map-tiles">
+      <div class="tile" id="tile-upwind"><p class="tile-label">Upwind reach</p><p class="tile-value">—</p><p class="tile-sub"></p></div>
+      <div class="tile" id="tile-downwind"><p class="tile-label">Downwind reach</p><p class="tile-value">—</p><p class="tile-sub"></p></div>
+      <div class="tile" id="tile-crosswind"><p class="tile-label">Crosswind reach</p><p class="tile-value">—</p><p class="tile-sub"></p></div>
+      <div class="tile" id="tile-area"><p class="tile-label">Footprint area</p><p class="tile-value">—</p><p class="tile-sub"></p></div>
+      <div class="tile" id="tile-aloft"><p class="tile-label">Time aloft</p><p class="tile-value">—</p><p class="tile-sub"></p></div>
+    </section>
+
+    <!-- The ground under the outbound leg (Phase 4 item 5). The model plans at one
+         elevation and a Hill Country mission climbs, so the plan runs the
+         turnaround's density altitude and this card shows what the ground did to
+         get there. Expert-only: the clearance warning it produces rides the
+         verdict rail on every mode, which is the part a beginner needs. -->
+    <section class="card full-only" id="terrain-card">
+      <h3>Terrain and radio line of sight along the outbound leg</h3>
+      <p class="card-sub">Ground elevation and clearance out to the turnaround, on the course this plan
+        flies — the dashed line is the altitude you said you'd cruise at, held from the launch point,
+        and the shaded wedge is the first Fresnel zone your video link needs kept clear</p>
+      <p id="terrain-empty" class="empty-note" hidden></p>
+      <div id="legend-terrain" class="viz-legend"></div>
+      <div id="chart-terrain" class="chart"></div>
+      <p id="terrain-note" class="rail-note" role="status"></p>
+      <p id="link-note" class="rail-note" role="status"></p>
+    </section>
+
+    <section class="card">
+      <h3>Range vs heading</h3>
+      <p class="card-sub">Turnaround radius by outbound course over ground — where the wind gives and takes</p>
+      <div id="legend-bearing" class="viz-legend"></div>
+      <div id="chart-bearing" class="chart"></div>
+    </section>
+
+    <!-- What the zones on the map are, and what they are not (M5). The line
+         under the heading is always visible; the fold below it carries the
+         provenance — the wind and sounding it ran on, the grid and who supplied
+         it, its age, and how much of the classification survives the forecast's
+         own uncertainty — plus the producer's limitations, verbatim. -->
+    <section class="card" id="advisory-card" hidden>
+      <h3>Mountain-flow advisory</h3>
+      <p class="card-sub">Relative terrain forcing over a sampled elevation grid, from one forecast wind.
+        It is a proxy for where the ground forces the air — not a forecast of vertical velocity, not a
+        turbulence magnitude, and it cannot locate a rotor. Low forcing is not a statement that an area is safe.</p>
+      <details id="advisory-fold" class="custom-batt">
+        <summary>What this was computed from</summary>
+        <p class="rail-note">Two baselines: B1 classifies every cell by the terrain forcing the wind imposes on it
+          (w* = V·∇h, a relative proxy), and B2 reads a Froude-like stability regime off the forecast sounding.
+          Surface-driven — it describes flow forced by the ground, not the air at flight altitude.</p>
+        <dl id="advisory-facts" class="segment-facts"></dl>
+        <p class="advisory-limits-head">Stated limitations</p>
+        <ul id="advisory-limits" class="advisory-limits"></ul>
+        <p id="advisory-notes" class="footnote" hidden></p>
+      </details>
+    </section>
 
     <p class="footnote">Model: momentum-theory rotor power on total disc area, humid-air density (elevation · temp · humidity),
       per-chemistry discharge simulation with internal-resistance sag and cold-weather derating off the pack’s own
@@ -331,7 +395,7 @@
       per leg. Calibrated to logged flights (see README). Physics is a planning estimate — always fly with margin.</p>
   </main>
 
-  <main class="content" id="view-map" role="tabpanel" aria-labelledby="tab-map" hidden>
+  <main class="content" id="view-map" role="tabpanel" aria-labelledby="tab-2d">
     <section class="card map-card">
       <div class="card-head">
         <h3>Mission footprint</h3>
@@ -359,18 +423,10 @@
                without. Pressing it hides the cells and the key together. -->
           <button id="btn-advisory" class="map-btn" type="button" aria-pressed="true"
                   aria-controls="advisory-legend">Wind zones · on</button>
-          <!-- The 3D scene (ADR 0004). Terrain, imagery and the route at its own
-               altitude — the one view that answers "does that ridge cut the link".
-               The engine behind it is a lazily imported chunk three times the
-               size of the rest of the app, so nothing is fetched until this is
-               pressed, and the button hides itself where WebGL2 is missing. -->
-          <button id="btn-3d" class="map-btn" type="button" aria-pressed="false"
-                  aria-controls="map-3d">3D</button>
-          <!-- The mission brief (Phase 4 item 8). Deliberately NOT full-only: a
-               one-page brief is the most beginner-friendly output this app has,
-               and the expert figures inside it (link band, route, cruise level)
-               simply aren't there when the rail isn't offering them. -->
-          <button id="btn-brief" class="map-btn" type="button" aria-haspopup="dialog">Mission brief</button>
+          <!-- The 3D scene (ADR 0004) is a workspace tab now (#tab-3d), not a
+               map button: same shared panel, same tools, different engine. Its
+               chunk still loads lazily on first entry. The mission brief moved
+               to Review, where printing the plan belongs. -->
         </div>
       </div>
       <p class="card-sub">Out-and-back turnaround envelope from the launch point — click or drag the map to move it.
@@ -391,27 +447,6 @@
       <p id="wx-note" class="wx-note" hidden></p>
     </section>
 
-    <!-- What the zones on the map are, and what they are not (M5). The line
-         under the heading is always visible; the fold below it carries the
-         provenance — the wind and sounding it ran on, the grid and who supplied
-         it, its age, and how much of the classification survives the forecast's
-         own uncertainty — plus the producer's limitations, verbatim. -->
-    <section class="card" id="advisory-card" hidden>
-      <h3>Mountain-flow advisory</h3>
-      <p class="card-sub">Relative terrain forcing over a sampled elevation grid, from one forecast wind.
-        It is a proxy for where the ground forces the air — not a forecast of vertical velocity, not a
-        turbulence magnitude, and it cannot locate a rotor. Low forcing is not a statement that an area is safe.</p>
-      <details id="advisory-fold" class="custom-batt">
-        <summary>What this was computed from</summary>
-        <p class="rail-note">Two baselines: B1 classifies every cell by the terrain forcing the wind imposes on it
-          (w* = V·∇h, a relative proxy), and B2 reads a Froude-like stability regime off the forecast sounding.
-          Surface-driven — it describes flow forced by the ground, not the air at flight altitude.</p>
-        <dl id="advisory-facts" class="segment-facts"></dl>
-        <p class="advisory-limits-head">Stated limitations</p>
-        <ul id="advisory-limits" class="advisory-limits"></ul>
-        <p id="advisory-notes" class="footnote" hidden></p>
-      </details>
-    </section>
     <!-- The route the pilot drew (Phase 4 item 7). The ring answers "how far out
          and straight back"; this answers "can I fly out along the river, cut to
          the ridge, and hold there while I film it". Same energy, same landing
@@ -469,38 +504,24 @@
       <div id="segment-warnings" class="warnings" hidden></div>
       <p id="segment-id" class="segment-id"></p>
     </section>
+  </main>
 
-
-    <section class="tiles map-tiles">
-      <div class="tile" id="tile-upwind"><p class="tile-label">Upwind reach</p><p class="tile-value">—</p><p class="tile-sub"></p></div>
-      <div class="tile" id="tile-downwind"><p class="tile-label">Downwind reach</p><p class="tile-value">—</p><p class="tile-sub"></p></div>
-      <div class="tile" id="tile-crosswind"><p class="tile-label">Crosswind reach</p><p class="tile-value">—</p><p class="tile-sub"></p></div>
-      <div class="tile" id="tile-area"><p class="tile-label">Footprint area</p><p class="tile-value">—</p><p class="tile-sub"></p></div>
-      <div class="tile" id="tile-aloft"><p class="tile-label">Time aloft</p><p class="tile-value">—</p><p class="tile-sub"></p></div>
-    </section>
-
-    <!-- The ground under the outbound leg (Phase 4 item 5). The model plans at one
-         elevation and a Hill Country mission climbs, so the plan runs the
-         turnaround's density altitude and this card shows what the ground did to
-         get there. Expert-only: the clearance warning it produces rides the
-         verdict rail on both tabs, which is the part a beginner needs. -->
-    <section class="card full-only" id="terrain-card">
-      <h3>Terrain and radio line of sight along the outbound leg</h3>
-      <p class="card-sub">Ground elevation and clearance out to the turnaround, on the course this plan
-        flies — the dashed line is the altitude you said you'd cruise at, held from the launch point,
-        and the shaded wedge is the first Fresnel zone your video link needs kept clear</p>
-      <p id="terrain-empty" class="empty-note" hidden></p>
-      <div id="legend-terrain" class="viz-legend"></div>
-      <div id="chart-terrain" class="chart"></div>
-      <p id="terrain-note" class="rail-note" role="status"></p>
-      <p id="link-note" class="rail-note" role="status"></p>
-    </section>
-
+  <!-- Review (M10): the pre-flight read-back. The summary is the same
+       component Field leads with — one mission, one set of numbers — and the
+       brief button moved here from the map actions, because printing the plan
+       is the last step of reviewing it, not a map control. The fix list joins
+       this panel in M10 wave D. -->
+  <main class="content" id="view-review" role="tabpanel" aria-labelledby="tab-review" hidden>
+    <div id="review-summary"></div>
     <section class="card">
-      <h3>Range vs heading</h3>
-      <p class="card-sub">Turnaround radius by outbound course over ground — where the wind gives and takes</p>
-      <div id="legend-bearing" class="viz-legend"></div>
-      <div id="chart-bearing" class="chart"></div>
+      <h3>Mission brief</h3>
+      <!-- The brief itself (Phase 4 item 8). Deliberately NOT full-only: a
+           one-page brief is the most beginner-friendly output this app has,
+           and the expert figures inside it (link band, route, cruise level)
+           simply aren't there when the rail isn't offering them. -->
+      <p class="card-sub">A printable one-page brief of this exact plan — the numbers on screen, with the
+        evidence and provenance they were computed from.</p>
+      <button id="btn-brief" class="map-btn" type="button" aria-haspopup="dialog">Mission brief</button>
     </section>
   </main>
   </section>

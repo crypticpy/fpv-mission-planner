@@ -109,7 +109,7 @@ test.describe('mission persistence', () => {
     const errors = watchConsole(page);
 
     await page.goto('/');
-    await page.locator('#tab-map').click();
+    await page.locator('#tab-2d').click();
     await expect(page.locator('#map-canvas.leaflet-container')).toBeVisible();
 
     const canvas = page.locator('#map-canvas');

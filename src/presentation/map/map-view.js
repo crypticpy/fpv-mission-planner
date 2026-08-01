@@ -35,8 +35,7 @@ import { wrapLng } from '../../domain/geo.js';
 import { loadMapState, saveMapState } from '../../store.js';
 import { createLeafletAdapter } from './leaflet-adapter.js';
 import { createLayerRegistry } from './layer-registry.js';
-import { renderFootprintPanel } from './footprint-panel.js';
-import { renderAdvisoryPanel } from './advisory-panel.js';
+import { renderAdvisoryLegend } from './advisory-panel.js';
 import { liveSelection, nextSelection, renderSegmentInspector } from './segment-inspector.js';
 import { createAdvisoryLayer } from './layers/advisory-layer.js';
 import { createFootprintLayer } from './layers/footprint-layer.js';
@@ -209,10 +208,9 @@ function ensureMap() {
   adapter.on('tileerror', onTileError);
 
   bindControls();
-  /* The engine choice is a view preference like the base layer, so it is
-   * restored the same way — but only if this machine can honour it. A saved '3d'
-   * on a device that has since lost WebGL2 opens in 2D, silently and correctly. */
-  if (saved?.view === '3d' && supports3d()) void activate3d();
+  /* The engine choice used to be restored here off the map-state blob; it lives
+   * in `state.view` now ('2d'/'3d' are Plan mode tabs), so app.js boots the
+   * scene through setMode3d() after the session restore instead. */
 
   return adapter;
 }
@@ -252,15 +250,6 @@ function bindControls() {
     routeOn = true;
     deps.onClearRoute();
   });
-
-  const btn3d = $('btn-3d');
-  if (supports3d()) btn3d.addEventListener('click', () => { void toggle3d(); });
-  else {
-    /* Offering a button that cannot work is worse than not offering it, and a
-     * button that vanishes without explanation is worse than both. */
-    btn3d.hidden = true;
-    sceneNote = '3D needs WebGL2, which this browser or device does not provide.';
-  }
 }
 
 function persist() {
@@ -286,11 +275,11 @@ function persist() {
 /**
  * Whether this device can run the scene at all.
  *
- * Asked before the button is offered rather than after it is pressed: deck.gl's
+ * Asked before the tab is offered rather than after it is pressed: deck.gl's
  * interleaved mode needs WebGL2 outright, and a 442 kB download that ends in a
  * blank canvas is the worst possible way to find that out.
  */
-function supports3d() {
+export function supports3d() {
   try {
     return !!document.createElement('canvas').getContext('webgl2');
   } catch {
@@ -298,14 +287,25 @@ function supports3d() {
   }
 }
 
-async function toggle3d() {
-  if (mode === '3d') deactivate3d();
-  else await activate3d();
+/**
+ * Drive the engine from Plan's mode tabs. Resolves true when the requested
+ * engine is the one on screen; false means 3D could not start — no WebGL2, or
+ * the chunk is unreachable offline — and the map stayed in 2D, with the reason
+ * already written on the map note for the caller to leave alone.
+ * @param {boolean} on
+ * @returns {Promise<boolean>}
+ */
+export async function setMode3d(on) {
+  ensureMap();
+  if (!on) {
+    if (mode === '3d') deactivate3d();
+    return true;
+  }
+  if (mode !== '3d') await activate3d();
+  return mode === '3d';
 }
 
 async function activate3d() {
-  const btn = $('btn-3d');
-  btn.disabled = true;
   const from = adapter.view();
   const container = $('map-3d');
   container.hidden = false;
@@ -347,14 +347,12 @@ async function activate3d() {
     try { scene?.destroy(); } catch { /* letting go was the point */ }
     scene = null;
     sceneNote = '3D needs a connection the first time — the map stayed in 2D.';
-    btn.disabled = false;
     deps.requestRender();
     return;
   }
 
   mode = '3d';
   sceneNote = null;
-  btn.disabled = false;
   // Nothing to animate over a hidden Leaflet container.
   windLayer.stop();
   persist();
@@ -563,11 +561,6 @@ export function renderMapView(snapshot) {
   }
 
   renderCanvasNote(snapshot);
-  if (snapshot.footprint) {
-    renderFootprintPanel({
-      plan: snapshot.plan, footprint: snapshot.footprint, units: frame.units,
-    });
-  }
   renderSegmentInspector({
     snapshot,
     selectedSegmentId,
@@ -578,7 +571,9 @@ export function renderMapView(snapshot) {
      * — before that the panel reads and does not offer to write. */
     raise: editor ? raiseEdit : undefined,
   });
-  renderAdvisoryPanel({ advisories: snapshot.advisories, visible: frame.advisoryVisible });
+  /* The legend only; the explanation card moved to Analyze with the rest of the
+   * numbers (M10), where app.js renders it off the same snapshot. */
+  renderAdvisoryLegend({ advisories: snapshot.advisories, visible: frame.advisoryVisible });
   renderRouteControls(frame);
 }
 
@@ -674,10 +669,6 @@ function renderRouteControls(frame) {
   const btnSubject = $('btn-subject');
   btnSubject.setAttribute('aria-pressed', String(frame.subjectMode));
   btnSubject.textContent = frame.subjectMode ? 'Subject · on' : 'Subject';
-
-  const btn3d = $('btn-3d');
-  btn3d.setAttribute('aria-pressed', String(mode === '3d'));
-  btn3d.textContent = mode === '3d' ? '3D · on' : '3D';
 
   const btnAdvisory = $('btn-advisory');
   btnAdvisory.setAttribute('aria-pressed', String(frame.advisoryVisible));

@@ -353,7 +353,7 @@ test.describe('route editing parity', () => {
     page.on('pageerror', (err) => errors.push(`pageerror: ${err.message}`));
 
     await page.goto('/');
-    await page.locator('#tab-map').click();
+    await page.locator('#tab-2d').click();
     await expect(page.locator('#map-canvas.leaflet-container')).toBeVisible();
 
     const rows = page.locator('#route-rows tr');

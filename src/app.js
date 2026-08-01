@@ -6,7 +6,10 @@ import { WEATHER, allBatteries, allManufacturers, saveCustomBattery, saveCustomM
 import { hideTooltip } from './charts.js';
 import {
   setupMapView, showMapView, renderMapView, pauseMapView, resizeMapView,
+  supports3d, setMode3d,
 } from './presentation/map/map-view.js';
+import { renderFootprintPanel } from './presentation/map/footprint-panel.js';
+import { renderAdvisoryCard } from './presentation/map/advisory-panel.js';
 import { setupShell, syncDest } from './shell.js';
 import { setupThemes } from './themes.js';
 import { setupUpdateNotice } from './render/update-notice.js';
@@ -205,34 +208,70 @@ function update() {
     renderDriftChart();
     return;
   }
-  if (state.view === 'map') {
+  if (onMap(state.view)) {
     // The route (Phase 4 item 7) is integrated once, inside the analysis, and
     // handed to both the map that draws it and the card that explains it — so the
     // line and the verdict under it cannot disagree about whether it fits. Both
     // decide for themselves whether route mode is showing.
     renderMapView(snapshot);
     renderRouteCard(r, snapshot.route);
-    // The licence line rides in on the snapshot's provenance (CC BY 4.0, task
-    // #47): whichever elevation source answered — the corridor field or the
-    // single-bearing profile — the card credits the one that did.
-    renderTerrainCard(r, link, snapshot.provenance.terrainAttribution);
+    return;
+  }
+  if (state.view === 'review') {
+    // Review is the pre-flight read-back: the same summary card Field leads
+    // with, drawn from the same snapshot. The fix list joins it in wave D.
+    renderMissionSummary($('review-summary'), summaryModelFrom(r));
     return;
   }
   renderStats(r);
   if (!beginner()) renderProfile(r);
   renderWindSensitivity(r);
+  // The numbers half of the map (M10): the footprint tiles, range vs heading,
+  // the terrain corridor and the advisory explanation all read the snapshot,
+  // not the canvas, so they live with the other analysis charts now.
+  if (snapshot.footprint) {
+    renderFootprintPanel({ plan: r, footprint: snapshot.footprint, units: u });
+  }
+  // The licence line rides in on the snapshot's provenance (CC BY 4.0, task
+  // #47): whichever elevation source answered — the corridor field or the
+  // single-bearing profile — the card credits the one that did.
+  renderTerrainCard(r, link, snapshot.provenance.terrainAttribution);
+  renderAdvisoryCard({ advisories: snapshot.advisories });
+}
+
+/** Plan's four workspace modes, in tab order. 2D and 3D share the map panel. */
+const MODES = ['2d', '3d', 'analyze', 'review'];
+
+/** Whether a mode draws on the shared map panel (#view-map). */
+const onMap = (view) => view === '2d' || view === '3d';
+
+/**
+ * Start the 3D engine for the 3D tab, falling back to the 2D tab honestly when
+ * it cannot (no WebGL2, or the scene chunk is unreachable offline — map-view
+ * writes the reason on the map note either way). The tab is disabled while the
+ * chunk downloads so a second press cannot race the first.
+ */
+async function engage3d() {
+  const tab = $('tab-3d');
+  tab.disabled = true;
+  const ok = supports3d() && await setMode3d(true);
+  tab.disabled = false;
+  // The pilot may have switched modes mid-download; only walk the failure back
+  // if the 3D tab is still the one selected.
+  if (!ok && state.view === '3d') setView('2d');
 }
 
 function setView(view) {
   if (state.view === view) return;
   state.view = view;
-  const dash = view === 'dash';
-  $('view-dash').hidden = !dash;
-  $('view-map').hidden = dash;
-  $('tab-dash').setAttribute('aria-selected', dash);
-  $('tab-map').setAttribute('aria-selected', !dash);
-  $('tab-dash').tabIndex = dash ? 0 : -1;
-  $('tab-map').tabIndex = dash ? -1 : 0;
+  $('view-map').hidden = !onMap(view);
+  $('view-analyze').hidden = view !== 'analyze';
+  $('view-review').hidden = view !== 'review';
+  for (const m of MODES) {
+    const tab = $(`tab-${m}`);
+    tab.setAttribute('aria-selected', m === view);
+    tab.tabIndex = m === view ? 0 : -1;
+  }
   // The tabs are only clickable inside Plan, but boot restores the saved mode
   // before the saved destination — starting the map inside a hidden Plan would
   // have Leaflet measure a 0×0 container.
@@ -240,8 +279,11 @@ function setView(view) {
     saveSession();
     return;
   }
-  if (dash) pauseMapView();
-  else showMapView(); // init-if-needed + invalidateSize, now that it's visible
+  if (onMap(view)) {
+    showMapView(); // init-if-needed + invalidateSize, now that it's visible
+    if (view === '3d') void engage3d();
+    else void setMode3d(false); // back from the 3D tab, or a no-op
+  } else pauseMapView();
   update();
 }
 
@@ -266,8 +308,8 @@ function setDest(dest) {
   if (dest === 'library') renderMissions();
   // The map only lives inside Plan: stop its animation work while it's off
   // screen, and bring it back (init-if-needed + invalidateSize) on return.
-  if (wasPlan && state.view === 'map') pauseMapView();
-  if (dest === 'plan' && state.view === 'map') showMapView();
+  if (wasPlan && onMap(state.view)) pauseMapView();
+  if (dest === 'plan' && onMap(state.view)) showMapView();
   saveSession();
   update();
 }
@@ -324,16 +366,18 @@ const editEnv = () => { pushEnvironment(liveProvenance()); update(); };
 const editPolicy = () => { pushPolicy(); update(); };
 
 function bind() {
-  $('tab-dash').addEventListener('click', () => setView('dash'));
-  $('tab-map').addEventListener('click', () => setView('map'));
+  for (const m of MODES) $(`tab-${m}`).addEventListener('click', () => setView(m));
   document.querySelector('.view-tabs').addEventListener('keydown', e => {
     if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
     // The conditions-sheet button rides in the same row but is not a tab.
     if (!(e.target instanceof HTMLElement) || !e.target.classList.contains('view-tab')) return;
     e.preventDefault();
-    const next = state.view === 'dash' ? 'map' : 'dash';
+    // Cycle the enabled tabs only — 3D drops out on a device without WebGL2.
+    const open = MODES.filter(m => !$(`tab-${m}`).disabled);
+    const step = e.key === 'ArrowRight' ? 1 : -1;
+    const next = open[(open.indexOf(state.view) + step + open.length) % open.length];
     setView(next);
-    $(next === 'dash' ? 'tab-dash' : 'tab-map').focus();
+    $(`tab-${next}`).focus();
   });
   $('sel-detail').addEventListener('change', e => {
     state.detail = ['full', 'beginner'].includes(e.target.value) ? e.target.value : 'full';
@@ -574,7 +618,7 @@ function bind() {
       // Mobile URL-bar collapse and the keyboard fire resize with unchanged
       // width — those only need a map reflow, not a full footprint re-render.
       if (window.innerWidth === lastWidth) {
-        if (state.dest === 'plan' && state.view === 'map') resizeMapView();
+        if (state.dest === 'plan' && onMap(state.view)) resizeMapView();
         return;
       }
       lastWidth = window.innerWidth;
@@ -704,15 +748,22 @@ buildFlightLogForm();
 buildPackInstanceForm();
 populateControls();
 bind();
+if (!supports3d()) {
+  // Offering a tab that cannot work is worse than not offering it, and a tab
+  // that vanishes without explanation is worse than both: disabled, with why.
+  $('tab-3d').disabled = true;
+  $('tab-3d').title = '3D needs WebGL2, which this browser or device does not provide.';
+}
 // Mode before destination: setView only starts the map while Plan is the open
-// destination (it is, at boot), so a session saved on Aircraft with the Map
-// mode armed still restores both without Leaflet measuring a hidden container.
-if (bootView === 'map') setView('map'); // renders as a side effect
+// destination (it is, at boot), so a session saved on Aircraft with a map mode
+// armed still restores both without Leaflet measuring a hidden container.
+if (bootView && bootView !== '2d') setView(bootView); // renders as a side effect
+else showMapView(); // the map-first boot default, armed before the first render
 if (bootDest !== 'plan') setDest(bootDest); // renders as a side effect too
 // Live is the boot default (renders immediately, patches when the fetch lands),
 // but a saved preset or hand-entered weather must not be overwritten by it.
 if (state.weatherId === 'live') goLive();
-else if (bootView !== 'map' && bootDest === 'plan') update();
+else if ((!bootView || bootView === '2d') && bootDest === 'plan') update();
 // Last, and deliberately not awaited: opening the repository is a round trip to
 // IndexedDB, and the first render must not wait on it. The bridge restores the
 // launch point and the route from the saved mission and asks for its own render

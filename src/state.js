@@ -8,7 +8,7 @@ import {
 import { allDrones, compatible, compatibleBatteries as dronePacks } from './registry.js';
 import { calibratedDrone } from './flightlog.js';
 import { instanceBattery } from './packinstances.js';
-import { get as storeGet, set as storeSet } from './store.js';
+import { get as storeGet, set as storeSet, loadMapState } from './store.js';
 import { parallelBattery, GUST_FACTOR_DEFAULT, U } from './domain/physics.js';
 import { unitSystem } from './domain/units.js';
 import { CRUISE_ALTS_M, CRUISE_ALT_DEFAULT_M } from './windprofile.js';
@@ -39,7 +39,7 @@ import { LINK_BAND_DEFAULT, isLinkBand } from './rf.js';
  * restoreSession() and the controls actually assign it.
  * @typedef {object} RailState
  * @property {'field'|'plan'|'library'|'aircraft'} dest
- * @property {'dash'|'map'} view
+ * @property {'2d'|'3d'|'analyze'|'review'} view
  * @property {'imperial'|'metric'} units
  * @property {string} droneId
  * @property {string} manufacturerId
@@ -64,7 +64,7 @@ import { LINK_BAND_DEFAULT, isLinkBand } from './rf.js';
 /** @type {RailState} */
 export const state = {
   dest: 'plan', // which destination is open — Plan is the working default
-  view: 'dash', // Plan's workspace mode: 'dash' (Overview) | 'map'
+  view: '2d', // Plan's workspace mode: '2d' | '3d' | 'analyze' | 'review' — map first
   units: 'imperial',
   droneId: 'moz7v2',
   manufacturerId: 'all',
@@ -237,7 +237,7 @@ export function restoreSession() {
     && SCENARIOS.some(x => x.id === s.scenarioId)
     && (s.weatherId === 'live' || s.weatherId === 'custom' || WEATHER.some(w => w.id === s.weatherId))
     && ['imperial', 'metric'].includes(s.units)
-    && ['dash', 'map'].includes(s.view)
+    && ['2d', '3d', 'analyze', 'review', 'dash', 'map'].includes(s.view)
     && ['real', 'range', 'manual'].includes(s.cruiseMode)
     && ['radius', 'time'].includes(s.speedMetric)
     && ['headOut', 'tailOut', 'cross'].includes(env.windMode)
@@ -262,6 +262,12 @@ export function restoreSession() {
       gustMph: env.gustMph, windFromDeg: env.windFromDeg, windMode: env.windMode,
     },
   });
+  // M10 renamed Plan's workspace modes: the old Overview tab became Analyze,
+  // and the Map tab split into the 2D/3D pair. A blob from before then says
+  // 'dash' or 'map'; 'map' comes back as whichever engine the map-state blob
+  // last recorded, because the engine choice used to live there, not here.
+  if (s.view === 'dash') return 'analyze';
+  if (s.view === 'map') return loadMapState()?.view === '3d' ? '3d' : '2d';
   return s.view;
 }
 

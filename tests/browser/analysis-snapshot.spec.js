@@ -125,13 +125,14 @@ test.describe('coded constraints on every surface', () => {
     // The brief is opened from the map toolbar. The warning rail lives outside
     // both tab panels — it is the one thing on screen whichever tab is up — so
     // the list read here is the list the brief was built beside.
-    await page.locator('#tab-map').click();
+    await page.locator('#tab-2d').click();
     await expect(page.locator('#map-canvas.leaflet-container')).toBeVisible();
     const rail = await readRows(page, '#warnings .warn');
     expect(rail.length, 'the map tab lost the warning rail').toBeGreaterThan(0);
 
     // The button opens the overlay; #brief-print is what reaches window.print(),
-    // and is deliberately never clicked here.
+    // and is deliberately never clicked here. It lives on the Review mode (M10).
+    await page.locator('#tab-review').click();
     await page.locator('#btn-brief').click();
     await expect(page.locator('#brief')).toBeVisible();
 
