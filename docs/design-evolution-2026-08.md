@@ -117,9 +117,10 @@ big ones). No epic branch.
   VerdictCard, WindRibbon, MissionSummary, DataFreshness; system-state
   framework. **Lift-and-shift every existing surface intact** per the
   preservation map. Kick off `spike/ortho` in parallel.
-- [ ] **M10 — Plan workspace.** Map-first: 2D/Analyze/Review modes,
-  ContextInspector replaces permanent sidebars, ElevationProfile, RouteTimeline,
-  MapToolbar, fix-linking engine on validation (P-01…P-05, T-01…T-04).
+- [x] **M10 — Plan workspace.** *(landed 2026-07-31, main @ 4e7bcb5)* Map-first:
+  2D/Analyze/Review modes, ContextInspector replaces permanent sidebars,
+  ElevationProfile, RouteTimeline, MapToolbar, fix-linking engine on validation
+  (P-01…P-05, T-01…T-04).
 - [ ] **M11 — Wind intelligence.** W-01…W-04 + WindRibbon expansion states
   everywhere. Mostly visualization over existing data.
 - [ ] **M12 — Orthographic 3D planner.** Engine per spike verdict; 3D-01…3D-04
