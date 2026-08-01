@@ -29,7 +29,7 @@ import { setupDroneForm, buildDroneForm } from './render/droneform.js';
 import { setupPackInstances, buildPackInstanceForm } from './render/packinstances.js';
 import { resolvePackIr, resetBatteryChecks } from './render/batterychecks.js';
 import { setupFlightLog, buildFlightLogForm } from './render/flightlog.js';
-import { setupCalibration, renderDriftChart } from './render/calibration.js';
+import { setupCalibration, renderDriftChart, renderCalibrationConfidence } from './render/calibration.js';
 import {
   resetPackCaches, renderWarnings, renderVerdict, renderNoBattery, renderReserveNote,
   renderStats, renderPowerCurve, renderSpeedTradeoff, renderProfile, renderWindSensitivity,
@@ -37,6 +37,7 @@ import {
 import { renderComparison } from './render/comparison.js';
 import { renderAircraftCards } from './render/aircraftcards.js';
 import { renderPackCards } from './render/packcards.js';
+import { setupCameraPage, renderCameraPage } from './render/camerapage.js';
 import { setupLive, goLive, useMyLocation, updateLiveUI, liveError, liveProvenance } from './render/live.js';
 import {
   setupForecast, renderForecastStrip, setForecastHour, reapplyForecastHour,
@@ -291,7 +292,7 @@ function update() {
   if (state.dest === 'aircraft') {
     // Only the open page renders (M15) — same reason as Plan's modes: a chart
     // drawn inside a hidden page measures nothing and freezes at a fallback
-    // width. Camera's page waits for E-03 and draws nothing yet.
+    // width.
     if (state.acPage === 'aircraft') {
       renderAircraftCards();
       // Beginner mode hides the two performance cards, so skip the sweeps
@@ -304,7 +305,10 @@ function update() {
       renderPackCards();
       renderComparison();
       renderBatteryNote();
+    } else if (state.acPage === 'camera') {
+      renderCameraPage();
     } else if (state.acPage === 'calibration') {
+      renderCalibrationConfidence();
       // populateControls draws this at boot, possibly while the page is hidden
       // — redraw at the real container width now that it is showing.
       renderDriftChart();
@@ -869,6 +873,9 @@ setupFlightLog({ update, populateControls });
 // Applying a fit changes what the planner is flying, so the status line needs
 // the same pair. The drift chart's view toggle only re-renders itself.
 setupCalibration({ update, populateControls });
+// The camera select dispatches into the mission bridge, which re-renders on
+// its own; the two framing sliders are view state and redraw only their page.
+setupCameraPage();
 setupShare({ update, populateControls });
 // The two async fetches land after the render that asked for them, so both need
 // a way back in — and a way to find out whether the mission has moved on since,

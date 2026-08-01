@@ -835,8 +835,7 @@
     <nav class="view-tabs acnav" role="tablist" aria-label="Aircraft sections">
       <button id="actab-aircraft" class="view-tab" role="tab" aria-selected="true" aria-controls="acpage-aircraft">Aircraft</button>
       <button id="actab-batteries" class="view-tab" role="tab" aria-selected="false" aria-controls="acpage-batteries" tabindex="-1">Batteries</button>
-      <!-- Unhidden in M15 wave D, when E-03 fills its page. -->
-      <button id="actab-camera" class="view-tab" role="tab" aria-selected="false" aria-controls="acpage-camera" tabindex="-1" hidden>Camera</button>
+      <button id="actab-camera" class="view-tab" role="tab" aria-selected="false" aria-controls="acpage-camera" tabindex="-1">Camera</button>
       <button id="actab-calibration" class="view-tab full-only" role="tab" aria-selected="false" aria-controls="acpage-calibration" tabindex="-1">Calibration</button>
     </nav>
 
@@ -975,11 +974,57 @@
     </div>
 
     <!-- E-03 lands in M15 wave D. -->
-    <div id="acpage-camera" role="tabpanel" aria-labelledby="actab-camera" hidden></div>
+    <!-- E-03: the mission's one camera, and what it would see. The select is
+         the same seam as Plan's segment editor — both write scene.cameraProfile
+         through the setCameraProfile command, so whichever door picked the
+         camera, the shot solver and this preview read the same profile.
+         Drawn by src/render/camerapage.js from domain/camera.js's geometry. -->
+    <div id="acpage-camera" role="tabpanel" aria-labelledby="actab-camera" hidden>
+      <div class="hangar">
+        <section class="rail-group">
+          <h2>Camera</h2>
+          <label>Camera profile
+            <select id="sel-camera"></select>
+          </label>
+          <p class="rail-note">The camera travels with the mission, not the drone — pick it here
+            or in the Plan segment editor and both read the same profile.</p>
+        </section>
+        <section class="card cam-card">
+          <h3>Field of view</h3>
+          <p id="cam-empty" class="rail-note">Pick a camera above and this pane draws what it sees.</p>
+          <div id="cam-body" hidden>
+            <section class="tiles cam-tiles">
+              <div class="tile" id="tile-cam-sensor"><p class="tile-label">Sensor</p><p class="tile-value">—</p><p class="tile-sub"></p></div>
+              <div class="tile" id="tile-cam-focal"><p class="tile-label">Focal length</p><p class="tile-value">—</p><p class="tile-sub"></p></div>
+              <div class="tile" id="tile-cam-fov"><p class="tile-label">Field of view</p><p class="tile-value">—</p><p class="tile-sub"></p></div>
+              <div class="tile" id="tile-cam-stab"><p class="tile-label">Stabilized</p><p class="tile-value">—</p><p class="tile-sub"></p></div>
+            </section>
+            <div id="cam-preview" class="cam-preview"></div>
+            <label>Subject distance <span id="cam-dist-val" class="range-val"></span>
+              <input id="in-cam-dist" type="range" min="5" max="200" step="5" value="30"></label>
+            <label>Subject size <span id="cam-size-val" class="range-val"></span>
+              <input id="in-cam-size" type="range" min="1" max="20" step="1" value="5"></label>
+            <p id="cam-framing" class="rail-note" role="status"></p>
+          </div>
+        </section>
+      </div>
+    </div>
 
     <!-- E-04: the logbook and what it says about the model. -->
     <div id="acpage-calibration" role="tabpanel" aria-labelledby="actab-calibration" hidden>
       <div class="hangar">
+      <!-- Where the model stands for this airframe: provenance, its scored
+           error, and what applying the fit would change. Every number comes
+           from the engines (confidence.js, drift.js) — no invented health
+           scores, no version theater. Drawn by render/calibration.js. -->
+      <section class="card calibconf" id="calib-confidence">
+        <div class="calibconf-head">
+          <h3>Model confidence</h3>
+          <span id="calib-conf-badge"></span>
+        </div>
+        <p id="calib-conf-line" class="calibconf-line"></p>
+        <p id="calib-conf-impact" class="rail-note" role="status" hidden></p>
+      </section>
       <section class="rail-group">
         <h2>Flight log</h2>
         <details class="custom-batt full-only" open>

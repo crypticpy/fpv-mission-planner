@@ -865,6 +865,34 @@ tr.row-invalid td:nth-child(12) { color: var(--status-critical); font-weight: 60
 .pairverdict.avoid { color: var(--status-serious); }
 .pairverdict.unknown { color: var(--muted); }
 
+/* E-03: the camera page's FOV card. The framing sliders reuse the rail's
+   range idiom, so the label styling mirrors .rail-group label. */
+.cam-tiles { margin-bottom: var(--sp-3); }
+.cam-card label {
+  display: block;
+  font-size: 12px;
+  color: var(--ink-2);
+  margin-bottom: var(--sp-2);
+}
+.cam-preview { margin-bottom: var(--sp-3); }
+.cam-preview svg { display: block; width: 100%; height: auto; }
+.cam-preview text { fill: var(--muted); font-size: 9.5px; }
+
+/* E-04: the model-confidence card at the top of the Calibration page. */
+.calibconf-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+.calibconf-head h3 { margin-bottom: 0; }
+.calibconf-line {
+  margin-top: var(--sp-2);
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
 /* ---------- map view ---------- */
 
 /* The stage (M10): one positioned box the engines fill and the map chrome —

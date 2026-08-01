@@ -17,6 +17,8 @@ import {
   fitForDrone, appliedState, setCalibrationApplied,
 } from '../flightlog.js';
 import { driftPoints, driftSummary } from '../drift.js';
+import { modelConfidence } from '../confidence.js';
+import { renderConfidenceBadge } from '../components/confidence-badge.js';
 import { allBatteries } from '../registry.js';
 import { beginner, units, catalogDrone, drone } from '../state.js';
 import { lineChart, legend } from '../charts.js';
@@ -137,6 +139,77 @@ function tierNote(fit, applied) {
       + `${fit.nRefused === 1 ? 'it' : 'them'}.`);
   }
   return parts.join(' ');
+}
+
+/* ---------- the model-confidence card (E-04) ---------- */
+
+/**
+ * The Calibration page's headline: the same badge the E-01 aircraft cards
+ * wear, with the sentence behind it — whose numbers are flying, how they have
+ * scored against the logged cruise legs, and (when a fit exists) what the
+ * catalog's error and the fit's error each look like over the same flights.
+ * The before/after is computed by running driftPoints twice against the same
+ * solves, so the two percentages are the same measurement of two records —
+ * never an invented improvement figure.
+ */
+export function renderCalibrationConfidence() {
+  const d = catalogDrone();
+  const fit = fitForDrone(d);
+  const packs = allBatteries();
+  // Scored against the record the planner is flying — the badge here must
+  // agree with the one the E-01 card for this airframe wears.
+  const drift = driftSummary(driftPoints({ drone: drone(), solves: fit.solves, batteries: packs }));
+  const m = modelConfidence({ drone: drone(), fit, drift });
+  renderConfidenceBadge($('calib-conf-badge'), m);
+  $('calib-conf-line').textContent = confidenceSentence(m, d, drift);
+
+  const impact = $('calib-conf-impact');
+  const fitted = (fit.etaProp || fit.cdA)
+    ? {
+        ...d,
+        ...(fit.etaProp && { etaProp: fit.etaProp.value }),
+        ...(fit.cdA && { cdA: fit.cdA.value }),
+      }
+    : null;
+  const base = fitted
+    ? driftSummary(driftPoints({ drone: d, solves: fit.solves, batteries: packs }))
+    : null;
+  const after = fitted
+    ? driftSummary(driftPoints({ drone: fitted, solves: fit.solves, batteries: packs }))
+    : null;
+  if (!base || base.absPct == null || !after || after.absPct == null) {
+    impact.hidden = true;
+    impact.textContent = '';
+    return;
+  }
+  impact.hidden = false;
+  const applied = appliedState(fit);
+  const legs = `${base.n} cruise leg${base.n === 1 ? '' : 's'}`;
+  impact.textContent = `Over the same ${legs}: the catalog record is off by about ±${f1(base.absPct)}%, `
+    + `your fit by ±${f1(after.absPct)}%. `
+    + (applied.on
+      ? 'Your numbers are the ones flying. Switching back is the same checkbox on the Aircraft page — nothing is overwritten.'
+      : applied.usable
+        ? 'Flip “Fly my numbers” on the Aircraft page to fly the right-hand error. Non-destructive — the catalog record stays.'
+        : 'Not flyable yet — the note under the logbook says what the fit still needs.');
+}
+
+/** One sentence: whose numbers are flying, and how they have scored. */
+function confidenceSentence(m, d, drift) {
+  if (!m) return '';
+  const opener = m.provenance === 'measured'
+    ? `Flying your own numbers — a fit from ${m.nFlights} logged flight${m.nFlights === 1 ? '' : 's'}.`
+    : m.provenance === 'datasheet'
+      ? 'Flying the datasheet numbers you entered for this rig.'
+      : m.provenance === 'estimated'
+        ? 'Flying a class-template estimate — the least anchored kind of record.'
+        : `Flying the catalog record for the ${d.name}.`;
+  const scored = drift && drift.absPct != null
+    ? ` Over ${drift.n} logged cruise leg${drift.n === 1 ? '' : 's'} it has been `
+      + (drift.absPct < 2 ? 'inside 2%' : `within about ±${f0(drift.absPct)}%`)
+      + ' of what the flights actually burned.'
+    : ' No scored cruise legs yet — log one and this badge earns a percentage.';
+  return opener + scored;
 }
 
 /* ---------- the drift chart ---------- */

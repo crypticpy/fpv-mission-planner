@@ -28,8 +28,9 @@ test.describe('aircraft pages', () => {
     await expect(page.locator('#acpage-aircraft')).toBeVisible();
     await expect(page.locator('#acpage-batteries')).toBeHidden();
     await expect(page.locator('#acpage-calibration')).toBeHidden();
-    // Camera's tab ships hidden until E-03 fills its panel (wave D).
-    await expect(page.locator('#actab-camera')).toBeHidden();
+    // Camera's tab is live since E-03 filled its panel (wave D).
+    await expect(page.locator('#actab-camera')).toBeVisible();
+    await expect(page.locator('#acpage-camera')).toBeHidden();
 
     // E-01: one card per airframe, each wearing where its numbers come from.
     const cards = page.locator('#aircraft-cards .accard');

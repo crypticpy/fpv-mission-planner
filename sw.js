@@ -150,6 +150,7 @@ const PRECACHE_URLS = [
   'src/render/batterychecks.js',
   'src/render/brief.js',
   'src/render/calibration.js',
+  'src/render/camerapage.js',
   'src/render/comparison.js',
   'src/render/controls.js',
   'src/render/dashboard.js',
