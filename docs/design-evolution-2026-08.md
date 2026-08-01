@@ -110,7 +110,7 @@ route, selection, layers, azimuth, and inspector state. 2D fallback mandatory.
 Each milestone merges to `main` when green (`npm run check`; `/freview` for the
 big ones). No epic branch.
 
-- [ ] **M9 — Shell + design system.** Four-destination nav on all form factors
+- [x] **M9 — Shell + design system.** *(landed 2026-07-31, main @ ee23af2)* Four-destination nav on all form factors
   (desktop left rail, phone bottom dock FIELD/PLAN/LIBRARY/AIRCRAFT, tablet icon
   rail); `tokens.json` folded into `themes.js` (keep Space Grotesk / IBM Plex —
   render typography is reference-only); `fpv-symbols.svg` inline sprite;
