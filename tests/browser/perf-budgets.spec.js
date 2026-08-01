@@ -122,7 +122,13 @@ test.describe('performance budgets', () => {
    * this re-base that the split graph is intact (brief, import-router,
    * compile, scene3d all still separate chunks) — this is feature growth,
    * not a chunk collapsing into the entry. */
-  const ENTRY_BUDGET_KB = 178;
+  /* Re-based 178 → 180 at M12 wave D: the scene viewbar wiring and the five
+   * 3D system-state cards, 178.3 on landing. Always-path by design — the
+   * cards are exactly the code that must be present when the 3D chunk fails
+   * to load, so they cannot live in the 3D chunk; the viewbar is persistent
+   * chrome on the map stage. Verified at this re-base that the split graph
+   * is intact (all three scene3d chunks still lazy, none in the precache). */
+  const ENTRY_BUDGET_KB = 180;
   const SCENE3D_BUDGET_KB = 500;
 
   test('the built bundles are inside their gzip budgets', async () => {

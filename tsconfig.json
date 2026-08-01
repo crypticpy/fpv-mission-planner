@@ -90,6 +90,11 @@
     // outside a browser. The engine-facing half, ortho-scene.js, stays out with
     // scene.js and ortho-terrain.js for the reason spelled out below.
     "src/presentation/map/scene3d/ortho-view-state.js",
+    // Wave D's contour extraction joins on the same terms: pure marching
+    // squares, zero imports. Its grid parameter is a structural typedef of the
+    // four fields it reads, precisely so that no type-import of ortho-terrain.js
+    // could drag deck.gl's typings in through the back door.
+    "src/presentation/map/scene3d/ortho-contours.js",
     // M12 wave A's ortho-terrain.js is deliberately absent, and not for want of
     // types: it passes `strict` on its own JSDoc under a scratch config. It
     // imports @deck.gl/core and @deck.gl/mesh-layers, whose typings pull

@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   ORTHO_CAMERA,
   TOP_ROTATION_X,
+  azimuthViewState,
   boundsCover,
   fitViewState,
   gridPlacement,
@@ -194,6 +195,38 @@ test('swapping ortho for perspective moves nothing about the camera', () => {
   assert.deepEqual(projectedViewState(state, 'perspective'), state);
   assert.deepEqual(projectedViewState(state, 'orthographic'), state);
   assert.notEqual(projectedViewState(state, 'orthographic'), state);
+});
+
+test('azimuth modes move only the orbit, and route turns the camera to the bearing', () => {
+  /** @type {any} */
+  const state = {
+    target: [10, 20, 300],
+    zoom: -1,
+    rotationX: 55,
+    rotationOrbit: 71,
+    minZoom: -6,
+    maxZoom: 3,
+  };
+
+  const north = azimuthViewState(state, 'north');
+  assert.equal(north.rotationOrbit, 0);
+  assert.equal(north.rotationX, 55);
+  assert.deepEqual(north.target, state.target);
+
+  // A route flown east reads up the screen when the camera turns with it —
+  // the sign was measured in the browser, not derived (an eastbound route
+  // under -90 pointed down the screen).
+  assert.equal(azimuthViewState(state, 'route', 90).rotationOrbit, 90);
+  assert.equal(azimuthViewState(state, 'route', 270).rotationOrbit, -90);
+  assert.equal(azimuthViewState(state, 'route', 0).rotationOrbit, 0);
+  assert.equal(azimuthViewState(state, 'route', 540).rotationOrbit, 180);
+
+  // Free changes nothing — but hands back a copy, never the caller's object.
+  const free = azimuthViewState(state, 'free');
+  assert.deepEqual(free, state);
+  assert.notEqual(free, state);
+  // And the original never moved.
+  assert.equal(state.rotationOrbit, 71);
 });
 
 /* ---------- the ground the terrain is loaded over ---------- */

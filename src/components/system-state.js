@@ -29,6 +29,8 @@ const KIND_ICON = {
  * @property {string} title  short and uppercase-styled by CSS — 'NO MISSION YET'
  * @property {string} body   one line of why, in the pilot's words
  * @property {{label: string, onClick: () => void}} [action]
+ * @property {{label: string, onClick: () => void}} [secondary]  the quieter way
+ *   out, when a state honestly has two — 'Restart 3D' beside 'Use 2D map'
  */
 
 /**
@@ -64,12 +66,18 @@ export function renderSystemState(host, spec) {
   body.className = 'sysstate-body';
   body.textContent = spec.body;
   host.replaceChildren(tile, title, body);
-  if (spec.action) {
+  const actions = [spec.action, spec.secondary].filter(Boolean).map((a, i) => {
     const btn = document.createElement('button');
     btn.type = 'button';
-    btn.className = 'map-btn sysstate-action';
-    btn.textContent = spec.action.label;
-    btn.addEventListener('click', spec.action.onClick);
-    host.appendChild(btn);
+    btn.className = i === 0 ? 'map-btn sysstate-action' : 'map-btn sysstate-secondary';
+    btn.textContent = a.label;
+    btn.addEventListener('click', a.onClick);
+    return btn;
+  });
+  if (actions.length) {
+    const row = document.createElement('div');
+    row.className = 'sysstate-actions';
+    row.append(...actions);
+    host.appendChild(row);
   }
 }

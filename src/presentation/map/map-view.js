@@ -31,7 +31,8 @@
 // is engine-agnostic: one pass builds one frame, and whichever engines are on
 // screen draw it.
 
-import { wrapLng } from '../../domain/geo.js';
+import { bearingTo, wrapLng } from '../../domain/geo.js';
+import { renderSystemState } from '../../components/system-state.js';
 import { loadMapState, saveMapState } from '../../store.js';
 import { createLeafletAdapter } from './leaflet-adapter.js';
 import { createLayerRegistry } from './layer-registry.js';
@@ -75,11 +76,12 @@ const $ = (/** @type {string} */ id) => document.getElementById(id);
 
 /*
  * Injected by app.js: { missionInputs, units, beginner, requestRender, goLive,
- * onLaunchChanged, onLaunchMove } plus the route port — { routeWaypoints,
+ * onLaunchChanged, onLaunchMove, exit3d } plus the route port — { routeWaypoints,
  * onAddWaypoint, onMoveWaypoint, onRemoveWaypoint, onClearRoute } — which is how
  * this view reads and edits a route it does not own. `onLaunchChanged` raises the
  * launch onto the mission document; `onLaunchMove` is the weather rail's cue to
- * refetch for the new spot.
+ * refetch for the new spot; `exit3d` walks the Plan tabs back to 2D — the system
+ * state cards' way out, owned by app.js because the tabs are.
  */
 let deps = null;
 /** @type {MapAdapter|null} */
@@ -93,16 +95,16 @@ let scene = null;
 /* Which engine draws the 3D view when it is asked for. Session-only, like
  * `advisoryOn` below and for a stronger version of the same reason: the saved map
  * state is where the map is looking, and which of two renderers a pilot was
- * trying is not that — least of all when one of them is the experiment. MapLibre
- * by default, so a session nobody touches is the shipped scene. */
+ * trying is not that. Ortho by default since M12 — the terrain this app decodes
+ * itself is the shipped scene, and the MapLibre satellite host is one viewbar
+ * press away, so nothing was lost by the promotion. */
 /** @type {SceneHost} */
-let sceneHost = 'maplibre';
+let sceneHost = 'ortho';
 /** Which engine is on screen. 2D until a pilot says otherwise, every session. */
 /** @type {'2d'|'3d'} */
 let mode = '2d';
-/** Why 3D is not available, when it is not. Composed in front of the pass's own note. */
-/** @type {string|null} */
-let sceneNote = null;
+/** Guards a second press racing a first activation — the chunk downloads once. */
+let engaging = false;
 /** @type {{ spots: SavedSpot[], onSelect: ((spot: SavedSpot) => void)|undefined }|null} */
 let spotSpec = null;
 /* Whether the mountain-flow zones are drawn (M5). A view preference like route
@@ -274,6 +276,78 @@ function bindControls() {
     routeOn = true;
     deps.onClearRoute();
   });
+
+  /* The viewbar (M12). Every handler re-asks for the ortho handle at click
+   * time — the ortho groups are hidden whenever it is absent, but a tap that
+   * raced a host swap must land on nothing rather than on a stale handle. */
+  $('vb-proj-ortho').addEventListener('click', () => setOrthoProjection('orthographic'));
+  $('vb-proj-persp').addEventListener('click', () => setOrthoProjection('perspective'));
+  $('vb-proj-top').addEventListener('click', () => setOrthoProjection('top'));
+  $('vb-az-north').addEventListener('click', () => setOrthoAzimuth('north'));
+  $('vb-az-route').addEventListener('click', () => setOrthoAzimuth('route'));
+  $('vb-az-free').addEventListener('click', () => setOrthoAzimuth('free'));
+  $('vb-exag-down').addEventListener('click', () => stepExaggeration(-0.25));
+  $('vb-exag-up').addEventListener('click', () => stepExaggeration(0.25));
+  $('vb-contours').addEventListener('click', () => {
+    const s = orthoScene();
+    if (s) { s.setContours(!s.contours()); deps.requestRender(); }
+  });
+  $('vb-reset').addEventListener('click', () => {
+    const s = orthoScene();
+    if (s) { s.resetCamera(); deps.requestRender(); }
+  });
+  $('vb-host').addEventListener('click', () => {
+    void setSceneHost(sceneHost === 'ortho' ? 'maplibre' : 'ortho');
+  });
+}
+
+/* ---------- the ortho camera's knobs ---------- */
+
+/** The ortho handle when the ortho host is the engine on screen, else null. */
+const orthoScene = () => (mode === '3d' && sceneHost === 'ortho' && scene
+  ? /** @type {import('./scene3d/ortho-scene.js').OrthoSceneHandle} */ (scene)
+  : null);
+
+/** @param {import('./scene3d/ortho-view-state.js').OrthoProjection} p */
+function setOrthoProjection(p) {
+  const s = orthoScene();
+  if (s) { s.setProjection(p); deps.requestRender(); }
+}
+
+/** @param {import('./scene3d/ortho-view-state.js').OrthoAzimuth} m */
+function setOrthoAzimuth(m) {
+  const s = orthoScene();
+  if (s) { s.setAzimuth(m, routeBearing()); deps.requestRender(); }
+}
+
+/** @param {number} delta */
+function stepExaggeration(delta) {
+  const s = orthoScene();
+  if (s) { s.setExaggeration(s.exaggeration() + delta); deps.requestRender(); }
+}
+
+/**
+ * The route's own heading: launch to the farthest authored waypoint.
+ *
+ * "Route-aligned" needs one bearing out of a line that may bend, and the far
+ * point is the one a pilot flying out-and-back is actually pointed at — the
+ * first leg's heading would swing wildly on a route that starts with a dogleg.
+ * North when there is no route to align to, which makes Route degrade into
+ * North rather than into a random azimuth.
+ */
+function routeBearing() {
+  const pts = routeWaypoints();
+  if (!launch || !pts.length) return 0;
+  const coslat = Math.cos((launch.lat * Math.PI) / 180);
+  let far = pts[0];
+  let best = -1;
+  for (const p of pts) {
+    const dx = (p.lng - launch.lng) * coslat;
+    const dy = p.lat - launch.lat;
+    const d = dx * dx + dy * dy;
+    if (d > best) { best = d; far = p; }
+  }
+  return bearingTo(launch, far);
 }
 
 function persist() {
@@ -322,8 +396,22 @@ export function supports3d() {
 export async function setMode3d(on) {
   ensureMap();
   if (!on) {
+    // Leaving the 3D tab dismisses whatever the engine had to say for itself.
+    sceneState(null);
     if (mode === '3d') deactivate3d();
     return true;
+  }
+  if (!supports3d()) {
+    /* The tab is offered to everyone now; the answer for a device that cannot
+     * take it is this card, on press, over a 2D map that still works — not a
+     * tab that vanished without explanation. */
+    sceneState({
+      kind: 'permission-denied',
+      title: '3D unavailable',
+      body: '3D needs WebGL2, which this browser or device does not provide. The 2D map tells the same story flat.',
+      action: { label: 'Use 2D map', onClick: () => deps.exit3d?.() },
+    });
+    return false;
   }
   if (mode !== '3d') await activate3d();
   return mode === '3d';
@@ -363,10 +451,20 @@ export async function setSceneHost(host) {
 }
 
 async function activate3d() {
+  if (engaging || mode === '3d') return;
+  engaging = true;
   const from = adapter.view();
   const container = $('map-3d');
   container.hidden = false;
   $('map-canvas').hidden = true;
+  // Only the first time is a download; a live handle re-engages in one frame.
+  if (!scene) {
+    sceneState({
+      kind: 'loading',
+      title: 'Preparing 3D',
+      body: 'Downloading the engine and decoding terrain for this area.',
+    });
+  }
 
   try {
     if (!scene) {
@@ -412,13 +510,18 @@ async function activate3d() {
      * way, and nothing here may derail the 2D recovery below. */
     try { scene?.destroy(); } catch { /* letting go was the point */ }
     scene = null;
-    sceneNote = '3D needs a connection the first time — the map stayed in 2D.';
+    /* The pilot stays on the 3D tab, with the reason as a card over the live 2D
+     * map — the designed fallback state, in place of the old silent bounce. */
+    sceneFailCard(err);
     deps.requestRender();
     return;
+  } finally {
+    engaging = false;
   }
 
   mode = '3d';
-  sceneNote = null;
+  sceneState(null);
+  watchContextLoss(container);
   // Nothing to animate over a hidden Leaflet container.
   windLayer.stop();
   persist();
@@ -437,6 +540,86 @@ function deactivate3d() {
   windLayer.start(adapter);
   persist();
   deps.requestRender();
+}
+
+/* ---------- the 3D system states ---------- */
+//
+// Every way the scene cannot show itself, as one designed card over the stage
+// (SCREEN-INVENTORY's mandated 3D states: WebGL unsupported, engine offline,
+// terrain missing, context loss, and the 2D-fallback that underlies them all).
+// The 2D map stays live under the card, so "fallback" is a working screen with
+// an explanation on it rather than a different place the pilot was sent to.
+
+/** @param {import('../../components/system-state.js').SystemStateSpec|null} spec */
+function sceneState(spec) {
+  /* renderSystemState owns its host's className outright, so the card gets an
+   * inner element to wear it — handing it the overlay itself would overwrite
+   * `scene-state`, and the positioning goes with it. */
+  const overlay = $('scene-state');
+  let card = overlay.firstElementChild;
+  if (!card) {
+    card = document.createElement('div');
+    overlay.appendChild(card);
+  }
+  renderSystemState(/** @type {HTMLElement} */ (card), spec);
+  overlay.hidden = !spec;
+}
+
+/**
+ * The right card for the way 3D failed. Terrain that decoded to nothing is not
+ * the network being down: the first has a satellite host one press away, the
+ * second has a retry. Each card names its cause and every way out is a button.
+ * @param {unknown} err
+ */
+function sceneFailCard(err) {
+  const message = err instanceof Error ? err.message : String(err ?? '');
+  if (/no terrain/i.test(message)) {
+    sceneState({
+      kind: 'empty',
+      title: 'No terrain here',
+      body: 'No elevation tiles could be decoded for this area, so the terrain view has no ground to build.',
+      action: {
+        label: 'Try satellite 3D',
+        onClick: () => { sceneHost = 'maplibre'; void activate3d(); },
+      },
+      secondary: { label: 'Use 2D map', onClick: () => deps.exit3d?.() },
+    });
+    return;
+  }
+  sceneState({
+    kind: 'offline',
+    title: '3D needs a connection',
+    body: 'The 3D engine and its terrain download on first use and were unreachable. The 2D map underneath still works.',
+    action: { label: 'Retry 3D', onClick: () => { void activate3d(); } },
+    secondary: { label: 'Use 2D map', onClick: () => deps.exit3d?.() },
+  });
+}
+
+/**
+ * Stand a watch for the GPU taking the scene away mid-flight.
+ *
+ * A lost context is not a crash — the browser reclaims contexts under memory
+ * pressure, tab-switching on phones does it routinely — but the canvas it
+ * leaves behind is dead. The recovery is the same teardown a host swap does,
+ * plus the card that says what happened. Guarded by handle identity so a loss
+ * event surfacing after a deliberate teardown cannot pull down its successor.
+ * @param {HTMLElement} container
+ */
+function watchContextLoss(container) {
+  const owner = scene;
+  container.querySelector('canvas')?.addEventListener('webglcontextlost', () => {
+    if (!owner || scene !== owner) return;
+    if (mode === '3d') deactivate3d();
+    try { scene?.destroy(); } catch { /* it is already gone */ }
+    scene = null;
+    sceneState({
+      kind: 'recoverable-error',
+      title: '3D stopped',
+      body: 'The graphics context was lost — usually the GPU under memory pressure. The 2D map took over.',
+      action: { label: 'Restart 3D', onClick: () => { void activate3d(); } },
+      secondary: { label: 'Use 2D map', onClick: () => deps.exit3d?.() },
+    });
+  }, { once: true });
 }
 
 /**
@@ -638,7 +821,12 @@ export function renderMapView(snapshot) {
     needsFit = false;
     const bounds = footprintLayer.bounds();
     if (mode === '3d' && scene) {
-      if (bounds) scene.fit(bounds, { paddingPx: 24 });
+      /* Selected-leg focus (M12, the interaction contract's navigation row):
+       * Fit pressed while a leg's inspector is open frames that leg, not the
+       * whole mission — "look at this one" is what the selection already said. */
+      const leg = selectedLegBounds(snapshot);
+      if (leg) scene.fit(leg, { paddingPx: 48 });
+      else if (bounds) scene.fit(bounds, { paddingPx: 24 });
       else scene.setView(frame.launch);
     } else if (bounds) map.fit(bounds, { paddingPx: 24 });
     else map.center(frame.launch);
@@ -763,6 +951,61 @@ function renderToolbar(frame) {
   btnAdvisory.title = frame.advisoryVisible ? 'Wind zones · on' : 'Wind zones';
 
   syncBaseLayer();
+  syncViewbar();
+}
+
+/**
+ * The box around the selected leg, when there is one. Segment k runs from
+ * point k to point k+1 of [launch, …waypoints] — the numbering routeSpans
+ * draws by: segment k arrives at waypoint k.
+ * @param {AnalysisSnapshot} snapshot
+ * @returns {import('./map-adapter.js').LatLngBounds|null}
+ */
+function selectedLegBounds(snapshot) {
+  const seg = selectedSegmentId ? snapshot.segments?.[selectedSegmentId] : null;
+  if (!seg || !Number.isInteger(seg.index) || !launch) return null;
+  const pts = [launch, ...routeWaypoints()];
+  const a = pts[seg.index];
+  const b = pts[seg.index + 1];
+  if (!a || !b) return null;
+  return {
+    southWest: { lat: Math.min(a.lat, b.lat), lng: Math.min(a.lng, b.lng) },
+    northEast: { lat: Math.max(a.lat, b.lat), lng: Math.max(a.lng, b.lng) },
+  };
+}
+
+/**
+ * The viewbar's whole state machine, run every pass like the toolbar above it:
+ * up only while a 3D engine is on screen, ortho-only groups standing down via
+ * data-host when the satellite host draws (that host carries its own in-scene
+ * exaggeration control), and every latch read back from the handle rather than
+ * mirrored — the handle is the one that knows.
+ */
+function syncViewbar() {
+  const bar = $('scene-viewbar');
+  bar.hidden = mode !== '3d';
+  if (bar.hidden) return;
+  bar.dataset.host = sceneHost;
+  const hostBtn = $('vb-host');
+  hostBtn.textContent = sceneHost === 'ortho' ? 'Satellite' : 'Terrain';
+  hostBtn.title = sceneHost === 'ortho'
+    ? 'Switch to satellite 3D — imagery draped on terrain'
+    : 'Switch to terrain 3D — the orthographic planner';
+  const s = orthoScene();
+  if (!s) return;
+  const press = (/** @type {string} */ id, /** @type {boolean} */ on) => (
+    $(id).setAttribute('aria-pressed', String(on)));
+  const proj = s.projection();
+  press('vb-proj-ortho', proj === 'orthographic');
+  press('vb-proj-persp', proj === 'perspective');
+  press('vb-proj-top', proj === 'top');
+  const az = s.azimuth();
+  press('vb-az-north', az === 'north');
+  press('vb-az-route', az === 'route');
+  press('vb-az-free', az === 'free');
+  press('vb-contours', s.contours());
+  // 1.0× / 1.25× / 1.5× — two decimals only where the step puts them.
+  $('vb-exag-value').textContent = `${s.exaggeration().toFixed(2).replace(/0$/, '')}×`;
 }
 
 /**
@@ -781,17 +1024,17 @@ function syncBaseLayer() {
 }
 
 /**
- * The map's one note line, which three things now write to. `sceneNote` is a fact
- * about the engine and `editNote` the reason the last edit was refused; both
- * outlive the pass they were set in. The argument is what this pass has to say
- * about the mission. Composed rather than overwritten, because a render half a
- * second after a failed 3D load — or after a rejected command — must not quietly
- * delete the explanation.
+ * The map's one note line. `editNote` is the reason the last edit was refused
+ * and outlives the pass it was set in; the argument is what this pass has to
+ * say about the mission. Composed rather than overwritten, because a render
+ * half a second after a rejected command must not quietly delete the
+ * explanation. (The engine's own troubles left this line in M12 — they are
+ * system-state cards over the stage now, not sentences under it.)
  * @param {string|null} msg
  */
 function note(msg) {
   const el = $('map-note');
-  const text = [sceneNote, editNote, msg].filter(Boolean).join(' ');
+  const text = [editNote, msg].filter(Boolean).join(' ');
   el.textContent = text;
   el.hidden = !text;
 }

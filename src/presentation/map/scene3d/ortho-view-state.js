@@ -119,6 +119,39 @@ export function projectedViewState(viewState, projection) {
   return { ...viewState, rotationX: TOP_ROTATION_X };
 }
 
+/**
+ * Where the camera's azimuth is allowed to go.
+ *
+ * 'free' is the orbit everyone expects; the other two are the planning
+ * orientations the contract names: north up because every other surface in the
+ * app draws north up, and route-aligned because a vertical profile is read
+ * along the route, not across it. Both of those lock the rotate gesture — an
+ * orientation the pilot asked for by name should not drift under a stray drag.
+ *
+ * @typedef {'north'|'route'|'free'} OrthoAzimuth
+ */
+
+/**
+ * The camera as an azimuth mode wants it.
+ *
+ * deck's `rotationOrbit` and a route bearing turn the same way: setting the
+ * orbit *to* the bearing puts the outbound leg up the screen — measured in the
+ * browser, where an eastbound route under `rotationOrbit: 90` points up, and
+ * under the negation it pointed down. Only the azimuth moves — tilt, zoom and
+ * target are the pilot's, exactly as the projection toggle treats them.
+ *
+ * @param {OrbitViewState} viewState
+ * @param {OrthoAzimuth} mode
+ * @param {number} [routeBearingDeg]  clockwise from north; only 'route' reads it
+ * @returns {OrbitViewState}
+ */
+export function azimuthViewState(viewState, mode, routeBearingDeg = 0) {
+  if (mode === 'north') return { ...viewState, rotationOrbit: 0 };
+  if (mode !== 'route') return { ...viewState };
+  const wrapped = ((routeBearingDeg % 360) + 360) % 360;
+  return { ...viewState, rotationOrbit: wrapped > 180 ? wrapped - 360 : wrapped };
+}
+
 /* ---------- the third zoom numbering ---------- */
 
 /** WGS84 equatorial circumference, metres — Web Mercator's own constant. */

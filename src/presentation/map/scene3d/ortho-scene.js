@@ -48,12 +48,15 @@
 
 import {
   AmbientLight,
+  COORDINATE_SYSTEM,
   Deck,
   DirectionalLight,
   LightingEffect,
   OrbitView,
 } from '@deck.gl/core';
+import { LineLayer } from '@deck.gl/layers';
 
+import { buildContours, contourIntervalM, contourLevels } from './ortho-contours.js';
 import {
   DEPTH_PARAMETERS,
   MESH_ZOOM,
@@ -68,6 +71,7 @@ import {
 import { buildSceneLayers, readPalette } from './scene-layers.js';
 import {
   ORTHO_CAMERA,
+  azimuthViewState,
   boundsCover,
   fitViewState,
   gridPlacement,
@@ -105,8 +109,15 @@ import {
  *   setProjection: (projection: OrthoProjection) => void,
  *   exaggeration: () => number,
  *   setExaggeration: (value: number) => void,
+ *   azimuth: () => OrthoAzimuth,
+ *   setAzimuth: (mode: OrthoAzimuth, routeBearingDeg?: number) => void,
+ *   contours: () => boolean,
+ *   setContours: (on: boolean) => void,
+ *   resetCamera: () => void,
  * }} OrthoSceneHandle
  */
+
+/** @typedef {import('./ortho-view-state.js').OrthoAzimuth} OrthoAzimuth */
 
 /** How far a pick reaches, in pixels. scene.js's radius, for the same thumb. */
 const PICK_RADIUS = 6;
@@ -165,6 +176,22 @@ const GROUND_RAY_TOLERANCE_M = 0.5;
  * against, not a thing to read.
  */
 const TERRAIN_COLOR = /** @type {[number, number, number]} */ ([122, 128, 134]);
+
+const CONTOUR_LAYER_ID = 'ortho-contours';
+
+/**
+ * How far above the surface the contour lines sit, in true metres.
+ *
+ * At zero they z-fight the triangles they were extracted from — the lines are
+ * points of the same surface. The lift rides the model matrix's Z translation,
+ * which is applied after the scale, so it is multiplied by the exaggeration
+ * here to keep the drawn gap `exaggeration × lift` — the same stretch the
+ * ground under it gets.
+ */
+const CONTOUR_LIFT_M = 1.5;
+
+/** Darker than the rock, quieter than the routes: legible, not competing. */
+const CONTOUR_COLOR = /** @type {[number, number, number, number]} */ ([70, 76, 82, 180]);
 
 /**
  * Sun and sky over a Z-up world.
@@ -227,6 +254,13 @@ export function createOrthoScene(opts) {
   let mesh = null;
   /** @type {object|null} The terrain layer instance, rebuilt only when it changes. */
   let terrain = null;
+  /** @type {import('./ortho-contours.js').OrthoContours|null} Cached per grid. */
+  let contourData = null;
+  /** @type {object|null} */
+  let contourLayer = null;
+  let contoursOn = false;
+  /** @type {OrthoAzimuth} */
+  let azimuthMode = 'free';
   /** What the loaded mesh covers, so a mission growing past it can be noticed. */
   /** @type {LatLngBounds|null} */
   let loaded = null;
@@ -265,7 +299,9 @@ export function createOrthoScene(opts) {
       // A pilot who asked the OS for less motion asked this camera too: no
       // coasting after the finger leaves the glass.
       inertia: !reducedMotion,
-      dragRotate: true,
+      // A locked azimuth is one the drag cannot move — the lock lives in the
+      // controller, not in a snap-back after the gesture.
+      dragRotate: azimuthMode === 'free',
       scrollZoom: { speed: 0.01, smooth: !reducedMotion },
     },
   });
@@ -288,7 +324,11 @@ export function createOrthoScene(opts) {
     // fails silently in whichever pass was left out.
     parameters: { ...DEPTH_PARAMETERS },
     onViewStateChange: ({ viewState: next }) => {
-      viewState = /** @type {OrbitViewState} */ (next);
+      /* Pinned through the projection every frame: in 'top' a rotate-drag could
+       * otherwise tilt the camera while the chrome still says Top — and a view
+       * labelled Top that is looking sideways is the same lie as a perspective
+       * view labelled Orthographic. */
+      viewState = projectedViewState(/** @type {OrbitViewState} */ (next), projection);
       /* The pilot moved the camera, so whatever the last `fit` framed is no
        * longer what is on screen — a later resize must not drag them back to it. */
       framed = null;
@@ -387,6 +427,8 @@ export function createOrthoScene(opts) {
       });
       mesh = buildTerrainMesh(grid);
       refreshTerrain();
+      contourData = null; // a new grid means the old lines describe old ground
+      refreshContours();
       // The camera looks at sea level until it knows better; a plateau at 2,400 m
       // would otherwise sit off the top of the screen with nothing to say why.
       if (first) setViewState({ ...viewState, target: targetAt(viewState.target) });
@@ -421,6 +463,48 @@ export function createOrthoScene(opts) {
       : null;
   }
 
+  /**
+   * The contour layer, rebuilt when the grid, the toggle or the stretch moves.
+   *
+   * The marching-squares extraction is cached per grid — it is the expensive
+   * half, and neither the toggle nor the exaggeration changes where a level
+   * crosses the ground. The layer is rebuilt every time because the model
+   * matrix carries the exaggeration, exactly as the terrain's does: the same
+   * matrix trick, so the lines ride their own hillside.
+   */
+  function refreshContours() {
+    if (!contoursOn || !grid || !placement) { contourLayer = null; return; }
+    if (!contourData) {
+      const interval = contourIntervalM(grid.minM ?? NaN, grid.maxM ?? NaN);
+      contourData = interval == null
+        // Ground too flat to contour: cache the emptiness, don't re-decide it.
+        ? { positions: new Float32Array(0), count: 0, levels: [] }
+        : buildContours(grid, contourLevels(
+          /** @type {number} */ (grid.minM), /** @type {number} */ (grid.maxM), interval));
+    }
+    if (!contourData.count) { contourLayer = null; return; }
+    const matrix = terrainModelMatrix(placement.offset, exaggeration);
+    matrix[14] = exaggeration * CONTOUR_LIFT_M;
+    contourLayer = new LineLayer({
+      id: CONTOUR_LAYER_ID,
+      coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
+      // The soup drawn as instances straight out of its own buffer: source at
+      // the front of each 24-byte segment, target 12 bytes in.
+      data: {
+        length: contourData.count,
+        attributes: {
+          getSourcePosition: { value: contourData.positions, size: 3, stride: 24, offset: 0 },
+          getTargetPosition: { value: contourData.positions, size: 3, stride: 24, offset: 12 },
+        },
+      },
+      getColor: CONTOUR_COLOR,
+      getWidth: 1,
+      widthUnits: 'pixels',
+      parameters: { ...DEPTH_PARAMETERS },
+      modelMatrix: matrix,
+    });
+  }
+
   /** Report a hole in the terrain once, in the app's own words for it — and
    * never for a fetch that only failed because `destroy()` aborted it. */
   function reportTileError() {
@@ -438,6 +522,7 @@ export function createOrthoScene(opts) {
         // Under everything, and drawn first so the depth buffer it writes is
         // what every ribbon above it is tested against.
         ...(terrain ? [terrain] : []),
+        ...(contourLayer ? [contourLayer] : []),
         ...buildSceneLayers(current, {
           palette: readPalette(document.documentElement),
           exaggeration,
@@ -727,8 +812,43 @@ export function createOrthoScene(opts) {
        * in the scene is multiplied by the same number in the same pass — which is
        * what keeps a stem standing on the ground it was drawn above. */
       refreshTerrain();
+      refreshContours();
       setViewState({ ...viewState, target: targetAt(viewState.target) });
       renderLayers();
+    },
+
+    azimuth: () => azimuthMode,
+
+    setAzimuth: (mode, routeBearingDeg = 0) => {
+      if (mode !== 'north' && mode !== 'route' && mode !== 'free') return;
+      azimuthMode = mode;
+      viewState = azimuthViewState(viewState, mode, routeBearingDeg);
+      /* The view is rebuilt because the lock lives in the controller's
+       * `dragRotate` — a snap is a suggestion, a disabled gesture is a lock. */
+      deck.setProps({ views: [makeView(projection)], viewState });
+      settle();
+    },
+
+    contours: () => contoursOn,
+
+    setContours: (on) => {
+      contoursOn = !!on;
+      refreshContours();
+      renderLayers();
+    },
+
+    resetCamera: () => {
+      /* Back to the host's opening stance: default tilt, north up, azimuth
+       * free. Target and zoom stay — reset is for a pilot lost in rotation,
+       * not one who framed the mission they meant to frame. */
+      azimuthMode = 'free';
+      viewState = projectedViewState({
+        ...viewState,
+        rotationX: ORTHO_CAMERA.rotationX,
+        rotationOrbit: ORTHO_CAMERA.rotationOrbit,
+      }, projection);
+      deck.setProps({ views: [makeView(projection)], viewState });
+      settle();
     },
   };
 }

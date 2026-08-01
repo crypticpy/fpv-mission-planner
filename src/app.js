@@ -6,7 +6,7 @@ import { WEATHER, allBatteries, allManufacturers, saveCustomBattery, saveCustomM
 import { hideTooltip } from './charts.js';
 import {
   setupMapView, showMapView, renderMapView, pauseMapView, resizeMapView,
-  supports3d, setMode3d, selectedSegment, selectSegment,
+  setMode3d, selectedSegment, selectSegment,
 } from './presentation/map/map-view.js';
 import { renderFootprintPanel } from './presentation/map/footprint-panel.js';
 import { renderAdvisoryCard } from './presentation/map/advisory-panel.js';
@@ -335,21 +335,17 @@ const MODES = ['2d', '3d', 'analyze', 'review'];
 const onMap = (view) => view === '2d' || view === '3d';
 
 /**
- * Start the 3D engine for the 3D tab, falling back to the 2D tab honestly when
- * it cannot (no WebGL2, or the scene chunk is unreachable offline — map-view
- * writes the reason on the map note either way). The tab is disabled while the
- * chunk downloads so a second press cannot race the first.
+ * Start the 3D engine for the 3D tab. Failure does not bounce the tabs any
+ * more (M12): map-view renders the cause — no WebGL2, chunk offline, terrain
+ * missing — as a system-state card over the live 2D map, and the card's own
+ * actions are the way out ("Use 2D map" calls exit3d below). The tab is
+ * disabled while the chunk downloads so a second press cannot race the first.
  */
 async function engage3d() {
   const tab = $('tab-3d');
   tab.disabled = true;
-  const ok = supports3d() && await setMode3d(true);
-  // Not unconditionally: without WebGL2 the boot disable (with its why) stands,
-  // rather than leaving a tab that bounces back to 2D on every press.
-  tab.disabled = !supports3d();
-  // The pilot may have switched modes mid-download; only walk the failure back
-  // if the 3D tab is still the one selected.
-  if (!ok && state.view === '3d') setView('2d');
+  await setMode3d(true);
+  tab.disabled = false;
 }
 
 function setView(view) {
@@ -827,6 +823,8 @@ setupMapView({
   // Dragging or clicking the pin moves the mission's launch point, and says so
   // here rather than being noticed by a later comparison pass (ADR 0002/0005).
   onLaunchChanged: pushLaunch,
+  // The 3D system-state cards' way back to the 2D tab — the tabs live here.
+  exit3d: () => setView('2d'),
   // The route belongs to the mission document now (ADR 0002): the map draws what
   // it reads back through here, and every edit it makes is a command.
   routeWaypoints: missionWaypoints,
@@ -901,12 +899,9 @@ buildFlightLogForm();
 buildPackInstanceForm();
 populateControls();
 bind();
-if (!supports3d()) {
-  // Offering a tab that cannot work is worse than not offering it, and a tab
-  // that vanishes without explanation is worse than both: disabled, with why.
-  $('tab-3d').disabled = true;
-  $('tab-3d').title = '3D needs WebGL2, which this browser or device does not provide.';
-}
+/* The 3D tab is offered to everyone now (M12): a device without WebGL2 gets a
+ * system-state card saying so on press, over a 2D map that still works — a
+ * designed answer where the old boot-time disable was a greyed-out mystery. */
 // Mode before destination: setView only starts the map while Plan is the open
 // destination (it is, at boot), so a session saved on Aircraft with a map mode
 // armed still restores both without Leaflet measuring a hidden container.

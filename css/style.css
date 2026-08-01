@@ -877,6 +877,91 @@ tr.row-invalid td:nth-child(12) { color: var(--status-critical); font-weight: 60
   .map-toolbar { transition: none; }
 }
 
+/* SceneViewbar (M12): the 3D camera's chrome, riding the bottom-left of the
+   stage — the corner the mockup gives it, clear of the toolbar (top-right),
+   the inspector (right) and Leaflet's attribution (bottom-right). Segmented
+   groups in the wind-panel tablist idiom; the latch language is aria-pressed,
+   exactly as the toolbar above wears it. */
+.scene-viewbar {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  z-index: 1001;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-width: calc(100% - 20px);
+}
+.viewbar-group {
+  display: flex;
+  align-items: stretch;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 2px 8px var(--shadow);
+  overflow: hidden;
+}
+.viewbar-seg,
+.viewbar-step {
+  min-height: 34px;
+  padding: 0 10px;
+  background: transparent;
+  color: var(--ink-2);
+  border: 0;
+  border-right: 1px solid var(--border);
+  font-family: var(--font-display);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+.viewbar-group > :last-child { border-right: 0; }
+.viewbar-step { min-width: 34px; font-size: 15px; line-height: 1; }
+.viewbar-value {
+  display: grid;
+  place-items: center;
+  min-width: 44px;
+  padding: 0 4px;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2);
+  border-right: 1px solid var(--border);
+}
+.viewbar-seg:hover,
+.viewbar-step:hover { color: var(--ink); background: var(--button-hover); }
+.viewbar-seg[aria-pressed="true"] {
+  color: var(--accent);
+  background: var(--button);
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+/* The satellite host draws its own ground and carries its own in-scene
+   exaggeration control — the ortho-only groups stand down rather than lying
+   about knobs the engine underneath does not have. */
+.scene-viewbar[data-host="maplibre"] .ortho-only { display: none; }
+@media (pointer: coarse) {
+  .viewbar-seg, .viewbar-step { min-height: 44px; }
+}
+
+/* The 3D system-state card (M12), centred over the stage. The 2D map stays
+   live underneath — pointer events stop at the card, not at the overlay, so
+   the pilot can keep planning around it. */
+.scene-state {
+  position: absolute;
+  inset: 0;
+  z-index: 1003;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+.scene-state > .sysstate {
+  pointer-events: auto;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px var(--shadow);
+  max-width: min(400px, calc(100% - 32px));
+}
+
 .map-btn {
   background: var(--button);
   color: var(--ink-2);
@@ -2206,7 +2291,20 @@ button.windpanel-level { cursor: pointer; }
   color: var(--ink-2);
 }
 .sysstate-body { font-size: 12.5px; color: var(--muted); max-width: 44ch; }
-.sysstate-action { margin-top: var(--sp-1); }
+.sysstate-actions {
+  margin-top: var(--sp-1);
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+/* The quieter way out, when a state honestly has two. */
+.sysstate-secondary {
+  background: transparent;
+  border-color: var(--border);
+  color: var(--muted);
+}
+.sysstate-secondary:hover { color: var(--ink-2); }
 /* partial and recoverable-error carry the alert tint; the calmer states stay
    muted — an empty chart is not a warning. */
 .sysstate-partial .sysstate-tile,

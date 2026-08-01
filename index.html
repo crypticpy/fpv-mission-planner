@@ -510,6 +510,50 @@
             <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#sym-wind"/></svg>
           </button>
         </div>
+        <!-- SceneViewbar (M12): the 3D camera's own chrome, bottom-left over the
+             stage per the round-2 mockup (12-orthographic-3d-terrain-planner).
+             Projection and azimuth are honest state — 'Persp' is never labelled
+             Orthographic — and the ortho-only groups hide when the satellite
+             host is drawing (map-view.js writes data-host). Up only in 3D. -->
+        <div id="scene-viewbar" class="scene-viewbar" data-host="ortho" hidden>
+          <div class="viewbar-group ortho-only" role="group" aria-label="Projection">
+            <button id="vb-proj-ortho" class="viewbar-seg" type="button" aria-pressed="true"
+                    title="Orthographic projection — parallel rays, distances comparable">Ortho</button>
+            <button id="vb-proj-persp" class="viewbar-seg" type="button" aria-pressed="false"
+                    title="Perspective projection — depth reads, distances forced">Persp</button>
+            <button id="vb-proj-top" class="viewbar-seg" type="button" aria-pressed="false"
+                    title="Top-down plan view">Top</button>
+          </div>
+          <div class="viewbar-group ortho-only" role="group" aria-label="Azimuth">
+            <button id="vb-az-north" class="viewbar-seg" type="button" aria-pressed="false"
+                    title="North up — rotation locked">North</button>
+            <button id="vb-az-route" class="viewbar-seg" type="button" aria-pressed="false"
+                    title="Route bearing up — rotation locked">Route</button>
+            <button id="vb-az-free" class="viewbar-seg" type="button" aria-pressed="true"
+                    title="Free orbit">Free</button>
+          </div>
+          <div class="viewbar-group ortho-only" role="group" aria-label="Terrain exaggeration">
+            <button id="vb-exag-down" class="viewbar-step" type="button"
+                    aria-label="Less terrain exaggeration" title="Less terrain exaggeration">−</button>
+            <span id="vb-exag-value" class="viewbar-value">1.0×</span>
+            <button id="vb-exag-up" class="viewbar-step" type="button"
+                    aria-label="More terrain exaggeration" title="More terrain exaggeration">+</button>
+          </div>
+          <div class="viewbar-group">
+            <button id="vb-contours" class="viewbar-seg ortho-only" type="button" aria-pressed="false"
+                    title="Contour lines">Contours</button>
+            <button id="vb-reset" class="viewbar-seg ortho-only" type="button"
+                    title="Reset camera — default tilt, north up">Reset</button>
+            <button id="vb-host" class="viewbar-seg" type="button"
+                    title="Switch to satellite 3D">Satellite</button>
+          </div>
+        </div>
+        <!-- The 3D system states (M12): no WebGL2, engine chunk offline, terrain
+             tiles missing, GPU context lost, first-load progress — one card over
+             the stage while the 2D map stays live and workable under it. The
+             card is the designed 2D-fallback screen, not a silent bounce; every
+             card's actions include a way back to the 2D tab. -->
+        <div id="scene-state" class="scene-state" hidden></div>
         <!-- ContextInspector (M10): one leg of the route, when the pilot clicks
              it on the map (M4 wave C). The route card below is the whole flight
              adding up; this is the answer to "what about that leg" — its
