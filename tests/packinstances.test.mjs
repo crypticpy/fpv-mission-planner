@@ -7,7 +7,7 @@ import { planMission, U } from '../src/domain/physics.js';
 import {
   normalizeInstance, loadPackInstances, instancesForBattery, savePackInstance,
   deletePackInstance, deletePackInstancesFor, selectedInstanceId, setSelectedInstance,
-  selectedInstance, instanceBattery, highCycleCount,
+  selectedInstance, instanceBattery, highCycleCount, pairingCheck,
 } from '../src/packinstances.js';
 
 // Same Map-backed localStorage stub the store, registry and logbook tests use:
@@ -206,4 +206,54 @@ test('high cycle counts are chemistry-shaped, and never a number the model uses'
   setSelectedInstance(pack.id, 'a');
   assert.equal(instanceBattery(pack).irPackMilliOhm, pack.irPackMilliOhm);
   assert.equal(instanceBattery(pack).capAh, pack.capAh);
+});
+
+/* ---------- parallel pairing (M15, E-02) ---------- */
+
+test('pairingCheck verdicts follow the IR mismatch, not either pack alone', () => {
+  const a = inst({ id: 'a', label: 'Fresh', irPackMilliOhm: 22, irTempC: 21 });
+
+  // δ = Δ/mean: 22 vs 24 mΩ is ~8.7% — matched packs, ready.
+  const ready = pairingCheck(a, inst({ id: 'b', label: 'Twin', irPackMilliOhm: 24, irTempC: 23 }));
+  assert.equal(ready.verdict, 'ready');
+  assert.equal(ready.deltaMilliOhm, 2);
+  assert.ok(Math.abs(ready.deltaPct - (2 / 23) * 100) < 1e-9);
+  assert.equal(ready.extraSharePct, ready.deltaPct / 2);
+  assert.equal(ready.harderId, 'a', 'the fresher (lower-IR) pack carries the extra share');
+  assert.equal(ready.tempSkewC, 2);
+
+  // 22 vs 30 mΩ is ~30.8% — flyable, worth a sentence.
+  assert.equal(pairingCheck(a, inst({ id: 'b', irPackMilliOhm: 30 })).verdict, 'caution');
+
+  // 22 vs 40 mΩ is ~58% — the fresh pack is carrying more than a quarter extra.
+  const avoid = pairingCheck(a, inst({ id: 'b', irPackMilliOhm: 40 }));
+  assert.equal(avoid.verdict, 'avoid');
+  assert.equal(avoid.tempSkewC, null, 'no temp skew without both readings stamped');
+
+  // The exact band edge lands on the safe side of the line: 18 vs 22 mΩ is
+  // δ = 4/20 = 20% exactly.
+  assert.equal(pairingCheck(
+    inst({ id: 'a', irPackMilliOhm: 18 }), inst({ id: 'b', irPackMilliOhm: 22 }),
+  ).verdict, 'ready', 'δ exactly 20% is still ready');
+
+  // A perfect match names no harder pack.
+  assert.equal(pairingCheck(a, inst({ id: 'b', irPackMilliOhm: 22 })).harderId, null);
+});
+
+test('pairingCheck is unknown unless both packs carry a measured IR', () => {
+  const measured = inst({ id: 'a', irPackMilliOhm: 22 });
+  const blank = {
+    verdict: 'unknown', deltaMilliOhm: null, deltaPct: null,
+    extraSharePct: null, harderId: null, tempSkewC: null,
+  };
+  // A spec figure asserts the pack still matches its datasheet — exactly what
+  // an aging pack doesn't — so bookkeeping-only instances get no verdict.
+  assert.deepEqual(pairingCheck(measured, inst({ id: 'b' })), blank);
+  assert.deepEqual(pairingCheck(inst({ id: 'a' }), inst({ id: 'b' })), blank);
+  // One pack is not a pair, different models are not this check's question,
+  // and a broken record voids the comparison rather than guessing.
+  assert.deepEqual(pairingCheck(measured, measured), blank);
+  assert.deepEqual(pairingCheck(measured, inst({ id: 'b', batteryId: 'other', irPackMilliOhm: 24 })), blank);
+  assert.deepEqual(pairingCheck(measured, null), blank);
+  assert.deepEqual(pairingCheck(measured, inst({ id: 'b', label: '', irPackMilliOhm: 24 })), blank);
 });

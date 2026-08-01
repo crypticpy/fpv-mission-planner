@@ -2150,6 +2150,40 @@ body.brief-open { overflow: hidden; }
 .freshness-stale { color: var(--status-warning); }
 .freshness-unavailable { color: var(--status-serious); }
 
+/* ConfidenceBadge (M15): provenance word + earned percentage. The word carries
+   the meaning; color follows it but never replaces it, and the meter always
+   sits beside its printed figure. */
+.confbadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.confbadge-glyph { display: block; flex: none; width: 12px; height: 12px; }
+.confbadge-measured { color: var(--status-good); }
+.confbadge-datasheet { color: var(--ink-2); }
+.confbadge-estimated { color: var(--status-warning); }
+.confbadge-pct { font-weight: 700; color: var(--ink); letter-spacing: 0; }
+.confbadge-meter {
+  flex: none;
+  width: 44px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.confbadge-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: currentColor;
+}
+
 /* The ribbon as a disclosure button (M11): the whole strip is the tap target
    into the wind panel. The host keeps the card look; the button takes over the
    row layout the host used to own. */

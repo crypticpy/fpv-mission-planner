@@ -180,3 +180,62 @@ export function highCycleCount(chem, cycleCount) {
   const limit = HIGH_CYCLES[chem];
   return !!limit && Number.isFinite(cycleCount) && cycleCount >= limit;
 }
+
+/* ---------- parallel pairing (M15, E-02) ---------- */
+
+// Where the ΔIR verdict turns. Two packs wired in parallel split current in
+// inverse proportion to their internal resistance, so the fresher (lower-IR)
+// pack carries 1 + δ/2 of its half-share, where δ is the mismatch as a
+// fraction of the mean IR: a 20% mismatch works the fresher pack 10% harder
+// than the plan assumes — about where the hobby's "match your packs" rule of
+// thumb sits — and past 50% it is carrying a quarter more than its share.
+const PAIR_READY_PCT = 20;
+const PAIR_CAUTION_PCT = 50;
+
+/**
+ * Can these two physical packs safely fly wired in parallel?
+ *
+ * Honest by construction: a verdict exists only when BOTH packs carry a
+ * measured IR. A spec figure asserts the pack still matches its datasheet —
+ * which is exactly what an aging pack no longer does, and aging packs are the
+ * reason this check exists — so anything less is 'unknown', with nulls where
+ * the numbers would be. Chemistry, cell count and capacity belong to the
+ * model, and the caller compares instances of one model (the only parallel
+ * arrangement the planner flies; see state.parallelPacks), so resistance is
+ * the only thing that can differ here.
+ *
+ * Data only — the render layer words it. `harderId` names the pack that
+ * carries the extra share (the lower-IR one), null on a perfect match.
+ * `tempSkewC` is how far apart the two readings' temperatures were, because a
+ * cold pack reads high and a comparison across a big skew is weaker than its
+ * delta suggests.
+ *
+ * @param {object} a  a stored pack instance
+ * @param {object} b  another instance of the same battery model
+ * @returns {{ verdict: 'ready'|'caution'|'avoid'|'unknown',
+ *   deltaMilliOhm: number|null, deltaPct: number|null,
+ *   extraSharePct: number|null, harderId: string|null,
+ *   tempSkewC: number|null }}
+ */
+export function pairingCheck(a, b) {
+  const ia = normalizeInstance(a);
+  const ib = normalizeInstance(b);
+  const unknown = {
+    verdict: 'unknown', deltaMilliOhm: null, deltaPct: null,
+    extraSharePct: null, harderId: null, tempSkewC: null,
+  };
+  if (!ia || !ib || ia.id === ib.id || ia.batteryId !== ib.batteryId) return unknown;
+  if (!Number.isFinite(ia.irPackMilliOhm) || !Number.isFinite(ib.irPackMilliOhm)) return unknown;
+  const mean = (ia.irPackMilliOhm + ib.irPackMilliOhm) / 2;
+  const delta = Math.abs(ia.irPackMilliOhm - ib.irPackMilliOhm);
+  const deltaPct = (delta / mean) * 100;
+  return {
+    verdict: deltaPct <= PAIR_READY_PCT ? 'ready' : deltaPct <= PAIR_CAUTION_PCT ? 'caution' : 'avoid',
+    deltaMilliOhm: delta,
+    deltaPct,
+    extraSharePct: deltaPct / 2,
+    harderId: delta === 0 ? null : (ia.irPackMilliOhm < ib.irPackMilliOhm ? ia.id : ib.id),
+    tempSkewC: Number.isFinite(ia.irTempC) && Number.isFinite(ib.irTempC)
+      ? Math.abs(ia.irTempC - ib.irTempC) : null,
+  };
+}
