@@ -2020,6 +2020,65 @@ body.brief-open { overflow: hidden; }
 .windpanel-readout { margin: var(--sp-1) 0 0; font-size: 12px; color: var(--ink-2); }
 .windpanel-sun { margin: 4px 0 0; font-size: 12px; color: var(--ink-2); }
 .windpanel-nodata { margin: var(--sp-3) 0 0; font-size: 12px; color: var(--muted); }
+
+/* The segment bar (M11 wave B): the panel's own view-tabs, at card scale. */
+.windpanel-segs { display: flex; gap: var(--sp-1); margin-bottom: var(--sp-3); }
+.windpanel-seg {
+  padding: 5px 12px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--muted);
+  cursor: pointer;
+}
+.windpanel-seg:hover { color: var(--ink-2); }
+.windpanel-seg[aria-selected="true"] {
+  color: var(--ink);
+  background: var(--surface-2);
+  border-color: var(--border);
+}
+
+/* The altitude ladder (W-02): highest rung on top, planning level marked the
+   same way a pressed hour chip is. */
+.windpanel-hint { margin: 0 0 var(--sp-1); font-size: 11.5px; color: var(--ink-2); font-style: italic; }
+.windpanel-ladder { display: flex; flex-direction: column; gap: var(--sp-1); }
+.windpanel-level {
+  display: grid;
+  grid-template-columns: 48px 20px 1fr auto;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 8px var(--sp-2);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+}
+button.windpanel-level { cursor: pointer; }
+.windpanel-level-active { border-color: var(--accent); }
+.windpanel-level-alt { font-family: var(--font-display); font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.windpanel-level-arrow { display: block; width: 18px; height: 18px; }
+.windpanel-level-wind { font-size: 13px; font-variant-numeric: tabular-nums; }
+.windpanel-level-temp { font-size: 11px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.windpanel-shear { margin: var(--sp-2) 0 0; font-size: 12px; color: var(--ink-2); }
+.windpanel-altitude .windpanel-outlook-title { margin-top: var(--sp-3); }
+.windpanel-sounding { margin-top: var(--sp-1); }
+.windpanel-sounding-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  padding: 2px 0;
+  font-size: 11.5px;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+.windpanel-sounding-label { color: var(--muted); }
+
 @media (max-width: 900px) {
   .windpanel { width: calc(100% - 2 * var(--sp-3)); }
   .windpanel-rose { width: 88px; height: 88px; }

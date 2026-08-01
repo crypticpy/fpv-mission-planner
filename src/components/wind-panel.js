@@ -12,11 +12,13 @@
 // honesty banner and this panel can never disagree about which sky the app is
 // planning against.
 import { svgEl } from '../charts.js';
-import { state, units } from '../state.js';
+import { state, units, beginner } from '../state.js';
 import { compass, f0 } from '../render/format.js';
 import { U } from '../domain/physics.js';
 import { GUST_SHARE_CAUTION } from '../render/dashboard.js';
-import { launchWind, activeWindAt } from '../windprofile.js';
+import {
+  launchWind, activeWindAt, windLevels, windSounding, peakShear, CRUISE_ALTS_M,
+} from '../windprofile.js';
 import { forecastOutlook, hourName, hourSummary, clockTime } from '../render/forecast.js';
 
 /**
@@ -32,6 +34,23 @@ import { forecastOutlook, hourName, hourSummary, clockTime } from '../render/for
  */
 
 /**
+ * @typedef {object} LadderRow
+ * @property {number} altM
+ * @property {string} label     '80 m'
+ * @property {string|null} wind '18 mph · SSW', null when the level has no reading
+ * @property {number|null} dirDeg
+ * @property {number|null} tempF  rounded, when the forecast published one there
+ * @property {boolean} active  the planning level — where state.cruiseAltM sits
+ * @property {string} sr       full spoken form
+ *
+ * @typedef {object} AltitudeModel
+ * @property {LadderRow[]} rows
+ * @property {boolean} canSet  false in beginner detail, which pins the level
+ * @property {string|null} hint  which sky the ladder describes, when not "now"
+ * @property {string|null} shear peak-shear footer line, null under two readings
+ * @property {{ label: string, wind: string, tempF: number }[]} sounding
+ * @property {string|null} noLadder  why there are no rungs, when there are none
+ *
  * @typedef {object} WindPanelModel
  * @property {{ value: string, unit: string, dir: string, level: string }} hero
  * @property {{ value: string, meta: string }} surface
@@ -40,6 +59,7 @@ import { forecastOutlook, hourName, hourSummary, clockTime } from '../render/for
  * @property {{ chips: OutlookChip[], banner: string|null, readout: string|null,
  *              sun: string|null }|null} outlook
  * @property {string|null} noOutlook  why there is no outlook, when there is none
+ * @property {AltitudeModel} altitude  the W-02 segment
  */
 
 /**
@@ -65,6 +85,80 @@ function chipLabel(when, nowTime) {
 export function gustCaution(gustMph, plan) {
   return !!plan && plan.speedLimitMs > 0 && Number.isFinite(gustMph)
     && U.mphToMs(gustMph) / plan.speedLimitMs > GUST_SHARE_CAUTION;
+}
+
+/** The reason a wind surface has nothing to show, named for the actual sky. */
+function whyNoLive(what) {
+  return state.weatherId === 'live'
+    ? `No ${what} — live weather hasn’t answered for this launch point.`
+    : state.weatherId === 'custom'
+      ? `No ${what} for hand-entered conditions — switch Weather to Live for one.`
+      : `No ${what} for a preset sky — switch Weather to Live for one.`;
+}
+
+/**
+ * W-02's model: the ladder the cruise-altitude select already climbs, laid out
+ * as rungs. Off the Now step it reads the audited hour's own profile — the
+ * same per-hour levels reapplyForecastHour() plans on — so the ladder never
+ * shows today's wind under tomorrow's banner.
+ * @param {ReturnType<typeof forecastOutlook>} o
+ * @returns {AltitudeModel}
+ */
+function altitudeModelFrom(o) {
+  const u = units();
+  const spd = (/** @type {number} */ mph) => `${f0(u.speedFromMph(mph))} ${u.speedUnit}`;
+  const offNow = !!o && o.selected !== o.now;
+  const hr = offNow ? o.hours[o.selected] : null;
+  const src = hr ? (hr.levels ?? null) : windLevels();
+
+  const rows = CRUISE_ALTS_M.map((m) => {
+    const lvl = src && Number.isFinite(src[m]?.windMph) && Number.isFinite(src[m]?.windFromDeg)
+      ? src[m] : null;
+    const active = m === state.cruiseAltM;
+    const wind = lvl ? `${spd(lvl.windMph)} · ${compass(lvl.windFromDeg)}` : null;
+    return {
+      altM: m,
+      label: `${m} m`,
+      wind,
+      dirDeg: lvl ? lvl.windFromDeg : null,
+      tempF: lvl && Number.isFinite(lvl.tempC) ? Math.round(U.cToF(lvl.tempC)) : null,
+      active,
+      sr: `${m} m — ${wind ?? 'no reading'}${active ? ' · planning level' : ''}`,
+    };
+  });
+
+  if (!rows.some((r) => r.wind)) {
+    return {
+      rows: [], canSet: false, hint: null, shear: null, sounding: [],
+      noLadder: whyNoLive('wind profile'),
+    };
+  }
+
+  const hints = [];
+  if (hr) hints.push(`Profile for ${hourName(hr.time)}`);
+  if (beginner()) hints.push('Beginner detail plans 80 m');
+
+  const s = peakShear(src);
+  const parts = [];
+  if (s && s.dSpeedMph) {
+    parts.push(`${s.dSpeedMph > 0 ? '+' : '−'}${f0(u.speedFromMph(Math.abs(s.dSpeedMph)))} ${u.speedUnit}`);
+  }
+  if (s && s.veerDeg) parts.push(`${s.veerDeg > 0 ? 'veers' : 'backs'} ${f0(Math.abs(s.veerDeg))}°`);
+
+  const sounding = (hr ? (hr.sounding ?? []) : windSounding()).map((lv) => ({
+    label: `${lv.hPa} hPa · ${(lv.heightM / 1000).toFixed(1)} km`,
+    wind: `${spd(lv.windMph)} · ${compass(lv.windFromDeg)}`,
+    tempF: Math.round(U.cToF(lv.tempC)),
+  }));
+
+  return {
+    rows,
+    canSet: !beginner(),
+    hint: hints.length ? hints.join(' · ') : null,
+    shear: parts.length ? `Biggest change ${s.fromM}→${s.toM} m: ${parts.join(', ')}` : null,
+    sounding,
+    noLadder: null,
+  };
 }
 
 /**
@@ -98,12 +192,10 @@ export function windPanelModelFrom(snapshot) {
 
   const o = forecastOutlook();
   if (!o) {
-    const why = state.weatherId === 'live'
-      ? 'No hourly outlook — live weather hasn’t answered for this launch point.'
-      : state.weatherId === 'custom'
-        ? 'No hourly outlook for hand-entered conditions — switch Weather to Live for one.'
-        : 'No hourly outlook for a preset sky — switch Weather to Live for one.';
-    return { hero, surface, gust, windFromDeg: env.windFromDeg, outlook: null, noOutlook: why };
+    return {
+      hero, surface, gust, windFromDeg: env.windFromDeg,
+      outlook: null, noOutlook: whyNoLive('hourly outlook'), altitude: altitudeModelFrom(null),
+    };
   }
 
   const nowTime = o.hours[o.now].time;
@@ -141,6 +233,7 @@ export function windPanelModelFrom(snapshot) {
         : null,
     },
     noOutlook: null,
+    altitude: altitudeModelFrom(o),
   };
 }
 
@@ -203,20 +296,132 @@ function line(cls, text) {
   return p;
 }
 
+function span(cls, text) {
+  const s = document.createElement('span');
+  s.className = cls;
+  s.textContent = text;
+  return s;
+}
+
+/** A rung's flow arrow: the rose's arrow at ladder scale, same accent classes. */
+function arrow(deg) {
+  const svg = svgEl('svg', { class: 'windpanel-level-arrow', viewBox: '0 0 20 20' });
+  svg.setAttribute('aria-hidden', 'true');
+  const g = svgEl('g', { transform: `rotate(${deg} 10 10)` });
+  g.appendChild(svgEl('line', { x1: 10, y1: 4, x2: 10, y2: 13, class: 'windpanel-rose-shaft' }));
+  g.appendChild(svgEl('path', { d: 'M7 12 L10 17 L13 12 Z', class: 'windpanel-rose-head' }));
+  svg.appendChild(g);
+  return svg;
+}
+
+/** The W-02 segment: the ladder, its shear footer, and the sounding aloft. */
+function altitudeSection(a, onSelectLevel) {
+  const sec = document.createElement('section');
+  sec.className = 'windpanel-altitude';
+  if (a.noLadder) {
+    sec.append(line('windpanel-nodata', a.noLadder));
+    return sec;
+  }
+  if (a.hint) sec.append(line('windpanel-hint', a.hint));
+  const ladder = document.createElement('div');
+  ladder.className = 'windpanel-ladder';
+  // Highest rung on top — the ladder reads like the sky it describes. In
+  // beginner detail the rungs are facts, not controls, matching the rail
+  // (which hides the cruise-altitude select entirely there).
+  for (const r of [...a.rows].reverse()) {
+    const el = document.createElement(a.canSet ? 'button' : 'div');
+    el.className = `windpanel-level${r.active ? ' windpanel-level-active' : ''}`;
+    if (el instanceof HTMLButtonElement) {
+      el.type = 'button';
+      el.dataset.i = `L${r.altM}`;
+      el.setAttribute('aria-pressed', String(r.active));
+      el.setAttribute('aria-label', r.sr);
+      el.addEventListener('click', () => onSelectLevel(r.altM));
+    }
+    el.append(span('windpanel-level-alt', r.label));
+    el.append(r.dirDeg == null ? span('windpanel-level-arrow', '') : arrow(r.dirDeg));
+    el.append(span('windpanel-level-wind', r.wind ?? '—'));
+    if (r.tempF != null) el.append(span('windpanel-level-temp', `${r.tempF}°F`));
+    ladder.append(el);
+  }
+  sec.append(ladder);
+  if (a.shear) sec.append(line('windpanel-shear', a.shear));
+  if (a.sounding.length) {
+    sec.append(line('windpanel-outlook-title', 'Aloft'));
+    const list = document.createElement('div');
+    list.className = 'windpanel-sounding';
+    for (const s of a.sounding) {
+      const row = document.createElement('div');
+      row.className = 'windpanel-sounding-row';
+      row.append(
+        span('windpanel-sounding-label', s.label),
+        span('windpanel-sounding-wind', s.wind),
+        span('windpanel-sounding-temp', `${s.tempF}°F`),
+      );
+      list.append(row);
+    }
+    sec.append(list);
+  }
+  return sec;
+}
+
+/** The panel's segments. The tab bar exists because there are two (M11 §W-02). */
+const SEGS = [
+  { id: 'now', label: 'Now' },
+  { id: 'altitude', label: 'Altitude' },
+];
+
 /**
  * @param {HTMLElement} host
  * @param {WindPanelModel|null} m  null hides the panel (no snapshot yet)
- * @param {{ open: boolean, onSelectHour: (i: number) => void }} opts
+ * @param {{ open: boolean, seg: string, onSelectSeg: (id: string) => void,
+ *           onSelectHour: (i: number) => void,
+ *           onSelectLevel: (m: number) => void }} opts
  */
-export function renderWindPanel(host, m, { open, onSelectHour }) {
+export function renderWindPanel(host, m, { open, seg = 'now', onSelectSeg, onSelectHour, onSelectLevel }) {
   host.hidden = !open || !m;
   if (host.hidden) { host.replaceChildren(); return; }
 
-  // Selecting an hour re-plans and re-renders this panel; put the keyboard
-  // back on the chip that was pressed rather than dropping it on <body>.
+  // Selecting an hour or a level re-plans and re-renders this panel; put the
+  // keyboard back on the control that was pressed rather than dropping it on
+  // <body>.
   const had = document.activeElement;
   const focusI = had instanceof HTMLElement && host.contains(had) ? had.dataset.i : undefined;
 
+  const bar = document.createElement('div');
+  bar.className = 'windpanel-segs';
+  bar.setAttribute('role', 'tablist');
+  bar.setAttribute('aria-label', 'Wind detail segments');
+  for (const s of SEGS) {
+    const t = document.createElement('button');
+    t.type = 'button';
+    t.className = 'windpanel-seg';
+    t.setAttribute('role', 'tab');
+    t.setAttribute('aria-selected', String(s.id === seg));
+    t.setAttribute('aria-controls', 'windpanel-view');
+    if (s.id !== seg) t.tabIndex = -1;
+    t.dataset.i = `seg-${s.id}`;
+    t.textContent = s.label;
+    t.addEventListener('click', () => onSelectSeg(s.id));
+    bar.append(t);
+  }
+
+  const view = seg === 'altitude'
+    ? altitudeSection(m.altitude, onSelectLevel)
+    : nowSection(m, onSelectHour);
+  view.id = 'windpanel-view';
+  view.setAttribute('role', 'tabpanel');
+
+  host.replaceChildren(bar, view);
+  if (focusI !== undefined) {
+    /** @type {HTMLElement|null} */
+    const again = host.querySelector(`[data-i="${focusI}"]`);
+    again?.focus();
+  }
+}
+
+/** The W-01 segment: hero, surface and gust tiles, and the hourly outlook. */
+function nowSection(m, onSelectHour) {
   const now = document.createElement('section');
   now.className = 'windpanel-now';
 
@@ -283,10 +488,5 @@ export function renderWindPanel(host, m, { open, onSelectHour }) {
     now.append(line('windpanel-nodata', m.noOutlook ?? ''));
   }
 
-  host.replaceChildren(now);
-  if (focusI !== undefined) {
-    /** @type {HTMLElement|null} */
-    const again = host.querySelector(`[data-i="${focusI}"]`);
-    again?.focus();
-  }
+  return now;
 }

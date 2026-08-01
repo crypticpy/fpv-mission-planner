@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { state } from '../src/state.js';
-import { setWindLevels } from '../src/windprofile.js';
+import { setWindLevels, setSounding, peakShear } from '../src/windprofile.js';
 import { setupForecast, setForecast, setForecastHour } from '../src/render/forecast.js';
 import { windPanelModelFrom, gustCaution } from '../src/components/wind-panel.js';
 
@@ -45,7 +45,9 @@ function seed() {
     elevFt: 800, tempF: 75, rhPct: 40,
     windMph: 12, gustMph: 21, windFromDeg: 192, windMode: 'headOut',
   };
+  state.detail = 'full';
   setWindLevels(null, null);
+  setSounding(null);
   setForecast(null, null);
   failing = false;
 }
@@ -138,6 +140,108 @@ test('the chip row stops at the forecast\'s edge instead of inventing hours', ()
   const m = windPanelModelFrom({ plan });
   assert.deepEqual(m.outlook.chips.map((c) => c.i), [0, 1, 2, 3, 4]);
   assert.equal(m.outlook.sun, null); // no day entry, no sun line
+});
+
+/* ---------- W-02: the altitude ladder (M11 wave B) ---------- */
+
+test('peakShear ranks adjacent pairs by vector change, not speed alone', () => {
+  // 10→80: +2 mph on a steady heading (vector 2). 80→120: a 90° turn at a
+  // steady 12 mph — vector 12·√2 ≈ 17, the real shear layer despite Δspeed 0.
+  const s = peakShear({
+    10: { windMph: 10, windFromDeg: 180 },
+    80: { windMph: 12, windFromDeg: 180 },
+    120: { windMph: 12, windFromDeg: 270 },
+  });
+  assert.equal(s.fromM, 80);
+  assert.equal(s.toM, 120);
+  assert.equal(Math.round(s.vectorMph), 17);
+  assert.equal(s.dSpeedMph, 0);
+  assert.equal(s.veerDeg, 90);
+});
+
+test('peakShear signs the veer across north and needs two answered rungs', () => {
+  const s = peakShear({
+    80: { windMph: 10, windFromDeg: 10 },
+    120: { windMph: 10, windFromDeg: 350 }, // backs 20°, the short way round
+  });
+  assert.equal(s.veerDeg, -20);
+  assert.equal(peakShear({ 80: { windMph: 10, windFromDeg: 180 } }), null);
+  assert.equal(peakShear(null), null);
+});
+
+test('the ladder reads the latched profile, marks the planning level, holds holes open', () => {
+  seed();
+  setWindLevels({
+    10: { windMph: 8, windFromDeg: 190 },
+    80: { windMph: 18, windFromDeg: 200, tempC: 25 },
+    180: { windMph: 24, windFromDeg: 215 },
+  }, 23);
+  const a = windPanelModelFrom({ plan }).altitude;
+  assert.equal(a.noLadder, null);
+  assert.deepEqual(a.rows.map((r) => r.altM), [10, 80, 120, 180]);
+  assert.equal(a.rows[1].wind, '18 mph · SSW');
+  assert.equal(a.rows[1].active, true);        // cruiseAltM is 80
+  assert.equal(a.rows[1].tempF, 77);           // 25 °C, in the app's °F
+  assert.match(a.rows[1].sr, /planning level$/);
+  assert.equal(a.rows[2].wind, null);          // 120 m never answered — a hole
+  assert.match(a.rows[2].sr, /no reading/);
+  assert.equal(a.canSet, true);
+  assert.equal(a.hint, null);                  // on the Now step, no provenance line
+  // 10→80 m is the vector peak (Δ ≈ 10.2 mph) over 80→180 m (Δ ≈ 8.1 mph).
+  assert.match(a.shear, /^Biggest change 10→80 m: \+10 mph, veers 10°$/);
+});
+
+test('beginner detail shows the ladder but pins the level — rungs are facts, not controls', () => {
+  seed();
+  state.detail = 'beginner';
+  setWindLevels({ 10: { windMph: 8, windFromDeg: 190 }, 80: { windMph: 18, windFromDeg: 200 } }, 23);
+  const a = windPanelModelFrom({ plan }).altitude;
+  assert.equal(a.canSet, false);
+  assert.match(a.hint, /Beginner detail plans 80 m/);
+});
+
+test('no profile names the actual reason, in the same words the outlook uses', () => {
+  seed();
+  assert.match(windPanelModelFrom(null).altitude.noLadder, /live weather hasn’t answered/);
+  state.weatherId = 'custom';
+  assert.match(windPanelModelFrom(null).altitude.noLadder, /hand-entered conditions/);
+  state.weatherId = 'calm';
+  assert.match(windPanelModelFrom(null).altitude.noLadder, /preset sky/);
+});
+
+test('the sounding rides along as aloft rows, off the same latch M5 reads', () => {
+  seed();
+  setWindLevels({ 80: { windMph: 18, windFromDeg: 200 } }, 23);
+  setSounding([
+    { hPa: 850, windMph: 22, windFromDeg: 210, tempC: 15, heightM: 1540 },
+    { hPa: 700, windMph: 30, windFromDeg: 240, tempC: 5, heightM: 3200 },
+  ], { lat: 30, lng: -97 });
+  const a = windPanelModelFrom({ plan }).altitude;
+  assert.equal(a.sounding.length, 2);
+  assert.deepEqual(a.sounding[0], { label: '850 hPa · 1.5 km', wind: '22 mph · SSW', tempF: 59 });
+});
+
+test('off the Now step the ladder describes the audited hour\'s own profile', () => {
+  seed();
+  setWindLevels({ 80: { windMph: 10, windFromDeg: 180 } }, 12); // today's latch
+  setForecast({
+    hours: hoursN(13, {
+      3: {
+        levels: { 80: { windMph: 25, windFromDeg: 300 }, 120: { windMph: 30, windFromDeg: 310 } },
+        sounding: [{ hPa: 850, windMph: 35, windFromDeg: 320, tempC: 10, heightM: 1500 }],
+      },
+    }),
+    days: [],
+  }, null);
+  failing = true;
+  setForecastHour(3);
+  failing = false;
+  const a = windPanelModelFrom({ plan }).altitude;
+  assert.equal(a.rows[1].wind, '25 mph · WNW');   // the hour's 80 m, not today's
+  assert.equal(a.rows[0].wind, null);              // that hour has no 10 m reading
+  assert.match(a.hint, /^Profile for /);
+  assert.equal(a.sounding.length, 1);              // the hour's sounding too
+  assert.match(a.shear, /^Biggest change 80→120 m: \+5 mph, veers 10°$/);
 });
 
 test('auditioning another hour raises the honesty banner and the readout', () => {

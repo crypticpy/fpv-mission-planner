@@ -93,6 +93,47 @@ export function activeWindAt(altM) { return windAtLevel(levels, altM); }
 /** The active profile's env patch for one level, or null — see levelWindPatch. */
 export function activeLevelPatch(altM) { return levelWindPatch(levels, altM, gust10Mph); }
 
+/* ---------- shear across the ladder (design evolution M11, W-02) ---------- */
+
+/**
+ * The biggest wind change between adjacent rungs of a levels shape, or null
+ * when fewer than two levels answered. Shear is the *vector* difference — a
+ * 90° veer at a steady 15 mph is as real as a 15 mph pickup on a steady
+ * heading — so the pair is ranked by |V2 − V1|, and the speed and direction
+ * components ride along for the caller to print.
+ *
+ * Pure: reads only its argument, so W-02's footer and its tests share one
+ * definition of "the shear layer".
+ *
+ * @param {object|null} levels  a `{ [altM]: { windMph, windFromDeg } }` shape
+ * @returns {{ fromM: number, toM: number, vectorMph: number,
+ *             dSpeedMph: number, veerDeg: number }|null}
+ *   veerDeg is the signed smallest rotation from the lower level's direction to
+ *   the upper's: positive veers (clockwise), negative backs.
+ */
+export function peakShear(levels) {
+  const rungs = CRUISE_ALTS_M
+    .map((m) => ({ altM: m, lvl: windAtLevel(levels, m) }))
+    .filter((r) => r.lvl);
+  let best = null;
+  for (let i = 1; i < rungs.length; i++) {
+    const a = rungs[i - 1], b = rungs[i];
+    const rad = (deg) => deg * Math.PI / 180;
+    const dx = b.lvl.windMph * Math.sin(rad(b.lvl.windFromDeg))
+      - a.lvl.windMph * Math.sin(rad(a.lvl.windFromDeg));
+    const dy = b.lvl.windMph * Math.cos(rad(b.lvl.windFromDeg))
+      - a.lvl.windMph * Math.cos(rad(a.lvl.windFromDeg));
+    const vectorMph = Math.hypot(dx, dy);
+    if (best && vectorMph <= best.vectorMph) continue;
+    best = {
+      fromM: a.altM, toM: b.altM, vectorMph,
+      dSpeedMph: b.lvl.windMph - a.lvl.windMph,
+      veerDeg: ((b.lvl.windFromDeg - a.lvl.windFromDeg + 540) % 360) - 180,
+    };
+  }
+  return best;
+}
+
 /* ---------- the latched sounding from the last fetch (M5 wave 2) ---------- */
 
 // Pressure-level wind/temperature/geopotential height, latched the same way

@@ -100,13 +100,27 @@ let ribbonModel = null;
  */
 let panelModel = null;
 let windPanelOpen = false;
+let windPanelSeg = 'now'; // which segment the panel shows — 'now' | 'altitude'
 
 const ribbonOpts = () => ({ expanded: windPanelOpen, onToggle: toggleWindPanel });
 
 /** The ribbon and its expansion, drawn together: one disclosure state, two hosts. */
 function drawWindChrome() {
   renderWindRibbon($('wind-ribbon'), ribbonModel, ribbonOpts());
-  renderWindPanel($('wind-panel'), panelModel, { open: windPanelOpen, onSelectHour: setForecastHour });
+  renderWindPanel($('wind-panel'), panelModel, {
+    open: windPanelOpen,
+    seg: windPanelSeg,
+    onSelectSeg: setWindPanelSeg,
+    onSelectHour: setForecastHour,
+    // The ladder's tap-to-set walks the cruise-altitude select's own path, so
+    // a rung and the rail can never disagree about which level is planned.
+    onSelectLevel: (m) => { if (!beginner() && isCruiseAlt(m)) setCruiseAlt(m); },
+  });
+}
+
+function setWindPanelSeg(id) {
+  windPanelSeg = id;
+  drawWindChrome();
 }
 
 function toggleWindPanel() {
