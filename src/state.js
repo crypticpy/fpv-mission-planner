@@ -39,6 +39,7 @@ import { LINK_BAND_DEFAULT, isLinkBand } from './rf.js';
  * restoreSession() and the controls actually assign it.
  * @typedef {object} RailState
  * @property {'field'|'plan'|'library'|'aircraft'} dest
+ * @property {'aircraft'|'batteries'|'camera'|'calibration'} acPage
  * @property {'2d'|'3d'|'analyze'|'review'} view
  * @property {'imperial'|'metric'} units
  * @property {string} droneId
@@ -64,6 +65,7 @@ import { LINK_BAND_DEFAULT, isLinkBand } from './rf.js';
 /** @type {RailState} */
 export const state = {
   dest: 'plan', // which destination is open — Plan is the working default
+  acPage: 'aircraft', // Aircraft's open page: 'aircraft' | 'batteries' | 'camera' | 'calibration'
   view: '2d', // Plan's workspace mode: '2d' | '3d' | 'analyze' | 'review' — map first
   units: 'imperial',
   droneId: 'moz7v2',
@@ -249,6 +251,10 @@ export function restoreSession() {
     && num(env.windMph, 0, 120) && num(env.gustMph, 0, 160) && num(env.windFromDeg, 0, 359);
   if (!ok) return null;
   sessionDest = ['field', 'plan', 'library', 'aircraft'].includes(s.dest) ? s.dest : 'plan';
+  // Aircraft's open page is a view preference like `dest`: a blob from before
+  // the pages existed (M15), or an unknown value, falls back rather than voids.
+  state.acPage = ['aircraft', 'batteries', 'camera', 'calibration'].includes(s.acPage)
+    ? s.acPage : 'aircraft';
   Object.assign(state, {
     units: s.units, droneId: s.droneId, manufacturerId: s.manufacturerId, batteryId: s.batteryId,
     parallelPacks: s.parallelPacks, payloadId: s.payloadId, extraG: s.extraG,

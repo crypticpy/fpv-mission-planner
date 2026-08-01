@@ -770,123 +770,14 @@
         <div id="mission-history" class="spots-list"></div>
       </details>
     </section>
-    <section class="card spots-card">
-      <div class="card-head"><h3>Saved spots</h3></div>
-      <p class="card-sub">Your launch points, kept — with the elevation and rig you flew there. Fly here moves the pin;
-        each spot also sits on the map as a small amber dot you can click.</p>
-      <!-- L-02/L-03: one spot's own page — facts, current sky, three-day
-           planner. render/spot-detail.js fills it and hides the roster and
-           save form below while it is open. -->
-      <div id="spot-detail" hidden></div>
-      <div id="spots-list" class="spots-list"></div>
-      <form id="spot-form" class="spot-form" autocomplete="off">
-        <input id="spot-name" name="name" type="text" maxlength="60" placeholder="Name this spot" aria-label="Spot name">
-        <input id="spot-notes" name="notes" type="text" maxlength="240" placeholder="Notes (optional)" aria-label="Spot notes">
-        <button id="btn-save-spot" class="map-btn" type="submit">Save current spot</button>
-      </form>
-      <p id="spots-note" class="wx-note" hidden></p>
-    </section>
-  </section>
-
-  <section id="dest-aircraft" class="dest content" hidden>
-    <header class="dest-head">
-      <h2>Aircraft</h2>
-      <p class="dest-sub">Rigs, packs, cameras and flight logs — and what your logged flights say about how it really flies.</p>
-    </header>
-    <div class="hangar">
-    <section class="rail-group">
-      <h2>Loadout</h2>
-      <label>Drone
-        <select id="sel-drone"></select>
-      </label>
-      <!-- What this airframe's own flights say about it, and the one switch that
-           applies them. Filled by render/calibration.js; stays hidden until the
-           logbook has something to be honest about. -->
-      <div id="calib-line" class="calib-line full-only" hidden></div>
-      <label>Battery manufacturer
-        <select id="sel-manufacturer"></select>
-      </label>
-      <label>Battery
-        <select id="sel-battery"></select>
-      </label>
-      <p id="swap-notice" class="swap-notice" role="status" hidden></p>
-      <label class="check-row full-only">
-        <input id="in-parallel" type="checkbox">
-        <span>Run two identical packs in parallel</span>
-      </label>
-      <p id="parallel-summary" class="parallel-summary full-only" hidden></p>
-      <!-- Which physical copy of that pack model is on the rig (src/packinstances.js).
-           Catalog spec is the default and the whole fold stays shut until a pilot
-           has two of something; a selected pack's measured resistance replaces the
-           model's in the sag model, and the footnote under the plan says so. -->
-      <details id="pack-instance-fold" class="custom-batt full-only">
-        <summary>Which pack is this?</summary>
-        <label>Flying
-          <select id="sel-pack-instance"></select>
-        </label>
-        <p id="pack-instance-note" class="rail-note" role="status" hidden></p>
-        <!-- Generated from INSTANCE_FORM at boot (render/packinstances.js). -->
-        <form id="pack-instance-form"></form>
-        <div id="pack-instance-list"></div>
-      </details>
-      <label>Camera payload
-        <select id="sel-payload"></select>
-      </label>
-      <label>Extra weight (g)
-        <input id="in-extra" type="number" min="0" max="500" step="5" value="0">
-      </label>
-      <details class="custom-batt full-only">
-        <summary>Add a drone</summary>
-        <!-- Generated from DRONE_FORM at boot (render/droneform.js). The three
-             readouts under it answer while you type: what it would fly like,
-             the derived cross-checks, and anything unusual for the class. -->
-        <form id="drone-form"></form>
-        <p id="drone-live" class="drone-live" role="status"></p>
-        <p id="drone-checks" class="rail-note drone-checks"></p>
-        <p id="drone-warn" class="drone-warn" role="status" hidden></p>
-        <p id="drone-note" class="rail-note" role="status" hidden></p>
-        <div id="drone-list"></div>
-      </details>
-      <details class="custom-batt full-only">
-        <summary>Log a flight</summary>
-        <!-- Generated from the descriptor in render/flightlog.js at boot. Thirty
-             seconds off the OSD and the charger; the solve comes back inline. -->
-        <form id="flightlog-form"></form>
-        <p id="flightlog-prefill" class="rail-note" role="status" hidden></p>
-        <p id="flightlog-result" class="drone-live" role="status" hidden></p>
-        <div id="flightlog-list"></div>
-        <!-- How wrong the model has been, per logged cruise leg (render/
-             calibration.js). Up only once there is a cruise leg to plot. -->
-        <div id="drift-panel" class="drift-panel full-only" hidden>
-          <div class="drift-head">
-            <p class="panel-title">Model vs your flights</p>
-            <button type="button" id="drift-toggle" class="link-btn">show residual vs speed</button>
-          </div>
-          <div id="legend-drift" class="viz-legend"></div>
-          <div id="chart-drift" class="chart"></div>
-          <p id="drift-note" class="rail-note" role="status"></p>
-        </div>
-      </details>
-      <details class="custom-batt full-only">
-        <summary>Add a battery to compare</summary>
-        <!-- Both forms are generated from their descriptors at boot (forms.js). -->
-        <form id="custom-form"></form>
-        <!-- Derived cross-checks while you type (§6.1, render/batterychecks.js):
-             pack Wh/g and what the current limit implies as a C-rating. The
-             warning line is soft — a 0.4 Wh/g pack is a typo, and it still saves. -->
-        <p id="battery-checks" class="rail-note drone-checks"></p>
-        <p id="battery-warn" class="drone-warn" role="status" hidden></p>
-        <div id="custom-list"></div>
-      </details>
-      <details class="custom-batt full-only">
-        <summary>Add a battery manufacturer</summary>
-        <form id="manufacturer-form"></form>
-        <div id="manufacturer-list"></div>
-      </details>
-      <details class="custom-batt full-only">
+    <section class="card full-only">
+      <details class="custom-batt">
         <summary>Share drones, packs and flights</summary>
         <!-- §6.3. A file, not an account. The logic is src/share.js; the wiring is
-             src/render/share.js. Import shows what it would do and waits. -->
+             src/render/share.js. Import shows what it would do and waits. Lives in
+             the Library with the other import/export machinery (M15) — the hangar
+             records it carries are Aircraft's, but handing files around is what
+             this destination is for. -->
         <p class="rail-note">A JSON file of the rigs and packs you added and the flights you
           logged — send it to anyone, or take theirs. Nothing you didn’t author is in it, and
           no locations or dates unless you ask.</p>
@@ -914,43 +805,196 @@
         <p id="share-note" class="rail-note" role="status" hidden></p>
       </details>
     </section>
+    <section class="card spots-card">
+      <div class="card-head"><h3>Saved spots</h3></div>
+      <p class="card-sub">Your launch points, kept — with the elevation and rig you flew there. Fly here moves the pin;
+        each spot also sits on the map as a small amber dot you can click.</p>
+      <!-- L-02/L-03: one spot's own page — facts, current sky, three-day
+           planner. render/spot-detail.js fills it and hides the roster and
+           save form below while it is open. -->
+      <div id="spot-detail" hidden></div>
+      <div id="spots-list" class="spots-list"></div>
+      <form id="spot-form" class="spot-form" autocomplete="off">
+        <input id="spot-name" name="name" type="text" maxlength="60" placeholder="Name this spot" aria-label="Spot name">
+        <input id="spot-notes" name="notes" type="text" maxlength="240" placeholder="Notes (optional)" aria-label="Spot notes">
+        <button id="btn-save-spot" class="map-btn" type="submit">Save current spot</button>
+      </form>
+      <p id="spots-note" class="wx-note" hidden></p>
+    </section>
+  </section>
 
+  <section id="dest-aircraft" class="dest content" hidden>
+    <header class="dest-head">
+      <h2>Aircraft</h2>
+      <p class="dest-sub">Rigs, packs, cameras and flight logs — and what your logged flights say about how it really flies.</p>
+    </header>
+    <!-- The destination's four paged screens (M15, sheet 11): the same
+         segmented pattern as Plan's workspace modes. Every fold below moved
+         here intact from the old single-page hangar — ids, forms and wiring
+         unchanged, only the page each one lives on is new. -->
+    <nav class="view-tabs acnav" role="tablist" aria-label="Aircraft sections">
+      <button id="actab-aircraft" class="view-tab" role="tab" aria-selected="true" aria-controls="acpage-aircraft">Aircraft</button>
+      <button id="actab-batteries" class="view-tab" role="tab" aria-selected="false" aria-controls="acpage-batteries" tabindex="-1">Batteries</button>
+      <!-- Unhidden in M15 wave D, when E-03 fills its page. -->
+      <button id="actab-camera" class="view-tab" role="tab" aria-selected="false" aria-controls="acpage-camera" tabindex="-1" hidden>Camera</button>
+      <button id="actab-calibration" class="view-tab full-only" role="tab" aria-selected="false" aria-controls="acpage-calibration" tabindex="-1">Calibration</button>
+    </nav>
+
+    <!-- E-01: choose the airframe, with visible confidence. The cards are the
+         face of the hidden #sel-drone select below — a card's Use press sets
+         the select and fires its change event, so every existing side effect
+         (pack re-pick, swap notice, loadout persistence) runs untouched. -->
+    <div id="acpage-aircraft" role="tabpanel" aria-labelledby="actab-aircraft">
+      <div id="aircraft-cards" class="accards"></div>
+      <p id="swap-notice" class="swap-notice" role="status" hidden></p>
+      <div class="hangar">
+      <section class="rail-group">
+        <h2>Loadout</h2>
+        <label hidden>Drone
+          <select id="sel-drone"></select>
+        </label>
+        <!-- What this airframe's own flights say about it, and the one switch that
+             applies them. Filled by render/calibration.js; stays hidden until the
+             logbook has something to be honest about. -->
+        <div id="calib-line" class="calib-line full-only" hidden></div>
+        <label>Camera payload
+          <select id="sel-payload"></select>
+        </label>
+        <label>Extra weight (g)
+          <input id="in-extra" type="number" min="0" max="500" step="5" value="0">
+        </label>
+        <details class="custom-batt full-only">
+          <summary>Add a drone</summary>
+          <!-- Generated from DRONE_FORM at boot (render/droneform.js). The three
+               readouts under it answer while you type: what it would fly like,
+               the derived cross-checks, and anything unusual for the class. -->
+          <form id="drone-form"></form>
+          <p id="drone-live" class="drone-live" role="status"></p>
+          <p id="drone-checks" class="rail-note drone-checks"></p>
+          <p id="drone-warn" class="drone-warn" role="status" hidden></p>
+          <p id="drone-note" class="rail-note" role="status" hidden></p>
+          <div id="drone-list"></div>
+        </details>
+      </section>
+      </div>
+      <section class="card full-only">
+        <h3>Power vs airspeed</h3>
+        <p class="card-sub">Electrical draw across the speed envelope, with the endurance and cruise points marked</p>
+        <div id="chart-power" class="chart"></div>
+      </section>
+      <section class="card full-only">
+        <div class="card-head">
+          <h3>Cruise speed trade-off</h3>
+          <select id="sel-speed-metric" class="card-select" aria-label="Trade-off metric">
+            <option value="radius">Mission radius</option>
+            <option value="time">Flight time</option>
+          </select>
+        </div>
+        <p class="card-sub">The theoretical optimum vs the speed you're planning, at every cruise airspeed in this weather</p>
+        <p id="speed-note" class="speed-note"></p>
+        <div id="chart-speed" class="chart"></div>
+      </section>
     </div>
-    <section class="card full-only">
-      <h3>Power vs airspeed</h3>
-      <p class="card-sub">Electrical draw across the speed envelope, with the endurance and cruise points marked</p>
-      <div id="chart-power" class="chart"></div>
-    </section>
-    <section class="card full-only">
-      <div class="card-head">
-        <h3>Cruise speed trade-off</h3>
-        <select id="sel-speed-metric" class="card-select" aria-label="Trade-off metric">
-          <option value="radius">Mission radius</option>
-          <option value="time">Flight time</option>
-        </select>
+
+    <!-- E-02: the pack shelf — models, physical copies, and the comparison. -->
+    <div id="acpage-batteries" role="tabpanel" aria-labelledby="actab-batteries" hidden>
+      <div class="hangar">
+      <section class="rail-group">
+        <h2>Packs</h2>
+        <label>Battery manufacturer
+          <select id="sel-manufacturer"></select>
+        </label>
+        <label>Battery
+          <select id="sel-battery"></select>
+        </label>
+        <label class="check-row full-only">
+          <input id="in-parallel" type="checkbox">
+          <span>Run two identical packs in parallel</span>
+        </label>
+        <p id="parallel-summary" class="parallel-summary full-only" hidden></p>
+        <!-- Which physical copy of that pack model is on the rig (src/packinstances.js).
+             Catalog spec is the default and the whole fold stays shut until a pilot
+             has two of something; a selected pack's measured resistance replaces the
+             model's in the sag model, and the footnote under the plan says so. -->
+        <details id="pack-instance-fold" class="custom-batt full-only">
+          <summary>Which pack is this?</summary>
+          <label>Flying
+            <select id="sel-pack-instance"></select>
+          </label>
+          <p id="pack-instance-note" class="rail-note" role="status" hidden></p>
+          <!-- Generated from INSTANCE_FORM at boot (render/packinstances.js). -->
+          <form id="pack-instance-form"></form>
+          <div id="pack-instance-list"></div>
+        </details>
+        <details class="custom-batt full-only">
+          <summary>Add a battery to compare</summary>
+          <!-- Both forms are generated from their descriptors at boot (forms.js). -->
+          <form id="custom-form"></form>
+          <!-- Derived cross-checks while you type (§6.1, render/batterychecks.js):
+               pack Wh/g and what the current limit implies as a C-rating. The
+               warning line is soft — a 0.4 Wh/g pack is a typo, and it still saves. -->
+          <p id="battery-checks" class="rail-note drone-checks"></p>
+          <p id="battery-warn" class="drone-warn" role="status" hidden></p>
+          <div id="custom-list"></div>
+        </details>
+        <details class="custom-batt full-only">
+          <summary>Add a battery manufacturer</summary>
+          <form id="manufacturer-form"></form>
+          <div id="manufacturer-list"></div>
+        </details>
+      </section>
       </div>
-      <p class="card-sub">The theoretical optimum vs the speed you're planning, at every cruise airspeed in this weather</p>
-      <p id="speed-note" class="speed-note"></p>
-      <div id="chart-speed" class="chart"></div>
-    </section>
-    <section class="card">
-      <h3>Battery shoot-out</h3>
-      <p class="card-sub">Every compatible pack, same loadout and weather</p>
-      <div class="cmp-grid">
-        <div><p id="cmp-radius-title" class="panel-title">Mission radius (mi)</p><div id="chart-cmp-radius" class="chart"></div></div>
-        <div><p class="panel-title">Flight time (mm:ss)</p><div id="chart-cmp-time" class="chart"></div></div>
+      <section class="card">
+        <h3>Battery shoot-out</h3>
+        <p class="card-sub">Every compatible pack, same loadout and weather</p>
+        <div class="cmp-grid">
+          <div><p id="cmp-radius-title" class="panel-title">Mission radius (mi)</p><div id="chart-cmp-radius" class="chart"></div></div>
+          <div><p class="panel-title">Flight time (mm:ss)</p><div id="chart-cmp-time" class="chart"></div></div>
+        </div>
+        <div class="table-wrap full-only">
+          <table id="cmp-table">
+            <thead><tr>
+              <th>Manufacturer</th><th>Pack</th><th>Cell</th><th>Config</th><th>Chemistry</th><th>Capacity</th><th>Energy</th><th>Battery weight</th>
+              <th>Total weight</th><th>Disc load</th><th>Thrust</th><th>Status</th><th>Radius</th><th>Time</th><th>Burn out → home</th><th>Price</th>
+            </tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+      <p class="footnote" id="battery-note"></p>
+    </div>
+
+    <!-- E-03 lands in M15 wave D. -->
+    <div id="acpage-camera" role="tabpanel" aria-labelledby="actab-camera" hidden></div>
+
+    <!-- E-04: the logbook and what it says about the model. -->
+    <div id="acpage-calibration" role="tabpanel" aria-labelledby="actab-calibration" hidden>
+      <div class="hangar">
+      <section class="rail-group">
+        <h2>Flight log</h2>
+        <details class="custom-batt full-only" open>
+          <summary>Log a flight</summary>
+          <!-- Generated from the descriptor in render/flightlog.js at boot. Thirty
+               seconds off the OSD and the charger; the solve comes back inline. -->
+          <form id="flightlog-form"></form>
+          <p id="flightlog-prefill" class="rail-note" role="status" hidden></p>
+          <p id="flightlog-result" class="drone-live" role="status" hidden></p>
+          <div id="flightlog-list"></div>
+          <!-- How wrong the model has been, per logged cruise leg (render/
+               calibration.js). Up only once there is a cruise leg to plot. -->
+          <div id="drift-panel" class="drift-panel full-only" hidden>
+            <div class="drift-head">
+              <p class="panel-title">Model vs your flights</p>
+              <button type="button" id="drift-toggle" class="link-btn">show residual vs speed</button>
+            </div>
+            <div id="legend-drift" class="viz-legend"></div>
+            <div id="chart-drift" class="chart"></div>
+            <p id="drift-note" class="rail-note" role="status"></p>
+          </div>
+        </details>
+      </section>
       </div>
-      <div class="table-wrap full-only">
-        <table id="cmp-table">
-          <thead><tr>
-            <th>Manufacturer</th><th>Pack</th><th>Cell</th><th>Config</th><th>Chemistry</th><th>Capacity</th><th>Energy</th><th>Battery weight</th>
-            <th>Total weight</th><th>Disc load</th><th>Thrust</th><th>Status</th><th>Radius</th><th>Time</th><th>Burn out → home</th><th>Price</th>
-          </tr></thead>
-          <tbody></tbody>
-        </table>
-      </div>
-    </section>
-    <p class="footnote" id="battery-note"></p>
+    </div>
   </section>
   </div>
 </div>

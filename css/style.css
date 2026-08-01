@@ -776,6 +776,51 @@ tr.row-invalid td:nth-child(12) { color: var(--status-critical); font-weight: 60
   .plan-controls-btn { padding: 6px 11px; font-size: 11.5px; letter-spacing: 0.06em; }
 }
 
+/* ---------- aircraft pages (M15) ---------- */
+/* The destination's sub-nav wears the view-tab pills; below it, E-01's card
+   library is the face of the hidden drone select. */
+
+.acnav { margin-bottom: var(--sp-3); }
+
+.accards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-3);
+}
+.accard {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: var(--sp-2) var(--sp-3);
+}
+.accard[aria-current="true"] { border-color: var(--accent); }
+.accard-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--sp-1);
+  flex-wrap: wrap;
+}
+.accard-name { font-family: var(--font-display); font-size: 14px; font-weight: 600; }
+.accard-tag { color: var(--ink-2); font-size: 12px; }
+.accard-specs { color: var(--muted); font-size: 11.5px; }
+.accard-foot { margin-top: auto; padding-top: var(--sp-1); }
+.accard .map-btn { padding: 6px 14px; }
+.accard-flying {
+  display: inline-block;
+  padding: 3px 8px;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  color: var(--accent);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
 /* ---------- map view ---------- */
 
 /* The stage (M10): one positioned box the engines fill and the map chrome —

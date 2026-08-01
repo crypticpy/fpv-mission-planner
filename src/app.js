@@ -35,6 +35,7 @@ import {
   renderStats, renderPowerCurve, renderSpeedTradeoff, renderProfile, renderWindSensitivity,
 } from './render/dashboard.js';
 import { renderComparison } from './render/comparison.js';
+import { renderAircraftCards } from './render/aircraftcards.js';
 import { setupLive, goLive, useMyLocation, updateLiveUI, liveError, liveProvenance } from './render/live.js';
 import {
   setupForecast, renderForecastStrip, setForecastHour, reapplyForecastHour,
@@ -287,17 +288,25 @@ function update() {
     return;
   }
   if (state.dest === 'aircraft') {
-    // Beginner mode hides the two performance cards, so skip the sweeps
-    // behind them entirely.
-    if (!beginner()) {
-      renderPowerCurve(r);
-      renderSpeedTradeoff(r);
+    // Only the open page renders (M15) — same reason as Plan's modes: a chart
+    // drawn inside a hidden page measures nothing and freezes at a fallback
+    // width. Camera's page waits for E-03 and draws nothing yet.
+    if (state.acPage === 'aircraft') {
+      renderAircraftCards();
+      // Beginner mode hides the two performance cards, so skip the sweeps
+      // behind them entirely.
+      if (!beginner()) {
+        renderPowerCurve(r);
+        renderSpeedTradeoff(r);
+      }
+    } else if (state.acPage === 'batteries') {
+      renderComparison();
+      renderBatteryNote();
+    } else if (state.acPage === 'calibration') {
+      // populateControls draws this at boot, possibly while the page is hidden
+      // — redraw at the real container width now that it is showing.
+      renderDriftChart();
     }
-    renderComparison();
-    renderBatteryNote();
-    // populateControls draws this at boot, possibly while Aircraft is hidden —
-    // redraw at the real container width now that it is showing.
-    renderDriftChart();
     return;
   }
   if (onMap(state.view)) {
@@ -417,6 +426,34 @@ function setDest(dest) {
   if (dest === 'plan' && onMap(state.view)) showMapView();
   saveSession();
   update();
+}
+
+/* Aircraft's four pages (M15), in tab order. Camera's tab ships hidden until
+   E-03 fills its panel in wave D. */
+const AC_PAGES = ['aircraft', 'batteries', 'camera', 'calibration'];
+
+/**
+ * Point the Aircraft sub-nav's tabs and panels at state.acPage. Also the
+ * beginner pin: Calibration is a full-detail surface (its fold and chart have
+ * always been .full-only), so beginner mode snaps back to the Aircraft page
+ * rather than leaving a selected tab that CSS just hid.
+ */
+function syncAcPages() {
+  if (beginner() && state.acPage === 'calibration') state.acPage = 'aircraft';
+  for (const p of AC_PAGES) {
+    const tab = $(`actab-${p}`);
+    tab.setAttribute('aria-selected', p === state.acPage);
+    tab.tabIndex = p === state.acPage ? 0 : -1;
+    $(`acpage-${p}`).hidden = p !== state.acPage;
+  }
+}
+
+function setAcPage(page) {
+  if (state.acPage === page) return;
+  state.acPage = page;
+  syncAcPages();
+  saveSession();
+  update(); // draw the page that just became visible, at its real width
 }
 
 /* The named landing spot for each conditions fix link (fix-links.js): a
@@ -543,12 +580,26 @@ function bind() {
     setView(next);
     $(`tab-${next}`).focus();
   });
+  for (const p of AC_PAGES) $(`actab-${p}`).addEventListener('click', () => setAcPage(p));
+  document.querySelector('.acnav').addEventListener('keydown', e => {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    e.preventDefault();
+    // Cycle the visible tabs only — Camera waits for E-03, and Calibration
+    // sits out in beginner mode.
+    const open = AC_PAGES.filter(p =>
+      !$(`actab-${p}`).hidden && !(beginner() && p === 'calibration'));
+    const step = e.key === 'ArrowRight' ? 1 : -1;
+    const next = open[(open.indexOf(state.acPage) + step + open.length) % open.length];
+    setAcPage(next);
+    $(`actab-${next}`).focus();
+  });
   $('sel-detail').addEventListener('change', e => {
     state.detail = ['full', 'beginner'].includes(e.target.value) ? e.target.value : 'full';
     // populateControls() stamps the body attribute the CSS reads, rebuilds the
     // cruise options, and resets an expert cruise mode that just went off screen.
     const prevAlt = state.cruiseAltM;
     populateControls();
+    syncAcPages(); // beginner mode just hid Calibration's tab — follow it off
     // Beginner mode pins the cruise altitude back to the default, and the wind on
     // the rail has to follow it off the level that just went off screen.
     if (state.cruiseAltM !== prevAlt) setCruiseAlt(state.cruiseAltM);
@@ -920,6 +971,9 @@ setupField({ openPlan: () => setDest('plan'), openBrief, requestRender: update }
 setupOnboarding({ setDest });
 const bootView = restoreSession();
 const bootDest = restoredDest();
+// Point Aircraft's sub-nav at the restored page (and pin Calibration away in
+// beginner mode) before any render can draw into the wrong panel.
+syncAcPages();
 buildAuthoringForms();
 buildDroneForm();
 buildFlightLogForm();
