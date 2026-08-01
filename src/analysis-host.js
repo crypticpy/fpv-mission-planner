@@ -283,6 +283,27 @@ export function restoreEvidenceFor(doc) {
 }
 
 /**
+ * O-03's question (design evolution M13): does this device remember the open
+ * mission's ground? A read-only look at the evidence store — admission
+ * against the current corridor stays refreshField/refreshGrid's job; the
+ * readiness card only reports that a record exists and when it was saved. A
+ * write still sitting in the debounce window counts: it is this mission's
+ * evidence and lands within the window either way.
+ * @returns {Promise<{savedAt: string}|null>}
+ */
+export async function evidenceStatus() {
+  const doc = missionDocument();
+  if (!doc) return null;
+  if (pendingEvidenceSave?.id === doc.id) return { savedAt: pendingEvidenceSave.savedAt };
+  if (!evidenceRepo) return null;
+  const record = await evidenceRepo.get(doc.id);
+  // The mission moved on while the read was in flight — this record no longer
+  // describes the card that asked.
+  if (!record || missionDocument()?.id !== doc.id) return null;
+  return { savedAt: record.savedAt };
+}
+
+/**
  * A mission was removed from the repository (mission-bridge.js's
  * deleteMission). Its evidence has no mission left to describe — remove it
  * too, best-effort: evidence-repository.js's own remove() already never

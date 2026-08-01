@@ -4,9 +4,10 @@
 // the same chip belongs beside any fetched figure (terrain, calibration,
 // imports) as those surfaces are reworked.
 //
-// `cached` is defined but unwired until the evidence surfaces adopt the chip:
-// it means "served from a store, not the network" — an offline reload showing
-// yesterday's fetch — which no M9 mount can distinguish yet.
+// `cached` means "served from a store, not the network" — numbers that are
+// real at their stated age but cannot refresh. M13 wires it to the one signal
+// a page has for that: navigator.onLine === false while a fetched bag is
+// still on screen.
 import { icon } from './icons.js';
 import { state } from '../state.js';
 import { WEATHER } from '../data.js';
@@ -44,9 +45,10 @@ export function ageText(iso, nowMs = Date.now()) {
  * (ADR 0012 §1) are the decision, and the chip only reflects whether one is
  * on the stack — the chip and the warning it sits beside cannot disagree.
  * @param {import('../application/analysis/analysis-contracts.js').AnalysisSnapshot|null} snapshot
+ * @param {{onLine?: boolean}} [nav]  injectable for tests; defaults to the real navigator
  * @returns {FreshnessModel}
  */
-export function freshnessModelFrom(snapshot) {
+export function freshnessModelFrom(snapshot, nav = globalThis.navigator) {
   if (state.weatherId === 'live') {
     // Not the snapshot's retrievedAt: that field falls back to env.capturedAt
     // — a push time, re-stamped by every rail edit (analyze.js) — so a FAILED
@@ -64,7 +66,15 @@ export function freshnessModelFrom(snapshot) {
     // Same signal the rail prints (liveErr), so the two cannot disagree.
     const aged = (snapshot?.constraints ?? []).some((c) =>
       c.code === 'W-DATA-FORECAST-AGE' || c.code === 'W-DATA-FORECAST-STALE');
-    const state = liveError() ? 'unavailable' : aged ? 'stale' : 'current';
+    // Offline interposes before the failure check, not the age check: a fetch
+    // that failed because there is no network is not a provider outage — the
+    // numbers on screen are the store's, at their true age, which is exactly
+    // what `cached` means. Age still outranks it, because cached data past
+    // the trust constraints is stale wherever it came from. Online, the
+    // precedence is unchanged from M9.
+    const offline = nav?.onLine === false;
+    const state = offline ? (aged ? 'stale' : 'cached')
+      : liveError() ? 'unavailable' : aged ? 'stale' : 'current';
     return { source: 'Live · Open-Meteo', at, state };
   }
   if (state.weatherId === 'custom') {

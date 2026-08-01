@@ -2550,3 +2550,26 @@ button.windpanel-level { cursor: pointer; }
   .onboard-card { padding: var(--sp-3); }
   .onboard-title { font-size: 21px; }
 }
+
+/* ---------- offline readiness (O-03/H-03, design evolution M13) ---------- */
+
+/* Visible even with no plan: the blanking rule above hides every Field .card,
+   and this later, equal-specificity override wins by source order — coverage
+   and caches are real whether or not a pack fits. */
+body[data-plan="none"] #dest-field .rdy-card { display: block; }
+
+.rdy-rows { list-style: none; display: grid; gap: var(--sp-2); padding: 0; margin: var(--sp-2) 0; }
+.rdy-row { display: flex; align-items: flex-start; gap: var(--sp-2); }
+/* Never color alone — the dot only echoes a state the title already says. */
+.rdy-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; margin-top: 5px; background: var(--muted); }
+.rdy-row[data-state="ok"] .rdy-dot { background: var(--status-good); }
+.rdy-row[data-state="cached"] .rdy-dot { background: var(--ink-2); }
+.rdy-row[data-state="warn"] .rdy-dot { background: var(--status-warning); }
+.rdy-row[data-state="bad"] .rdy-dot { background: var(--status-serious); }
+.rdy-text { min-width: 0; }
+.rdy-title { font-size: 13px; font-weight: 600; }
+.rdy-body { font-size: 12.5px; color: var(--ink-2); }
+
+.rdy-actions { display: flex; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-2); }
+.rdy-actions .map-btn { flex: none; }
+.rdy-note { font-size: 12px; color: var(--ink-2); }

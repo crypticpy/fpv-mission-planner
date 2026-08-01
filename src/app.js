@@ -60,7 +60,7 @@ import { renderMissions, renderMissionStorage, bindMissions } from './render/mis
 import { renderSpots, bindSpots } from './render/spots.js';
 import { setupShare, bindShare } from './render/share.js';
 import { renderSessionPlanner } from './render/session.js';
-import { setupField, renderFieldHome } from './render/field.js';
+import { setupField, renderFieldHome, renderFieldReadiness } from './render/field.js';
 import { setupOnboarding } from './render/onboarding.js';
 import { renderWindRibbon, windModelFrom } from './components/wind-ribbon.js';
 import { renderWindPanel, windPanelModelFrom } from './components/wind-panel.js';
@@ -239,6 +239,10 @@ function update() {
   ribbonModel = windModelFrom(snapshot);
   panelModel = windPanelModelFrom(snapshot);
   drawWindChrome();
+  // Field's offline-readiness card (O-03, M13) is plan-independent the same
+  // way the ribbon is: coverage and caches are real whether or not a pack
+  // fits, so it renders ahead of the no-plan bail below.
+  if (state.dest === 'field') renderFieldReadiness(snapshot);
   // Handled, not thrown: with no pack there is no plan, and every render below
   // this line reads one. Say it in the verdict card and stop here.
   if (!snapshot.plan) {
@@ -905,7 +909,7 @@ setupShell({ setDest });
 // Field's home card (M13): both buttons lead out of Field — to the Plan map
 // and to the same brief Review opens. Bound before the first render so a
 // session restored onto Field arrives with live controls.
-setupField({ openPlan: () => setDest('plan'), openBrief });
+setupField({ openPlan: () => setDest('plan'), openBrief, requestRender: update });
 // The first-run tour (M13) must decide before the boot render below: update()
 // saves the session on every pass, so a check made after it would find a blob
 // on every boot and the tour would never show at all.

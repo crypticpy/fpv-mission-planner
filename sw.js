@@ -77,6 +77,7 @@ const PRECACHE_URLS = [
   'src/components/elevation-profile.js',
   'src/components/icons.js',
   'src/components/mission-summary.js',
+  'src/components/readiness.js',
   'src/components/review-panel.js',
   'src/components/route-timeline.js',
   'src/components/system-state.js',

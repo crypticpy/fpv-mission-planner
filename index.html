@@ -686,6 +686,21 @@
       <div id="sesh-rows" class="sesh-rows"></div>
       <p id="sesh-totals" class="sesh-totals"></p>
     </section>
+    <!-- O-03 offline readiness + H-03 freshness (design evolution M13): what
+         still works at a spot with no coverage, stated honestly — the app
+         never stores basemap tiles, and the rows say so rather than implying
+         a downloaded map. Rendered by src/render/field.js; a CSS override
+         keeps this card visible in the no-plan state, because coverage and
+         caches are real whether or not a pack fits. -->
+    <section class="card rdy-card">
+      <h3>Offline readiness</h3>
+      <p class="card-sub">What still works when this spot has no coverage.</p>
+      <div id="field-readiness"></div>
+      <div class="rdy-actions">
+        <button id="btn-rdy-update" class="map-btn" type="button">Check for updates</button>
+        <span id="rdy-update-note" class="rdy-note" aria-live="polite"></span>
+      </div>
+    </section>
   </section>
 
   <section id="dest-library" class="dest content" hidden>

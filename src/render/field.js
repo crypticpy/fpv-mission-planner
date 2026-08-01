@@ -11,10 +11,13 @@ import { units } from '../state.js';
 import { $ } from './dom.js';
 import { f1, mmss } from './format.js';
 import { verdict, strandedFrom, legTimes } from './dashboard.js';
-import { missionTitle } from '../mission-bridge.js';
+import { missionTitle, missionDocument, missionStorage } from '../mission-bridge.js';
 import { applyTheme, currentTheme } from '../themes.js';
 import { get as storeGet, set as storeSet } from '../store.js';
 import { startTimer, resetTimer, elapsedMin } from '../field-timer.js';
+import { freshnessModelFrom } from '../components/data-freshness.js';
+import { readinessRows, renderReadiness } from '../components/readiness.js';
+import { evidenceStatus } from '../analysis-host.js';
 
 // Same glyph per level as the Plan card (components/verdict-card.js) — the
 // two surfaces must read as one verdict, only set at different scales.
@@ -128,13 +131,101 @@ function syncSunlight() {
   $('btn-sunlight')?.setAttribute('aria-pressed', String(currentTheme().preference === 'sun-glare'));
 }
 
+/* ---------- O-03 offline readiness (design evolution M13) ---------- */
+
+/** Stale-patch guard: only the newest render's async reads may retext rows. */
+let rdySeq = 0;
+
+/** navigator.storage.estimate(), or null when the browser cannot answer — no
+ *  claim, not a guess (the mission-bridge rule, ADR 0012 §5).
+ *  @returns {Promise<{usage: number, quota: number}|null>} */
+async function storageEstimate() {
+  const sm = globalThis.navigator?.storage;
+  if (!sm || typeof sm.estimate !== 'function') return null;
+  try {
+    const { usage = NaN, quota = NaN } = await sm.estimate();
+    return Number.isFinite(usage) && Number.isFinite(quota) && quota > 0
+      ? { usage, quota } : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The readiness card: a synchronous render of what is known now, then one
+ * re-render when the two async answers (evidence store, storage estimate)
+ * land. Plan-independent like the wind ribbon — coverage and caches are real
+ * whether or not a pack fits — so app.js calls this ahead of the no-plan bail.
+ * @param {any} snapshot
+ */
+export function renderFieldReadiness(snapshot) {
+  const host = $('field-readiness');
+  if (!host) return;
+  const seq = ++rdySeq;
+  const nav = globalThis.navigator;
+  /** @type {import('../components/readiness.js').ReadinessInputs} */
+  const inputs = {
+    onLine: typeof nav?.onLine === 'boolean' ? nav.onLine : null,
+    sw: !nav?.serviceWorker ? 'unsupported'
+      : nav.serviceWorker.controller ? 'controlled' : 'pending',
+    weather: freshnessModelFrom(snapshot),
+    evidence: missionDocument() ? 'pending' : 'no-mission',
+    storage: missionStorage(),
+    estimate: null,
+  };
+  renderReadiness(host, readinessRows(inputs));
+  void (async () => {
+    const [ev, estimate] = await Promise.all([
+      inputs.evidence === 'pending' ? evidenceStatus() : Promise.resolve(inputs.evidence),
+      storageEstimate(),
+    ]);
+    if (seq !== rdySeq) return; // a newer render owns the card now
+    renderReadiness(host, readinessRows({ ...inputs, evidence: ev, estimate }));
+  })();
+}
+
+/** The H-03 update check: ask the service worker to look for a newer build
+ *  now, and say what happened. sw.js takes over with skipWaiting() once an
+ *  update installs, so the shell's update notice handles the reload offer —
+ *  this note only reports the check itself. */
+async function checkForUpdates() {
+  const note = $('rdy-update-note');
+  const sw = globalThis.navigator?.serviceWorker;
+  if (!sw) {
+    note.textContent = 'This browser cannot update the app in the background.';
+    return;
+  }
+  note.textContent = 'Checking…';
+  try {
+    const reg = await sw.getRegistration();
+    if (!reg) {
+      note.textContent = 'The app shell has not installed yet — reload once while online.';
+      return;
+    }
+    await reg.update();
+    note.textContent = reg.installing || reg.waiting
+      ? 'Update found — installing. A reload notice will appear when it is ready.'
+      : 'You are on the newest build.';
+  } catch {
+    note.textContent = 'Could not reach the server — try again with coverage.';
+  }
+}
+
 /**
  * Bind the home card's controls once at boot. The two buttons lead out of
  * Field — to the Plan map and to the same brief Review opens — so both
- * arrive as callbacks; Field owns no navigation of its own.
- * @param {{openPlan: () => void, openBrief: () => void}} deps
+ * arrive as callbacks; Field owns no navigation of its own. requestRender
+ * re-runs the analysis pass so a coverage change moves every freshness
+ * surface at once — the readiness rows and the ribbon's chip cannot disagree.
+ * @param {{openPlan: () => void, openBrief: () => void, requestRender: () => void}} deps
  */
-export function setupField({ openPlan, openBrief }) {
+export function setupField({ openPlan, openBrief, requestRender }) {
+  $('btn-rdy-update').addEventListener('click', () => { void checkForUpdates(); });
+  // The first online/offline listeners in the app (M13): coverage moving is
+  // exactly what this destination exists to be honest about.
+  for (const ev of ['online', 'offline']) {
+    window.addEventListener(ev, requestRender);
+  }
   ensure($('field-home'));
   $('btn-field-map').addEventListener('click', openPlan);
   $('btn-field-brief').addEventListener('click', openBrief);
