@@ -2379,3 +2379,74 @@ button.windpanel-level { cursor: pointer; }
   .fixrow-body { flex-basis: calc(100% - 84px); }
   .fixrow .fix-go { margin-left: auto; }
 }
+
+/* ---------- Field home (F-01, design evolution M13) ---------- */
+
+/* The dest head grows a right-aligned sunlight latch; the latched state reuses
+   the map toolbar's aria-pressed look, so "forced" reads the same everywhere. */
+.field-head { flex-direction: row; align-items: flex-start; justify-content: space-between; gap: var(--sp-2); }
+.sun-toggle { display: inline-flex; align-items: center; gap: 6px; flex: none; padding: 8px 12px; }
+.sun-glyph { display: block; flex: none; width: 14px; height: 14px; }
+
+.fhome { gap: var(--sp-3); }
+.fhome-mission { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+
+/* The verdict at field scale: the same one status color driving glyph and word
+   as Plan's card, sized to read from a tailgate at arm's length. The level
+   arrives as data-level so this card never collides with Plan's #verdict-badge
+   id contract. */
+.fhome-verdict { --verdict: var(--status-good); display: flex; align-items: center; gap: var(--sp-3); }
+.fhome-verdict[data-level="caution"] { --verdict: var(--status-warning); }
+.fhome-verdict[data-level="nogo"] { --verdict: var(--status-critical); }
+.fhome-verdict[data-level="unknown"] { --verdict: var(--muted); }
+.fhome-verdict-icon { flex: none; color: var(--verdict); }
+.fhome-glyph { display: block; width: 46px; height: 46px; }
+.fhome-verdict-text { min-width: 0; }
+.fhome-verdict-label {
+  font-family: var(--font-display);
+  font-size: 32px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1.05;
+  color: var(--verdict);
+}
+.fhome-verdict-why { font-size: 14.5px; color: var(--ink); margin-top: 2px; }
+.fhome-verdict-fix { font-size: 13px; color: var(--ink-2); margin-top: 2px; }
+
+.fhome-tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--sp-2); }
+.fhome-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: var(--sp-2) var(--sp-3);
+}
+.fhome-tile-label { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.fhome-tile-value {
+  font-family: var(--font-display);
+  font-size: 26px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+/* The clock against its marks: quiet while there is time, the warning color at
+   the turn-home mark, the critical color past planned duration. Never color
+   alone — the tile's label changes with the state (the round-2 rule). */
+.fhome-tile[data-state="turn"] .fhome-tile-label,
+.fhome-tile[data-state="turn"] .fhome-tile-value { color: var(--status-warning); }
+.fhome-tile[data-state="over"] .fhome-tile-label,
+.fhome-tile[data-state="over"] .fhome-tile-value { color: var(--status-critical); }
+.fhome-timer-btn { margin-top: 4px; align-self: flex-start; padding: 6px 14px; }
+
+.fhome-actions { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-2); }
+.fhome-actions .map-btn { padding: 11px 12px; font-size: 13px; }
+.fhome-open { background: var(--accent); border-color: var(--accent); color: var(--page); font-weight: 600; }
+.fhome-open:hover { background: var(--accent); border-color: var(--ink); color: var(--page); }
+
+@media (max-width: 700px) {
+  .fhome-tiles { gap: var(--sp-1); }
+  .fhome-tile { padding: var(--sp-1) var(--sp-2); }
+  .fhome-tile-value { font-size: 21px; }
+  .fhome-verdict-label { font-size: 27px; }
+}

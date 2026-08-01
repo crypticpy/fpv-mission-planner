@@ -60,6 +60,7 @@ import { renderMissions, renderMissionStorage, bindMissions } from './render/mis
 import { renderSpots, bindSpots } from './render/spots.js';
 import { setupShare, bindShare } from './render/share.js';
 import { renderSessionPlanner } from './render/session.js';
+import { setupField, renderFieldHome } from './render/field.js';
 import { renderWindRibbon, windModelFrom } from './components/wind-ribbon.js';
 import { renderWindPanel, windPanelModelFrom } from './components/wind-panel.js';
 import { renderMissionSummary, summaryModelFrom } from './components/mission-summary.js';
@@ -186,6 +187,16 @@ function briefUi() {
   return briefPromise;
 }
 
+/* One door to the brief, shared by Review's button and Field's (M13). A load
+   failure is dropped, not surfaced: briefUi() already reset its own cache
+   above, so the next press retries the chunk fetch (ADR 0012 §4) rather than
+   replaying this failure or needing a dedicated error UI for it. */
+function openBrief() {
+  void briefUi().then((m) => m.openBrief()).catch((e) => {
+    console.warn('brief: the brief UI could not be loaded.', e);
+  });
+}
+
 /**
  * One render pass: refresh the rail's own text, ask the analysis host for the
  * snapshot, and hand that one object to everything that draws. Nothing below
@@ -259,6 +270,7 @@ function update() {
   // workspace mode: charts measure container width and freeze at a fallback
   // size when drawn inside a display:none container.
   if (state.dest === 'field') {
+    renderFieldHome(snapshot);
     renderMissionSummary($('mission-summary'), summaryModelFrom(r));
     renderSessionPlanner();
     return;
@@ -743,16 +755,9 @@ function bind() {
   bindSpots();
   bindMissions();
   // Bound synchronously so the button works from first paint; the chunk loads
-  // inside the first click. openBrief itself is async either way (it already
+  // inside the first click. The brief itself is async either way (it already
   // awaits the interop engine for the loss report), so nothing observable moved.
-  $('btn-brief').addEventListener('click', () => {
-    void briefUi().then((m) => m.openBrief()).catch((e) => {
-      // Dropped, not surfaced: briefUi() already reset its own cache above, so
-      // the next click retries the chunk fetch (ADR 0012 §4) rather than
-      // replaying this failure or needing a dedicated error UI for it.
-      console.warn('brief: the brief UI could not be loaded.', e);
-    });
-  });
+  $('btn-brief').addEventListener('click', openBrief);
   // An import adds rigs, packs and flights all at once, so the Share fold needs
   // the same pair the authoring forms do: rebuild the rail, then re-plan.
   bindShare();
@@ -894,6 +899,10 @@ setupThemes(() => {
 });
 setupUpdateNotice();
 setupShell({ setDest });
+// Field's home card (M13): both buttons lead out of Field — to the Plan map
+// and to the same brief Review opens. Bound before the first render so a
+// session restored onto Field arrives with live controls.
+setupField({ openPlan: () => setDest('plan'), openBrief });
 const bootView = restoreSession();
 const bootDest = restoredDest();
 buildAuthoringForms();

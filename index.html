@@ -43,6 +43,11 @@
       <circle cx="12" cy="12" r="2" fill="currentColor"/>
       <path d="M12 1v5M12 18v5M1 12h5M18 12h5" stroke="currentColor" stroke-width="2"/>
     </symbol>
+    <symbol id="sym-sun" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="4.5" fill="none" stroke="currentColor" stroke-width="2"/>
+      <path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M18.7 5.3l-2.1 2.1M7.4 16.6l-2.1 2.1"
+            fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+    </symbol>
     <symbol id="sym-recovery" viewBox="0 0 24 24">
       <path d="M4 12a8 8 0 1 0 3-6" fill="none" stroke="currentColor" stroke-width="2"/>
       <path d="M3 4v6h6" fill="none" stroke="currentColor" stroke-width="2"/>
@@ -649,14 +654,25 @@
   </section>
 
   <section id="dest-field" class="dest content" hidden>
-    <header class="dest-head">
-      <h2>Field</h2>
-      <p class="dest-sub">Day-of flying — how long the packs in your bag keep you in the air at this spot.</p>
+    <header class="dest-head field-head">
+      <div>
+        <h2>Field</h2>
+        <p class="dest-sub">Day-of flying — how long the packs in your bag keep you in the air at this spot.</p>
+      </div>
+      <!-- The sunlight latch (M13): one press to the sun-glare theme — the
+           max-contrast preset built for direct sun — and one press back to
+           whatever was active before. Bound by src/render/field.js. -->
+      <button id="btn-sunlight" class="map-btn sun-toggle" type="button" aria-pressed="false">Sunlight</button>
     </header>
     <!-- The no-plan state (M9): data-plan="none" blanks this destination's
          cards, and without this card Field would be a bare heading with the
          explanation stranded over in Plan. Rendered by src/components/system-state.js. -->
     <div id="field-empty" hidden></div>
+    <!-- F-01 Field home (design evolution M13): the verdict writ large, the
+         flight clock against the turn-home mark, and the way back to the map.
+         Rendered by src/render/field.js; class="card" keeps it under the same
+         no-plan blanking rule as every other Field card. -->
+    <div id="field-home" class="card fhome"></div>
     <!-- The MissionSummary (design evolution M9): the plan's four field numbers,
          so the day-of screen opens with the mission the pilot just planned.
          Rendered by src/components/mission-summary.js. -->
