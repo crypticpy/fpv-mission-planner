@@ -112,8 +112,17 @@ test.describe('performance budgets', () => {
    *
    * Re-based 172 → 174 at M10 wave D: the Review fix panel and the fix-linking
    * engine, 172.4 on landing — the same always-path category as wave C, and
-   * the same claw-back applies if the Plan modes go lazy. */
-  const ENTRY_BUDGET_KB = 174;
+   * the same claw-back applies if the Plan modes go lazy.
+   *
+   * Re-based 174 → 178 at M11 ship: the wind panel, the ladder/heading
+   * segments and the map arrows, 177.0 on landing. Always-path on purpose —
+   * the ribbon that unfolds it is persistent chrome on all four destinations.
+   * The claw-back here is real if ever needed: the panel body only renders on
+   * unfold, so it could become a lazy chunk behind the toggle. Verified at
+   * this re-base that the split graph is intact (brief, import-router,
+   * compile, scene3d all still separate chunks) — this is feature growth,
+   * not a chunk collapsing into the entry. */
+  const ENTRY_BUDGET_KB = 178;
   const SCENE3D_BUDGET_KB = 500;
 
   test('the built bundles are inside their gzip budgets', async () => {

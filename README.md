@@ -12,7 +12,13 @@ asks: **Field** (day-of — how long do the packs in your bag keep you flying
 here), **Plan** (the workspace — weather, mission, verdict, charts, map),
 **Library** (saved missions), and **Aircraft** (your fleet and its physics).
 A wind ribbon under the masthead keeps the current wind, its gust, and the
-data's freshness on screen in every destination.
+data's freshness on screen in every destination. Pressing it unfolds the wind
+panel: the wind now with its hourly outlook, the wind-by-altitude ladder, and
+the heading-exposure table — every figure the same state the rail plans on,
+so tapping a rung or a course moves the plan itself. An "Open wind map"
+button lands on the Plan 2D map, where a grid of arrows shows the wind over
+the route (the legend names the height the figure was read at — only when a
+live profile actually read it at one).
 
 ## Run it
 

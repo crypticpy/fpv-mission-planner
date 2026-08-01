@@ -41,7 +41,7 @@ import {
 } from './render/forecast.js';
 import { setupTerrain, renderTerrainCard } from './render/terrain.js';
 import { isLinkBand } from './rf.js';
-import { isCruiseAlt, activeLevelPatch } from './windprofile.js';
+import { isCruiseAlt, activeLevelPatch, setWindLevels, setSounding } from './windprofile.js';
 import { renderRouteCard } from './render/route.js';
 import {
   setupMissionBridge, openMissionBridge, missionWaypoints,
@@ -136,6 +136,19 @@ function openWindMap() {
   setView('2d');
   drawWindChrome();
   $('map-canvas').scrollIntoView({ block: 'start', behavior: 'smooth' });
+}
+
+/**
+ * The sky is no longer the live one. The latched wind profile and sounding
+ * describe air the plan has stopped using, and everything that reads them —
+ * the rail's launch-wind sentence, the W-02 ladder, the advisory's
+ * "read at N m" provenance and the map legend built on it — labels the
+ * reading as live's. Same rule live.js applies to a failed refetch: never
+ * leave a previous sky's profile behind as if it described this one.
+ */
+function leaveLiveSky() {
+  setWindLevels(null, null);
+  setSounding(null, null);
 }
 
 function setWindPanelSeg(id) {
@@ -572,6 +585,7 @@ function bind() {
   $('sel-weather').addEventListener('change', e => {
     if (e.target.value === 'live') { goLive(); return; }
     state.weatherId = e.target.value;
+    leaveLiveSky();
     const w = WEATHER.find(x => x.id === state.weatherId);
     if (w) {
       state.env = { ...state.env, elevFt: w.elevFt, tempF: w.tempF, rhPct: w.rhPct, windMph: w.windMph, gustMph: w.gustMph, windFromDeg: w.windFromDeg };
@@ -586,6 +600,7 @@ function bind() {
     $(id).addEventListener('input', e => {
       state.env[key] = +e.target.value || 0;
       state.weatherId = 'custom';
+      leaveLiveSky();
       $('sel-weather').value = 'custom';
       // Typing an elevation moves the launch point's elevation, which is the
       // document's, not the rail's — so that field raises both commands.
@@ -597,6 +612,7 @@ function bind() {
     $(id).addEventListener('input', e => {
       state.env[key] = units().speedToMph(+e.target.value || 0);
       state.weatherId = 'custom';
+      leaveLiveSky();
       $('sel-weather').value = 'custom';
       editEnv();
     });

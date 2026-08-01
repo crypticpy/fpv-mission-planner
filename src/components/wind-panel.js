@@ -1,9 +1,8 @@
 // components/wind-panel.js — the WindRibbon's expansion (design evolution M11):
-// press the ribbon and the sky unfolds under it, on every destination. This
-// wave carries W-01 — the wind now, the surface and gust beside it, a compass
-// rose, and the hourly outlook for choosing a flight window. The altitude
-// ladder (W-02) and heading exposure (W-03) mount as sibling segments in the
-// next waves.
+// press the ribbon and the sky unfolds under it, on every destination. Three
+// segments: Now (W-01 — the wind now, the surface and gust beside it, a
+// compass rose, and the hourly outlook for choosing a flight window), the
+// altitude ladder (W-02), and heading exposure (W-03).
 //
 // Not one figure here is the panel's own. The hero is the same planning wind
 // the ribbon compresses, the surface line is the rail's launch-wind sentence
