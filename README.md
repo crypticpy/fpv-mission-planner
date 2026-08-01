@@ -45,6 +45,16 @@ modules ([src/domain/physics.js](src/domain/physics.js), [src/data.js](src/data.
 The only third-party code is Leaflet 1.9.4, vendored
 as an ES module in `vendor/leaflet/` so the app still needs no CDN or bundler.
 
+One part is the exception: **the 3D planner needs the build**. Its engines
+(deck.gl and MapLibre) are npm packages imported by name, and only the bundler
+knows what those names point at — served straight from this directory a browser
+cannot resolve them, so pressing **3D** lands on a card that says so and the 2D
+map keeps working. To use 3D, serve the built output instead:
+
+```bash
+npm run build && python3 -m http.server 8321 --directory dist
+```
+
 ### Tests
 
 ```bash

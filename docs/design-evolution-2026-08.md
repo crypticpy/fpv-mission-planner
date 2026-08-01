@@ -171,6 +171,15 @@ big ones). No epic branch.
   branch per milestone (`evolution/m9-shell`, …), merged to `main` at each
   gate. Concurrent sessions edit the main tree; the worktree isolates this
   evolution.
+- **Deployment caveat (open).** GitHub Pages is still on the classic branch
+  build, which serves the repo root — unbundled source, where the 3D chunk's
+  `@deck.gl/core` and `maplibre-gl` imports cannot resolve. Everything M12 and
+  M16 put behind the **3D** tab is therefore unreachable on the live site,
+  which falls back to 2D. The code is right and the built bundle is right; the
+  deploy is not. Closing it means flipping the repo's Pages source to "GitHub
+  Actions" so `.github/workflows/pages.yml` publishes `dist/` — a repo-settings
+  change only the owner can make. Verify features against `dist/`, never
+  against the repo root.
 - Committed design assets: round docs (`README.md`, `PROMPTS.md`,
   `ASSET-MANIFEST.md`, `SCREEN-INVENTORY.md`), `developer-assets/` (tokens +
   sprite are build inputs), compressed WebP review sheets, and the
