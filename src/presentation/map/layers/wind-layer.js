@@ -126,7 +126,9 @@ export function createWindLayer({ reducedMotion }) {
 
       if (!control) {
         control = adapter.control({
-          position: 'topright',
+          /* Bottom-right: the top-right corner is the MapToolbar's (M10), and a
+           * readout under an icon rail would read as one of its buttons. */
+          position: 'bottomright',
           className: 'wind-control',
           html: '<span class="wind-arrow">➤</span><span class="wind-text"></span>',
         });

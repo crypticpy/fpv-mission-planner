@@ -6,9 +6,11 @@
 // above this file imports the vendor bundle. `npm run arch` checks that claim.
 //
 // Everything Leaflet-shaped that used to be spread across the map view is
-// collected here: the two base tile layers, the layer switcher, the scale bar,
-// and the tile-error latch. A caller picks a base layer by name and reads it
-// back by name; it never holds a tile layer object.
+// collected here: the two base tile layers, the scale bar, and the tile-error
+// latch. A caller picks a base layer by name and reads it back by name; it
+// never holds a tile layer object. The layer switcher is the MapToolbar's
+// #btn-baselayer now (M10), driving `setBaseLayer` — Leaflet's own control
+// would sit in the corner the toolbar owns.
 
 import * as L from '../../../vendor/leaflet/leaflet-src.esm.js';
 
@@ -62,7 +64,6 @@ export function createLeafletAdapter({ containerId, center, zoom, baseLayer }) {
     zoom,
     layers: [baseLayer === 'streets' ? streets : satellite],
   });
-  L.control.layers({ Satellite: satellite, Streets: streets }).addTo(map);
   L.control.scale().addTo(map);
 
   /* One `viewchange` out of Leaflet's three: every listener the app has ever had
@@ -79,6 +80,17 @@ export function createLeafletAdapter({ containerId, center, zoom, baseLayer }) {
       zoom: map.getZoom(),
       baseLayer: map.hasLayer(streets) ? 'streets' : 'satellite',
     }),
+
+    setBaseLayer: (id) => {
+      const want = id === 'streets' ? streets : satellite;
+      const other = id === 'streets' ? satellite : streets;
+      if (map.hasLayer(want)) return;
+      map.removeLayer(other);
+      map.addLayer(want);
+      /* The event Leaflet's own switcher would have fired — it is what carries
+       * the change into the app's `viewchange`, and from there to persistence. */
+      map.fire('baselayerchange');
+    },
 
     // `zoom` undefined keeps the current one, which is what every caller before
     // the 3D toggle wanted. The toggle is the one that has to state both, so a

@@ -383,13 +383,14 @@ test.describe('the mountain-flow advisory in a browser', () => {
 
     const toggle = page.locator('#btn-advisory');
     // On by default and saying so: an advisory a pilot has to discover a button
-    // for is one they will fly without.
+    // for is one they will fly without. The button is icon-only (M10) — state
+    // lives on aria-pressed and the title, not in text.
     await expect(toggle).toHaveAttribute('aria-pressed', 'true');
-    await expect(toggle).toHaveText('Wind zones · on');
+    await expect(toggle).toHaveAttribute('title', 'Wind zones · on');
 
     await toggle.click();
     await expect(toggle).toHaveAttribute('aria-pressed', 'false');
-    await expect(toggle).toHaveText('Wind zones');
+    await expect(toggle).toHaveAttribute('title', 'Wind zones');
     // The cells and the boundary go together — a boundary with nothing inside it
     // would claim an analysed area with no finding in it.
     await expect(page.locator('#map-canvas path.advisory-cell')).toHaveCount(0);

@@ -234,6 +234,12 @@ function onMapClick(at) {
 function bindControls() {
   $('btn-locate').addEventListener('click', locate);
   $('btn-fit').addEventListener('click', () => { needsFit = true; deps.requestRender(); });
+  $('btn-baselayer').addEventListener('click', () => {
+    /* A two-state toggle, not a menu: there are exactly two base layers, and a
+     * button that flips them is one press where Leaflet's switcher was two. */
+    adapter.setBaseLayer(adapter.view().baseLayer === 'satellite' ? 'streets' : 'satellite');
+    syncBaseLayer();
+  });
   $('btn-live-wx').addEventListener('click', () => deps.goLive({ ...launch }));
   $('btn-route').addEventListener('click', () => setRouteMode(!routeModeOn()));
   $('btn-subject').addEventListener('click', () => {
@@ -574,7 +580,7 @@ export function renderMapView(snapshot) {
   /* The legend only; the explanation card moved to Analyze with the rest of the
    * numbers (M10), where app.js renders it off the same snapshot. */
   renderAdvisoryLegend({ advisories: snapshot.advisories, visible: frame.advisoryVisible });
-  renderRouteControls(frame);
+  renderToolbar(frame);
 }
 
 /**
@@ -654,11 +660,17 @@ function renderCanvasNote(snapshot) {
     : 'No reach at the planned cruise in this wind — the dashed ring is what best-range speed could still manage.');
 }
 
-/** The route tool's own affordances, which track the mode rather than the route. */
-function renderRouteControls(frame) {
+/**
+ * The toolbar's latches and titles, which track the mode rather than the route.
+ * The buttons are icon-only (M10): state rides on aria-pressed and the title —
+ * never on textContent, which would clobber the svg child. The aria-labels are
+ * static markup and stay put; a screen reader gets "Route mode, pressed", not a
+ * label that mutates under it.
+ */
+function renderToolbar(frame) {
   const btn = $('btn-route');
   btn.setAttribute('aria-pressed', String(frame.routeMode));
-  btn.textContent = frame.routeMode ? 'Route · on' : 'Route';
+  btn.title = frame.routeMode ? 'Route mode on — map clicks drop waypoints' : 'Route mode';
   $('btn-route-clear').hidden = !frame.routeMode || frame.waypoints.length === 0;
   /* The crosshair means "this click edits the plan", which both modes do — so it
    * is on for either, over either engine. Which edit it is, is what the two
@@ -668,11 +680,28 @@ function renderRouteControls(frame) {
 
   const btnSubject = $('btn-subject');
   btnSubject.setAttribute('aria-pressed', String(frame.subjectMode));
-  btnSubject.textContent = frame.subjectMode ? 'Subject · on' : 'Subject';
+  btnSubject.title = frame.subjectMode ? 'Subject mode on — map clicks drop a thing to film' : 'Subject mode';
 
   const btnAdvisory = $('btn-advisory');
   btnAdvisory.setAttribute('aria-pressed', String(frame.advisoryVisible));
-  btnAdvisory.textContent = frame.advisoryVisible ? 'Wind zones · on' : 'Wind zones';
+  btnAdvisory.title = frame.advisoryVisible ? 'Wind zones · on' : 'Wind zones';
+
+  syncBaseLayer();
+}
+
+/**
+ * The base-layer button's whole state machine: disabled in 3D, where MapLibre
+ * draws its own ground, and titled with what a press will do — not what is up
+ * now — because the button is a toggle, not a status light.
+ */
+function syncBaseLayer() {
+  const btn = $('btn-baselayer');
+  const in3d = mode === '3d';
+  btn.disabled = in3d;
+  if (in3d) { btn.title = 'Base layer — 2D only'; return; }
+  btn.title = adapter.view().baseLayer === 'satellite'
+    ? 'Base layer: satellite — switch to streets'
+    : 'Base layer: streets — switch to satellite';
 }
 
 /**

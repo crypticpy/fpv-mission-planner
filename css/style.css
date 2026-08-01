@@ -770,8 +770,17 @@ tr.row-invalid td:nth-child(12) { color: var(--status-critical); font-weight: 60
 
 /* ---------- map view ---------- */
 
-.map-canvas {
+/* The stage (M10): one positioned box the engines fill and the map chrome —
+   toolbar, context inspector — rides over. isolation contains their z-indices
+   (and Leaflet's 1000-level control panes) so nothing here competes with the
+   page-level scrim/sheet/dock stack. */
+.map-stage {
+  position: relative;
+  isolation: isolate;
   height: clamp(340px, 58vh, 620px);
+}
+.map-canvas {
+  height: 100%;
   border: 1px solid var(--border);
   border-radius: 8px;
   overflow: hidden;
@@ -781,7 +790,85 @@ tr.row-invalid td:nth-child(12) { color: var(--status-critical); font-weight: 60
   filter: saturate(0.45);
 }
 .map-card { padding-bottom: var(--sp-3); }
-.map-actions { display: flex; gap: var(--sp-1); flex-wrap: wrap; }
+
+/* MapToolbar (M10): an icon rail over the top-right of whichever engine is
+   drawing. Column-wrap so a short landscape stage grows a second column
+   leftward instead of running off the bottom edge. */
+.map-toolbar {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 1001; /* over Leaflet's control panes (1000), inside the isolated stage */
+  display: flex;
+  flex-direction: column;
+  flex-wrap: wrap;
+  align-content: flex-end;
+  gap: 6px;
+  max-height: calc(100% - 20px);
+}
+.tool-btn {
+  position: relative;
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  background: var(--surface-1);
+  color: var(--ink-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  box-shadow: 0 2px 8px var(--shadow);
+}
+.tool-btn svg { width: 22px; height: 22px; }
+.tool-btn:hover { color: var(--ink); border-color: var(--accent); background: var(--button-hover); }
+.tool-btn:disabled { color: var(--muted); border-color: var(--border); background: var(--surface-1); cursor: default; opacity: 0.6; }
+.tool-btn[aria-pressed="true"] {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--button);
+}
+/* The lit latch carries more than color: a bar on the button's leading edge. */
+.tool-btn[aria-pressed="true"]::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 3px;
+  border-radius: 0 2px 2px 0;
+  background: var(--accent);
+}
+
+/* ContextInspector (M10): the segment card overlays the stage instead of
+   sitting below the route card — the map and the selection stay on screen,
+   and the engines never resize when it opens or closes. Auto height up to a
+   cap that leaves the attribution corner readable. */
+.context-inspector {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: min(340px, 38%);
+  max-height: calc(100% - 44px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  z-index: 1002;
+  margin: 0;
+  box-shadow: 0 8px 24px var(--shadow);
+}
+@media (min-width: 901px) {
+  .map-toolbar { transition: right 0.2s ease; }
+  /* The toolbar steps aside while the inspector is up, rather than being
+     covered by it. Desktop/tablet-landscape only — the phone sheet below
+     doesn't occupy this corner. */
+  .map-stage:has(.context-inspector:not([hidden])) .map-toolbar {
+    right: calc(min(340px, 38%) + 18px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .map-toolbar { transition: none; }
+}
+
 .map-btn {
   background: var(--button);
   color: var(--ink-2);
@@ -959,11 +1046,30 @@ body {
 
   .tiles { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
 
-  .map-canvas { height: 62vh; height: 62dvh; min-height: 300px; }
-  .map-card .card-sub { display: none; }
+  .map-stage { height: 62vh; height: 62dvh; min-height: 300px; }
+  /* Direct child only: the inspector's #segment-sub nests deeper and must
+     survive — it names the leg the pilot tapped. */
+  .map-card > .card-sub { display: none; }
   .map-card .card-head { flex-wrap: wrap; }
-  .map-actions { width: 100%; }
-  .map-actions .map-btn { flex: 1 1 0; }
+
+  /* ContextInspector rides as a bottom sheet above the dock. position: fixed
+     escapes the stage (isolation makes a stacking context, not a containing
+     block) into the page stack: over the map card (content-level), under the
+     rail scrim (1100) and sheet (1110), which sit later in the DOM at root
+     level. Non-modal — the map stays live above it. */
+  .context-inspector {
+    position: fixed;
+    left: 0;
+    right: 0;
+    top: auto;
+    width: auto;
+    bottom: calc(var(--dock-h) + env(safe-area-inset-bottom));
+    max-height: 52vh;
+    max-height: 52dvh;
+    z-index: 1050;
+    border-radius: 14px 14px 0 0;
+    border-bottom: none;
+  }
 
   /* The destnav becomes the bottom dock — the phone's thumb-reach home for the
      four destinations. */
@@ -1180,7 +1286,12 @@ body {
 .scene3d-slider { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
 .scene3d-slider input[type="range"] { width: 96px; accent-color: var(--accent); }
 .scene3d-slider output { font-variant-numeric: tabular-nums; min-width: 2.4em; }
-.scene3d-btn {
+/* Doubled selector on purpose: MapLibre's own `.maplibregl-ctrl-group button`
+   (0,1,1) forces a 29px square, borderless icon button, and a bare class
+   (0,1,0) loses to it — the label then hangs outside the control's pill. */
+.scene3d-controls .scene3d-btn {
+  width: auto;
+  height: auto;
   background: var(--button);
   color: var(--ink-2);
   border: 1px solid var(--border);
@@ -1191,7 +1302,7 @@ body {
   cursor: pointer;
   white-space: nowrap;
 }
-.scene3d-btn:hover { color: var(--ink); border-color: var(--accent); background: var(--button-hover); }
+.scene3d-controls .scene3d-btn:hover { color: var(--ink); border-color: var(--accent); background: var(--button-hover); }
 @media (max-width: 700px) {
   .scene3d-slider span { display: none; }
   .scene3d-slider input[type="range"] { width: 64px; }

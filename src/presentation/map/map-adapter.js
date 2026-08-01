@@ -135,6 +135,9 @@ export const MAP_EVENTS = Object.freeze(
  * @typedef {object} MapAdapter
  * @property {() => HTMLElement} container the element the map is drawn into
  * @property {() => MapViewState} view
+ * @property {(id: BaseLayerId) => void} setBaseLayer  swap the imagery; fires
+ *   `viewchange` so the choice persists like a pan does. A no-op when the named
+ *   layer is already up
  * @property {(at: LatLng, zoom?: number) => void} center  pan to a point; the
  *   zoom is kept unless one is named, which only the 2D↔3D handover does
  * @property {(bounds: LatLngBounds, opts?: { paddingPx?: number }) => void} fit

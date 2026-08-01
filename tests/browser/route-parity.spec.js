@@ -244,11 +244,16 @@ function emptyPoint(mask, controls) {
   throw new Error('no clear ground anywhere on the 3D canvas');
 }
 
-/** The map controls floating over the 3D canvas, in canvas coordinates. */
+/**
+ * The chrome floating over the 3D canvas, in canvas coordinates: MapLibre's own
+ * controls plus the MapToolbar (M10), which overlays both engines from outside
+ * the container. Element screenshots include overlaying DOM, so scans and
+ * clicks alike have to know where it is.
+ */
 async function controlBoxes(page, canvasBox) {
   /** @type {{ x: number, y: number, width: number, height: number }[]} */
   const boxes = [];
-  for (const control of await page.locator('#map-3d .maplibregl-ctrl').all()) {
+  for (const control of await page.locator('#map-3d .maplibregl-ctrl, .map-toolbar').all()) {
     const box = await control.boundingBox();
     if (box) boxes.push({ ...box, x: box.x - canvasBox.x, y: box.y - canvasBox.y });
   }

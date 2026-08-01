@@ -549,6 +549,13 @@ export async function emptyPoint2d(page) {
       if (box) taken.push({ ...box, x: box.x - canvas.x, y: box.y - canvas.y });
     }
   }
+  /* The MapToolbar (M10) overlays the canvas from outside it — a sibling in the
+   * stage, not a Leaflet control — so it is collected page-level and shifted
+   * into canvas coordinates like the rest. */
+  for (const el of await page.locator('.map-toolbar').all()) {
+    const box = await el.boundingBox();
+    if (box) taken.push({ ...box, x: box.x - canvas.x, y: box.y - canvas.y });
+  }
   const gap = (/** @type {typeof taken[0]} */ r, /** @type {number} */ x, /** @type {number} */ y) =>
     Math.hypot(Math.max(r.x - x, 0, x - (r.x + r.width)), Math.max(r.y - y, 0, y - (r.y + r.height)));
 

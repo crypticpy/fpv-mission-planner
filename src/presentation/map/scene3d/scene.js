@@ -116,7 +116,12 @@ export function createScene(opts) {
   });
   map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
   map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-left');
-  map.addControl(sceneControls(), 'top-right');
+  /* Top-left, stacked under the navigation control: top-right belongs to the
+   * MapToolbar (M10), which rides over both engines from outside this
+   * container, and the bottom edge belongs to the attribution — expanded, its
+   * credit strip grows leftward across the whole corner and would sit on top
+   * of anything placed there. */
+  map.addControl(sceneControls(), 'top-left');
 
   const overlay = new MapboxOverlay({ interleaved: true, layers: [] });
 

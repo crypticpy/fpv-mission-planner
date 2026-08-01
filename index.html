@@ -21,11 +21,12 @@
 </head>
 <body data-dest="plan">
 
-<!-- The fpv-symbols sprite (design evolution M9). The first ten symbols are the
-     round-2 developer asset verbatim (design-concepts/round-2/final/developer-assets/
-     fpv-symbols.svg) with ids prefixed sym-; the last seven are the M9 UI
-     additions in the same language — 24×24, stroke 2, currentColor. Inlined so
-     <use> works offline and under file:// with no fetch. -->
+<!-- The fpv-symbols sprite (design evolution M9/M10). The first ten symbols are
+     the round-2 developer asset verbatim (design-concepts/round-2/final/developer-assets/
+     fpv-symbols.svg) with ids prefixed sym-; the rest are the M9 UI additions
+     and the M10 MapToolbar glyphs in the same language — 24×24, stroke 2,
+     currentColor. Inlined so <use> works offline and under file:// with no
+     fetch. -->
 <svg class="symbol-sprite" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
   <defs>
     <symbol id="sym-launch" viewBox="0 0 24 24">
@@ -96,6 +97,26 @@
     <symbol id="sym-box-plus" viewBox="0 0 24 24">
       <rect x="3" y="3" width="18" height="18" rx="2" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="4 3"/>
       <path d="M12 8v8M8 12h8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+    </symbol>
+    <!-- M10 MapToolbar glyphs, same language. -->
+    <symbol id="sym-locate" viewBox="0 0 24 24">
+      <path d="M21 3 10.5 21l-1.6-7.9L1 11.5 21 3Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="sym-fit" viewBox="0 0 24 24">
+      <path d="M3 8V4a1 1 0 0 1 1-1h4M16 3h4a1 1 0 0 1 1 1v4M21 16v4a1 1 0 0 1-1 1h-4M8 21H4a1 1 0 0 1-1-1v-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+      <circle cx="12" cy="12" r="2.5" fill="currentColor"/>
+    </symbol>
+    <symbol id="sym-layers" viewBox="0 0 24 24">
+      <path d="M12 3 2 8.5l10 5.5 10-5.5L12 3Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+      <path d="m2 14.5 10 5.5 10-5.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="sym-cloud-down" viewBox="0 0 24 24">
+      <path d="M6.1 6.5A6 6 0 0 1 17.7 8a4 4 0 0 1-.2 7.5H6.5a4.5 4.5 0 0 1-.4-9Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+      <path d="M12 15.5V21M9.2 18.5l2.8 2.8 2.8-2.8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="sym-trash" viewBox="0 0 24 24">
+      <path d="M4 7h16M9.5 7V4h5v3M6 7l1 14h10l1-14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M10 11v6M14 11v6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
     </symbol>
   </defs>
 </svg>
@@ -399,46 +420,110 @@
     <section class="card map-card">
       <div class="card-head">
         <h3>Mission footprint</h3>
-        <div class="map-actions">
-          <button id="btn-locate" class="map-btn" type="button">My location</button>
-          <button id="btn-fit" class="map-btn" type="button">Fit view</button>
-          <button id="btn-live-wx" class="map-btn" type="button">Live weather here</button>
+      </div>
+      <p class="card-sub">Out-and-back turnaround envelope from the launch point — click or drag the map to move it.
+        Filled: planned cruise · dashed: theoretical best range. A dogleg route can beat this ring; fly with margin.</p>
+      <p id="map-note" class="empty-note" hidden></p>
+      <!-- The stage (M10): one positioned box the two engines fill and the map
+           chrome rides over. The toolbar and the inspector overlay the
+           canvases instead of sitting beside them, so opening either never
+           resizes an engine — the 3D scene in particular keeps its pixel
+           geometry when a leg is inspected. -->
+      <div class="map-stage">
+        <div id="map-canvas" class="map-canvas"></div>
+        <!-- The 3D engine draws here, into a container of its own: MapLibre owns
+             its element outright, and sharing one with Leaflet would mean two
+             engines fighting over the same children. Empty and hidden until the
+             chunk arrives; 2D is what a pilot who never presses the button pays
+             for. -->
+        <div id="map-3d" class="map-canvas" hidden></div>
+        <!-- MapToolbar (M10): the map tools as an icon rail over the top-right
+             of whichever engine is drawing. The aria-labels are static — what
+             the tool is; what pressing it will do right now rides on the title
+             and aria-pressed, written by map-view.js. 2D/3D is a workspace tab
+             (#tab-3d), not a toolbar tool: one engine switch, one home. -->
+        <div class="map-toolbar" role="group" aria-label="Map tools">
+          <button id="btn-locate" class="tool-btn" type="button" aria-label="My location" title="My location">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#sym-locate"/></svg>
+          </button>
+          <button id="btn-fit" class="tool-btn" type="button" aria-label="Fit view" title="Fit view">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#sym-fit"/></svg>
+          </button>
+          <!-- Replaces Leaflet's own layers control, which lived in the corner
+               this rail now owns. 2D only — the 3D scene draws its own ground,
+               so map-view.js disables it there. -->
+          <button id="btn-baselayer" class="tool-btn" type="button" aria-label="Base layer" title="Base layer">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#sym-layers"/></svg>
+          </button>
+          <button id="btn-live-wx" class="tool-btn" type="button" aria-label="Live weather here" title="Live weather here">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#sym-cloud-down"/></svg>
+          </button>
           <!-- Route mode (Phase 4 item 7): clicks drop waypoints instead of
                moving the launch pin. Expert-only — beginner mode keeps the one
                question the ring answers. -->
-          <button id="btn-route" class="map-btn full-only" type="button" aria-pressed="false"
-                  aria-controls="route-card">Route</button>
-          <button id="btn-route-clear" class="map-btn full-only" type="button" hidden>Clear route</button>
+          <button id="btn-route" class="tool-btn full-only" type="button" aria-pressed="false"
+                  aria-controls="route-card" aria-label="Route mode" title="Route mode">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#sym-waypoint"/></svg>
+          </button>
+          <button id="btn-route-clear" class="tool-btn full-only" type="button"
+                  aria-label="Clear route" title="Clear route" hidden>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#sym-trash"/></svg>
+          </button>
           <!-- Subject mode (M7, ADR 0011 §5): clicks drop a thing to film rather
                than a waypoint. Its own latch beside route mode rather than a
                third meaning stacked on the same click — the two are exclusive
                and the button that is lit says which one a click is. Expert-only
                for the same reason route mode is: a subject is a shot, and the
                beginner rail is not asking about shots. -->
-          <button id="btn-subject" class="map-btn full-only" type="button" aria-pressed="false"
-                  aria-controls="segment-card">Subject</button>
+          <button id="btn-subject" class="tool-btn full-only" type="button" aria-pressed="false"
+                  aria-controls="segment-card" aria-label="Subject mode" title="Subject mode">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#sym-subject"/></svg>
+          </button>
           <!-- The mountain-flow zones (M5). Deliberately not full-only and
                deliberately on by default: the colours are a hazard advisory, and
                one a pilot has to discover a button for is one they will fly
                without. Pressing it hides the cells and the key together. -->
-          <button id="btn-advisory" class="map-btn" type="button" aria-pressed="true"
-                  aria-controls="advisory-legend">Wind zones · on</button>
-          <!-- The 3D scene (ADR 0004) is a workspace tab now (#tab-3d), not a
-               map button: same shared panel, same tools, different engine. Its
-               chunk still loads lazily on first entry. The mission brief moved
-               to Review, where printing the plan belongs. -->
+          <button id="btn-advisory" class="tool-btn" type="button" aria-pressed="true"
+                  aria-controls="advisory-legend" aria-label="Wind zones" title="Wind zones · on">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#sym-wind"/></svg>
+          </button>
         </div>
+        <!-- ContextInspector (M10): one leg of the route, when the pilot clicks
+             it on the map (M4 wave C). The route card below is the whole flight
+             adding up; this is the answer to "what about that leg" — its
+             distance and energy, the climb M3b charged it, the altitude it was
+             authored at against the metres MSL everything was actually derived
+             from, the ground under it, and every finding anchored to it.
+             Nothing here is computed; it is the analysis, read out against the
+             segment id the click came back with. Up only while a leg is
+             selected, and the selection is view state — nothing about it is
+             saved. It overlays the stage — a panel on desktop, a bottom sheet
+             on phones — so the map and the selection stay on screen under it. -->
+        <section class="card full-only context-inspector" id="segment-card" hidden>
+          <div class="card-head">
+            <h3 id="segment-title">Segment</h3>
+            <button id="btn-segment-close" class="map-btn" type="button">Close</button>
+          </div>
+          <p id="segment-sub" class="card-sub"></p>
+          <dl id="segment-facts" class="segment-facts"></dl>
+          <!-- The editing half (M7, ADR 0011 §5) — the first surface in the app
+               that changes anything below the launch point. Folded away by
+               default because the panel's first job is still to answer "what
+               about that leg"; every control inside commits on change and
+               raises one reducer command, and the line under it carries the
+               reducer's own words when one is refused. The controls themselves
+               are built by src/presentation/map/segment-editor.js: which of
+               them exist depends on the segment's intent, so there is nothing
+               static to write here. -->
+          <details id="segment-editor-fold" class="custom-batt" hidden>
+            <summary>Edit this shot</summary>
+            <dl id="segment-editor" class="segment-facts"></dl>
+          </details>
+          <p id="segment-status" class="route-note" role="status" hidden></p>
+          <div id="segment-warnings" class="warnings" hidden></div>
+          <p id="segment-id" class="segment-id"></p>
+        </section>
       </div>
-      <p class="card-sub">Out-and-back turnaround envelope from the launch point — click or drag the map to move it.
-        Filled: planned cruise · dashed: theoretical best range. A dogleg route can beat this ring; fly with margin.</p>
-      <p id="map-note" class="empty-note" hidden></p>
-      <div id="map-canvas" class="map-canvas"></div>
-      <!-- The 3D engine draws here, into a container of its own: MapLibre owns
-           its element outright, and sharing one with Leaflet would mean two
-           engines fighting over the same children. Empty and hidden until the
-           chunk arrives; 2D is what a pilot who never presses the button pays
-           for. -->
-      <div id="map-3d" class="map-canvas" hidden></div>
       <!-- The key to the zones above. Filled by the render pass and up only
            while the layer is drawing something; the trailing line about unshaded
            ground is not decoration — it is what stops empty space inside the
@@ -473,37 +558,6 @@
       <p id="route-caveat" class="footnote"></p>
     </section>
 
-    <!-- One leg of that route, when the pilot clicks it on the map (M4 wave C).
-         The card above is the whole flight adding up; this is the answer to
-         "what about that leg" — its distance and energy, the climb M3b charged
-         it, the altitude it was authored at against the metres MSL everything
-         was actually derived from, the ground under it, and every finding
-         anchored to it. Nothing here is computed; it is the analysis, read out
-         against the segment id the click came back with. Up only while a leg is
-         selected, and the selection is view state — nothing about it is saved. -->
-    <section class="card full-only" id="segment-card" hidden>
-      <div class="card-head">
-        <h3 id="segment-title">Segment</h3>
-        <button id="btn-segment-close" class="map-btn" type="button">Close</button>
-      </div>
-      <p id="segment-sub" class="card-sub"></p>
-      <dl id="segment-facts" class="segment-facts"></dl>
-      <!-- The editing half (M7, ADR 0011 §5) — the first surface in the app that
-           changes anything below the launch point. Folded away by default
-           because the panel's first job is still to answer "what about that
-           leg"; every control inside commits on change and raises one reducer
-           command, and the line under it carries the reducer's own words when
-           one is refused. The controls themselves are built by
-           src/presentation/map/segment-editor.js: which of them exist depends on
-           the segment's intent, so there is nothing static to write here. -->
-      <details id="segment-editor-fold" class="custom-batt" hidden>
-        <summary>Edit this shot</summary>
-        <dl id="segment-editor" class="segment-facts"></dl>
-      </details>
-      <p id="segment-status" class="route-note" role="status" hidden></p>
-      <div id="segment-warnings" class="warnings" hidden></div>
-      <p id="segment-id" class="segment-id"></p>
-    </section>
   </main>
 
   <!-- Review (M10): the pre-flight read-back. The summary is the same
