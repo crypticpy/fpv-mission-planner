@@ -177,6 +177,14 @@ export const MAP_EVENTS = Object.freeze(
  *   frame state rather than layer state so both engines route a click the same way
  * @property {string|null} selectedSegmentId  which leg the inspector is open on;
  *   view state, never mission state — nothing about it is persisted or commanded
+ * @property {DiveProjection|null} dive   the authored dive plan, or null when the
+ *   mission carries none. Beside `subjects` and for the same reason: gates are
+ *   authored geometry no pass republishes, so a marker has to come from the
+ *   document's own projection
+ * @property {string|null} selectedDiveKind  which dive leg the inspector is open
+ *   on, named by the leg's *end* gate kind ('approach'|'dive'|'recovery'); view
+ *   state exactly like `selectedSegmentId`, and a separate field because a route
+ *   leg and a dive leg can both exist while only one inspector seat is on screen
  * @property {boolean} advisoryVisible  whether the mountain-flow zones are drawn.
  *   Beside `routeMode` and for the same reason: it is a view preference both
  *   engines have to agree about, and a toggle that reached only one of them
@@ -201,6 +209,12 @@ export const MAP_EVENTS = Object.freeze(
  *   un-pointed in the same reduction; the map does not have to tidy up after it
  * @property {(spot: SavedSpot) => void} selectSpot
  * @property {(segmentId: string|null) => void} selectSegment  null clears
+ * @property {(kind: string|null) => void} selectDiveGate  open the dive-leg
+ *   inspector on the leg this gate ends ('approach'|'dive'|'recovery'); null
+ *   clears. Same view-state-only rule as `selectSegment`
+ * @property {(kind: string, at: LatLng) => void} moveDiveGate  drag a gate to a
+ *   new place. The kind *is* the gate's identity in the reducer, so a moved gate
+ *   keeps its id without this layer ever handling one
  */
 
 /**
@@ -238,6 +252,32 @@ export const MAP_EVENTS = Object.freeze(
  * @property {number} lng
  * @property {number|null} elevationMslM
  * @property {number|null} radiusM
+ */
+
+/**
+ * One authored dive gate, in map coordinates. Unlike a subject's optional
+ * elevation, `altitudeMslM` is required — the schema's own rule: a gate that
+ * does not say how high it is is not a gate, it is a pin.
+ * @typedef {object} DiveGateView
+ * @property {string} id
+ * @property {string} kind          'approach' | 'dive' | 'recovery' | 'abort'
+ * @property {number} lat
+ * @property {number} lng
+ * @property {number} altitudeMslM
+ * @property {number|null} radiusM  corridor half-width at this gate, if authored
+ */
+
+/**
+ * The dive plan as the editor port projects it. `speedMs` and `pulloutLoadG`
+ * are carried rather than defaulted: the pullout-clearance chip renders only
+ * from authored numbers, so the projection must be able to say "not authored"
+ * (ADR 0008 — no invented figures).
+ * @typedef {object} DiveProjection
+ * @property {DiveGateView[]} gates  in flight order (approach, dive, recovery, abort)
+ * @property {{ name: string, lat: number, lng: number, elevationMslM: number|null }|null} bailout
+ * @property {number|null} rthAltitudeMslM
+ * @property {number|null} speedMs
+ * @property {number|null} pulloutLoadG
  */
 
 /**

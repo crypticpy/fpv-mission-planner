@@ -250,6 +250,12 @@ export function createScene(opts) {
         frame.actions.selectSegment(hit.id);
         return;
       }
+      if (hit?.kind === 'dive' && hit.id) {
+        // Same view-state-only rule, and the gate and its corridor open alike.
+        frame.gestures.markerClicked();
+        frame.actions.selectDiveGate(hit.id);
+        return;
+      }
 
       /* (3) `info.coordinate` would be a z=0 ground-plane unprojection — the
        * point the ray crosses sea level, not the point on the hill under the
@@ -264,8 +270,12 @@ export function createScene(opts) {
     canvas.addEventListener('pointerdown', (ev) => {
       if (ev.button !== 0 || !current) return;
       const hit = pick(...localPoint(ev));
-      // A leg is selectable, not draggable: only the two pins move anything.
-      if (!hit || hit.kind === 'leg') return;
+      /* A leg is selectable, not draggable: only the two pins move anything. A
+         dive gate is dragged on the flat map, where a drag means one thing — up
+         here a drag across a pitched terrain view would have to guess whether the
+         pilot meant to move the gate or change its altitude, and guessing about
+         a gate's height is the one thing this plan cannot afford. */
+      if (!hit || hit.kind === 'leg' || hit.kind === 'dive') return;
       drag = {
         kind: hit.kind, id: hit.id, from: localPoint(ev), moved: false, lngLat: [0, 0],
       };
@@ -336,15 +346,21 @@ export function createScene(opts) {
    * a line nobody authored — there is nothing to open, so it reads as terrain
    * and the click falls through to where it always went.
    * @param {number} x @param {number} y
-   * @returns {{ kind: 'launch'|'waypoint'|'leg', id: string|null }|null}
+   * @returns {{ kind: 'launch'|'waypoint'|'leg'|'dive', id: string|null }|null}
    */
   function pick(x, y) {
     const info = overlay.pickObject({ x, y, radius: PICK_RADIUS });
-    const object = /** @type {{ kind?: string, id?: string, segmentId?: string|null }|null} */
+    const object = /** @type {{ kind?: string, id?: string, segmentId?: string|null,
+     *   diveKind?: string }|null} */
       (info?.object ?? null);
     if (object?.kind === 'launch') return { kind: 'launch', id: null };
     if (object?.kind === 'waypoint' && object.id) return { kind: 'waypoint', id: object.id };
     if (object?.kind === 'leg' && object.segmentId) return { kind: 'leg', id: object.segmentId };
+    /* A dive gate is named by its kind — the same name the reducer identifies it
+       by — and a corridor answers to the gate it ends at, which is the leg it is. */
+    if ((object?.kind === 'dive-gate' || object?.kind === 'dive-leg') && object.diveKind) {
+      return { kind: 'dive', id: object.diveKind };
+    }
     return null;
   }
 

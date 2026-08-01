@@ -237,6 +237,41 @@ function sceneProjection() {
     })),
     cameraProfile: scene?.cameraProfile ?? null,
     templates: (scene?.templates ?? []).map((t) => ({ ...t })),
+    dive: projectDive(scene?.dive),
+  };
+}
+
+/**
+ * The dive plan in the map's coordinate vocabulary, or null when the mission
+ * carries none. Gates are authored geometry the same way subjects are — no
+ * pass computes where a recovery gate stands — and the two profile numbers ride
+ * along carried, not defaulted, because the pullout-clearance chip may only
+ * speak from authored state (ADR 0008).
+ * @param {*} dive
+ * @returns {import('./presentation/map/map-adapter.js').DiveProjection|null}
+ */
+function projectDive(dive) {
+  if (!dive) return null;
+  return {
+    gates: (dive.gates ?? []).map((g) => ({
+      id: g.id,
+      kind: g.kind,
+      lat: g.latitude,
+      lng: g.longitude,
+      altitudeMslM: g.altitudeMslM,
+      radiusM: g.radiusM ?? null,
+    })),
+    bailout: dive.bailout
+      ? {
+        name: dive.bailout.name,
+        lat: dive.bailout.latitude,
+        lng: dive.bailout.longitude,
+        elevationMslM: dive.bailout.elevationMslM ?? null,
+      }
+      : null,
+    rthAltitudeMslM: dive.rthAltitudeMslM ?? null,
+    speedMs: dive.speedMs ?? null,
+    pulloutLoadG: dive.pulloutLoadG ?? null,
   };
 }
 

@@ -464,6 +464,14 @@
              chunk arrives; 2D is what a pilot who never presses the button pays
              for. -->
         <div id="map-3d" class="map-canvas" hidden></div>
+        <!-- Everything the stage wears over the engine that is anchored to an
+             edge, in one column (M16): the tool rail at the top, the bottom
+             stack at the bottom. They share a fixed height, so the rail wraps
+             into more columns when the stack below it grows — which is what a
+             phone's four-row viewbar does. Nothing here promises how tall
+             anything else is. The cards keep their own absolute seats: they are
+             sized against the stage, not against this. -->
+        <div class="stage-chrome">
         <!-- MapToolbar (M10): the map tools as an icon rail over the top-right
              of whichever engine is drawing. The aria-labels are static — what
              the tool is; what pressing it will do right now rides on the title
@@ -515,6 +523,21 @@
             <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#sym-wind"/></svg>
           </button>
         </div>
+        <!-- The stage's bottom furniture, stacked in one column (M16). Each of
+             these was bottom-anchored at its own offset, which held only as long
+             as the viewbar stayed one row: on a phone it wraps to four, and the
+             profile strip's fixed offset landed on top of it. A column has no
+             offset to get wrong — the viewbar keeps the bottom, and whatever is
+             up above it sits above it, at any wrap count and any width. The
+             wrapper takes no clicks; its children take their own. -->
+        <div class="stage-bottom">
+        <!-- 3D-06 (M16): the dive profile strip, built by dive-profile-strip.js.
+             Written before the viewbar because the column runs bottom-up. -->
+        <div id="dive-strip" class="dive-strip" hidden></div>
+        <!-- The template row (3D-05): first sketches, one tap each. It stands
+             down once a dive plan exists — by then the sketch has been made and
+             the strip above is what the pilot needs. -->
+        <div id="route-templates" class="route-templates" hidden></div>
         <!-- SceneViewbar (M12): the 3D camera's own chrome, bottom-left over the
              stage per the round-2 mockup (12-orthographic-3d-terrain-planner).
              Projection and azimuth are honest state — 'Persp' is never labelled
@@ -554,6 +577,8 @@
             <button id="vb-host" class="viewbar-seg" type="button"
                     title="Switch to satellite 3D">Satellite</button>
           </div>
+        </div>
+        </div>
         </div>
         <!-- The 3D system states (M12): no WebGL2, engine chunk offline, terrain
              tiles missing, GPU context lost, first-load progress — one card over
@@ -599,11 +624,14 @@
         <!-- 3D-05 (M16): the mountain-conditions card, up in 3D while no leg is
              selected — it shares the inspector's seat, and an open selection
              wins it. Built entirely by conditions-card.js from numbers other
-             passes own; nothing static to write here. The template row below it
-             seeds a first sketch of a route through the same reducer commands a
-             hand edit raises. -->
+             passes own; nothing static to write here. Its template row is down in
+             the bottom stack, seeding a first sketch of a route through the same
+             reducer commands a hand edit raises. -->
         <section class="card full-only conditions-card" id="conditions-card" hidden></section>
-        <div id="route-templates" class="route-templates" hidden></div>
+        <!-- 3D-06 (M16): the dive leg's own inspector, taking the same top-right
+             seat when a gate or corridor is clicked. Built by dive-inspector.js
+             — nothing static belongs here. -->
+        <section class="card full-only dive-card" id="dive-card" hidden></section>
       </div>
       <!-- The key to the zones above. Filled by the render pass and up only
            while the layer is drawing something; the trailing line about unshaded

@@ -569,6 +569,16 @@ test('a valid scene.dive validates clean, and its absence reads as no plan', () 
   assert.deepEqual(validateMission(doc).errors, []);
 });
 
+test('the dive profile numbers are optional-nullable, and take real figures', () => {
+  const doc = routedMission();
+  doc.scene.dive = VALID_DIVE(); // VALID_DIVE carries neither key
+  assert.deepEqual(validateMission(doc).errors, []);
+  doc.scene.dive = { ...VALID_DIVE(), speedMs: null, pulloutLoadG: null };
+  assert.deepEqual(validateMission(doc).errors, []);
+  doc.scene.dive = { ...VALID_DIVE(), speedMs: 15.5, pulloutLoadG: 2.5 };
+  assert.deepEqual(validateMission(doc).errors, []);
+});
+
 /** @type {[string, (d: ReturnType<typeof VALID_DIVE>) => unknown, string][]} */
 const BAD_DIVES = [
   ['a dive block that is not an object', () => 'steep', 'E-DIVE-TYPE'],
@@ -588,6 +598,10 @@ const BAD_DIVES = [
   ['a bailout off the map', (d) => { d.bailout.longitude = -190; return d; }, 'E-GEO-RANGE'],
   ['a bailout with a text elevation', (d) => { d.bailout.elevationMslM = 'low'; return d; }, 'E-DIVE-BAILOUT-ELEV'],
   ['a text RTH altitude', (d) => ({ ...d, rthAltitudeMslM: '12400 ft' }), 'E-DIVE-RTH'],
+  ['a standstill dive speed', (d) => ({ ...d, speedMs: 0 }), 'E-DIVE-SPEED'],
+  ['a text dive speed', (d) => ({ ...d, speedMs: '35 mph' }), 'E-DIVE-SPEED'],
+  ['a pullout load of exactly 1 g', (d) => ({ ...d, pulloutLoadG: 1 }), 'E-DIVE-LOAD'],
+  ['a text pullout load', (d) => ({ ...d, pulloutLoadG: '3 g' }), 'E-DIVE-LOAD'],
 ];
 
 for (const [what, mutate, code] of BAD_DIVES) {

@@ -151,6 +151,14 @@
     // the map contract and domain/geo.js, both above. Its 3D siblings stay out
     // on deck.gl's account, like the rest of scene3d/.
     "src/presentation/map/layers/subject-layer.js",
+    // M16 wave C's dive layer, on the same terms: the map contract and nothing
+    // else. Its 3D sibling imports the leg-colour table *from* here rather than
+    // the other way round, so the ratchet entry stays clear of deck.gl.
+    "src/presentation/map/layers/dive-layer.js",
+    // …and the profile model over it, which reaches only that file and
+    // domain/geo.js. It is pure for the reason the ratchet exists: the ground
+    // holes and the dropped-pad case are arithmetic, and arithmetic gets checked.
+    "src/presentation/map/dive-profile.js",
     // src/state.js is fully typed too (M3), but an include entry pulls its whole
     // import graph into the program, and that graph still isn't clean: it reaches
     // src/data.js, src/registry.js, src/flightlog.js, src/packinstances.js,

@@ -44,7 +44,8 @@ import { CAMERAS } from '../../catalog/cameras.js';
  * @typedef {import('../../application/analysis/analysis-contracts.js').SegmentAnalysis} SegmentAnalysis
  * @typedef {import('../../domain/mission/mission-schema.js').SegmentCamera} SegmentCamera
  * @typedef {{ id: string, name: string }} Named
- * @typedef {{ subjects: Named[], cameraProfile: { name: string }|null, templates: Named[] }} SceneProjection
+ * @typedef {import('./map-adapter.js').DiveProjection} DiveProjection
+ * @typedef {{ subjects: Named[], cameraProfile: { name: string }|null, templates: Named[], dive: DiveProjection|null }} SceneProjection
  * @typedef {{ ok: boolean, message: string|null }} EditResult
  * @typedef {(command: { type: string, payload: object }) => EditResult} Raise
  */

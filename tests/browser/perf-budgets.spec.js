@@ -167,7 +167,19 @@ test.describe('performance budgets', () => {
    * have to reload, not re-import). Verified at this re-base that the split
    * graph is intact (scene3d, brief, import-router, compile,
    * adapter-contracts all still separate chunks). */
-  const ENTRY_BUDGET_KB = 195;
+  /* Re-based 195 → 203 at M16 wave C: the mountain dive flow's authoring
+   * surface — the gate layer, the elevation strip, the leg inspector and the
+   * profile geometry behind them, 199.3 on landing. The gate layer earns the
+   * shell outright: gates are mission geometry and draw on the flat map, so a
+   * pilot who never opens 3D still sees the plan they authored. The claw-back
+   * here is the other three: nothing renders them until a dive plan exists, so
+   * dive-inspector.js, dive-profile-strip.js and dive-profile.js could load
+   * behind the first template tap, with the tap awaiting the import (mind the
+   * Chromium failed-import cache: the retry would have to reload, not
+   * re-import). Verified at this re-base that the split graph is intact
+   * (scene3d ×3, brief, import-router, compile, adapter-contracts all still
+   * separate chunks). */
+  const ENTRY_BUDGET_KB = 203;
   const SCENE3D_BUDGET_KB = 500;
 
   test('the built bundles are inside their gzip budgets', async () => {

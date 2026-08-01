@@ -903,6 +903,18 @@ tr.row-invalid td:nth-child(12) { color: var(--status-critical); font-weight: 60
   position: relative;
   isolation: isolate;
   height: clamp(340px, 58vh, 620px);
+  /* The stage's right-hand seat, which one card holds at a time — the host shows
+     the context inspector, the standing briefing or the dive leg, never two.
+     The widths live here because the toolbar has to step aside by exactly as
+     much as the card took, and two literals a few hundred lines apart is how a
+     card ends up parked on top of the buttons it displaced. */
+  --seat-inspector: min(340px, 38%);
+  --seat-conditions: min(320px, 42%);
+  --seat-dive: min(360px, 46%);
+  /* And the height the dive profile strip claims along the bottom, for the same
+     reason: everything else on the stage that can grow downwards has to stop
+     short of it, and the one number is what keeps them agreeing on where. */
+  --strip-clear: 195px;
 }
 .map-canvas {
   height: 100%;
@@ -916,20 +928,53 @@ tr.row-invalid td:nth-child(12) { color: var(--status-critical); font-weight: 60
 }
 .map-card { padding-bottom: var(--sp-3); }
 
-/* MapToolbar (M10): an icon rail over the top-right of whichever engine is
-   drawing. Column-wrap so a short landscape stage grows a second column
-   leftward instead of running off the bottom edge. */
-.map-toolbar {
+/* Everything the stage wears over the engine that is anchored to an edge (M16):
+   the tool rail at the top, the bottom stack at the bottom, in one column of the
+   stage's own height. Each of these used to be absolutely positioned at its own
+   hand-picked offset, and every offset is a promise about how tall its
+   neighbours are — a promise the viewbar breaks the moment it wraps, which on a
+   phone it does, to four rows, straight through the profile strip. Sharing one
+   bounded column makes the constraint structural: the rail wraps into more
+   columns when the stack below it grows, and neither has to know a number.
+
+   Takes no pointer events of its own — it spans the whole stage, and the map
+   underneath has to stay draggable in the gaps. Each child takes its own back. */
+.stage-chrome {
   position: absolute;
-  top: 10px;
-  right: 10px;
+  inset: 10px;
   z-index: 1001; /* over Leaflet's control panes (1000), inside the isolated stage */
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+.stage-chrome > * { pointer-events: auto; }
+/* Whatever is at the top stays at the top; the stack goes to the floor whether
+   or not anything is above it. */
+.stage-bottom {
+  margin-top: auto;
+  /* The rail is the one that yields when the column runs short — it can wrap
+     into another column, and the stack has nowhere to put a row it drops. */
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+.stage-bottom > * { pointer-events: auto; }
+
+/* MapToolbar (M10): an icon rail over the top-right of whichever engine is
+   drawing. Column-wrap so a short stage — or a tall bottom stack — grows a
+   second column leftward instead of running off the bottom edge. */
+.map-toolbar {
   display: flex;
   flex-direction: column;
   flex-wrap: wrap;
   align-content: flex-end;
+  align-self: flex-end;
   gap: 6px;
-  max-height: calc(100% - 20px);
+  min-height: 0;
 }
 .tool-btn {
   position: relative;
@@ -973,7 +1018,7 @@ tr.row-invalid td:nth-child(12) { color: var(--status-critical); font-weight: 60
   position: absolute;
   top: 10px;
   right: 10px;
-  width: min(340px, 38%);
+  width: var(--seat-inspector);
   max-height: calc(100% - 44px);
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -982,12 +1027,20 @@ tr.row-invalid td:nth-child(12) { color: var(--status-critical); font-weight: 60
   box-shadow: 0 8px 24px var(--shadow);
 }
 @media (min-width: 901px) {
-  .map-toolbar { transition: right 0.2s ease; }
-  /* The toolbar steps aside while the inspector is up, rather than being
-     covered by it. Desktop/tablet-landscape only — the phone sheet below
-     doesn't occupy this corner. */
+  .map-toolbar { transition: margin-right 0.2s ease; }
+  /* The toolbar steps aside for whichever card holds the seat, rather than being
+     covered by it. A margin rather than an offset now that the rail is a flex
+     child — same distance, and it still leaves the seat width the one place the
+     two of them read it from. Desktop/tablet-landscape only: the phone sheets
+     below don't occupy this corner. */
   .map-stage:has(.context-inspector:not([hidden])) .map-toolbar {
-    right: calc(min(340px, 38%) + 18px);
+    margin-right: calc(var(--seat-inspector) + 8px);
+  }
+  .map-stage:has(.conditions-card:not([hidden])) .map-toolbar {
+    margin-right: calc(var(--seat-conditions) + 8px);
+  }
+  .map-stage:has(.dive-card:not([hidden])) .map-toolbar {
+    margin-right: calc(var(--seat-dive) + 8px);
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -1002,7 +1055,7 @@ tr.row-invalid td:nth-child(12) { color: var(--status-critical); font-weight: 60
   position: absolute;
   top: 10px;
   right: 10px;
-  width: min(300px, 34%);
+  width: var(--seat-conditions);
   max-height: calc(100% - 44px);
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -1039,14 +1092,9 @@ tr.row-invalid td:nth-child(12) { color: var(--status-critical); font-weight: 60
    centre, lifted clear of the viewbar's row — the viewbar owns bottom-left,
    attribution bottom-right, and a wrapped chip must not shadow either. */
 .route-templates {
-  position: absolute;
-  bottom: 52px;
-  left: 50%;
-  transform: translateX(-50%);
   display: flex;
   gap: 6px;
-  z-index: 1001;
-  max-width: calc(100% - 20px);
+  max-width: 100%;
   flex-wrap: wrap;
   justify-content: center;
 }
@@ -1062,20 +1110,178 @@ tr.row-invalid td:nth-child(12) { color: var(--status-critical); font-weight: 60
   cursor: not-allowed;
 }
 
+/* The dive leg's inspector (M16, 3D-06). Same seat and same geometry as the
+   context inspector — the host shows one of the three at a time — sitting at
+   1002 with it rather than at the conditions card's 1001, because this one is
+   opened by a click on a specific gate and outranks a standing briefing. */
+.dive-card {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: var(--seat-dive);
+  max-height: calc(100% - 44px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  z-index: 1002;
+  margin: 0;
+  box-shadow: 0 8px 24px var(--shadow);
+}
+/* Whichever card holds the right-hand seat shares the stage with the strip, and
+   the card is the one that can grow: it stops above the strip whenever the strip
+   is up, rather than running down behind the gate buttons — which cuts its last
+   sentence off mid-word, with no scrollbar to say a sentence was cut. All three
+   seat-mates get it: a dive plan stays drawn while a route leg is selected, so
+   the context inspector meets the strip too.
+
+   Behind the desktop breakpoint on purpose: below it these cards are fixed
+   bottom sheets with a 52dvh cap of their own, and an id in this selector would
+   quietly outweigh it — a media query adds no specificity. */
+@media (min-width: 901px) {
+  .map-stage:has(#dive-strip:not([hidden])) .dive-card,
+  .map-stage:has(#dive-strip:not([hidden])) .conditions-card,
+  .map-stage:has(#dive-strip:not([hidden])) .context-inspector {
+    max-height: calc(100% - var(--strip-clear));
+  }
+}
+.dive-facts input.card-select { width: 100%; }
+.dive-frame-toggle[aria-pressed="true"] { color: var(--ink); border-color: var(--accent); }
+.dive-apply { margin-top: var(--sp-2); width: 100%; }
+/* The pullout verdict. `unknown` is a real state here and wears the muted rule
+   rather than a colour: an absent speed is not a mild warning about the arc,
+   it is the absence of an arc to warn about. */
+.dive-pullout {
+  margin: var(--sp-2) 0 0;
+  padding: 6px 9px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  border-left: 3px solid var(--border);
+  background: var(--surface-2);
+  border-radius: 0 6px 6px 0;
+  color: var(--ink-2);
+}
+.dive-pullout[data-tone="good"] { border-left-color: var(--status-good); }
+.dive-pullout[data-tone="warning"] { border-left-color: var(--status-warning); }
+.dive-pullout[data-tone="serious"] { border-left-color: var(--status-critical); color: var(--ink); }
+
+/* The profile strip (M16, 3D-06). It takes the template row's place along the
+   bottom of the stage — by the time a dive plan exists the first sketch has
+   been made — and is wider than that row was, because a squeezed elevation
+   plot is a plot nobody can read a clearance off. */
+.dive-strip {
+  width: min(620px, 100%);
+  /* Wide side padding, because the gates at both ends of the run sit *on* the
+     plot's edges and each button is drawn from its own centre — the padding is
+     the room their outer halves need to stay inside the card. */
+  padding: 6px 20px 4px;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 2px 10px var(--shadow);
+}
+.dive-strip-canvas { position: relative; height: 92px; }
+.dive-strip-plot { display: block; width: 100%; height: 100%; }
+/* The ground reads as mass, not as a line: it is the thing the dive has to
+   clear, and the gaps between its runs are the stations nobody sampled. */
+.dive-strip-ground { fill: var(--grid); stroke: var(--baseline); stroke-width: 1; }
+.dive-strip-leg { stroke-width: 2.5; stroke-linecap: round; opacity: 0.85; }
+.dive-strip-leg.is-selected { stroke-width: 4; opacity: 1; }
+/* Gates are buttons over the plot, positioned by the same scale that drew it.
+   Translated back by half so the number sits on its point rather than beside
+   it, and sized for a thumb — this is the phone's way into the inspector. */
+.dive-strip-gate {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid var(--marker-border);
+  background: var(--gate-color, var(--series-1));
+  color: var(--on-accent);
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 1px 4px var(--shadow);
+}
+.dive-strip-gate[aria-pressed="true"] {
+  box-shadow: 0 0 0 3px var(--gate-color, var(--series-1)), 0 1px 5px var(--shadow);
+}
+.dive-strip-caption {
+  margin: 2px 0 0;
+  font-size: 10.5px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
+/* Dive gates (M16, 3D-06): the authored break-off points, numbered in flight
+   order and wearing the colour of the corridor that arrives at them. The number
+   is the order, not the name — the pilot reads the plan as 1-2-3-4 and the
+   inspector says which leg that is. The colour arrives per-pin as --gate-color
+   from the leg table the two engines share, so a token change moves both. */
+.dive-gate-marker { overflow: visible; }
+.dive-gate-dot {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--gate-color, var(--series-1));
+  border: 2px solid var(--marker-border);
+  box-shadow: 0 1px 5px var(--shadow);
+  color: var(--on-accent);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 20px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  cursor: grab;
+}
+/* A ring in the gate's own colour rather than the accent: the selection has to
+   read at a glance against terrain imagery, and a second hue on a 24px dot
+   competes with the leg colour that is the point of the pin. */
+.dive-gate-dot.is-selected {
+  box-shadow: 0 0 0 3px var(--gate-color, var(--series-1)), 0 1px 6px var(--shadow);
+}
+/* The altitude hangs under the dot, out of the icon's 24px box: it is the number
+   the pilot is authoring, and reading it should not cost a tap. */
+.dive-gate-alt {
+  position: absolute;
+  top: 26px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  color: var(--ink-2);
+  font-size: 10.5px;
+  line-height: 1.35;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  pointer-events: none; /* the dot is the drag handle; the label must not steal it */
+}
+/* Every other gate hangs its label above instead. Gates run in a line and the
+   pins crowd as the pilot zooms out; alternating means two neighbours never
+   stack their labels on each other, which is the only collision that actually
+   happens along a route. */
+.dive-gate-alt.is-above { top: auto; bottom: 26px; }
+/* Same reasoning as route-hit above: an interactive Leaflet path hit-tests on
+   painted pixels, and the corridor wants the whole stroke clickable — a leg is
+   easier to hit than the dot at its end on a phone. */
+.leaflet-pane > svg path.dive-corridor { pointer-events: stroke; cursor: pointer; }
+
 /* SceneViewbar (M12): the 3D camera's chrome, riding the bottom-left of the
    stage — the corner the mockup gives it, clear of the toolbar (top-right),
    the inspector (right) and Leaflet's attribution (bottom-right). Segmented
    groups in the wind-panel tablist idiom; the latch language is aria-pressed,
    exactly as the toolbar above wears it. */
 .scene-viewbar {
-  position: absolute;
-  left: 10px;
-  bottom: 10px;
-  z-index: 1001;
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  max-width: calc(100% - 20px);
+  align-self: flex-start;
+  max-width: 100%;
 }
 .viewbar-group {
   display: flex;
@@ -1474,10 +1680,37 @@ body {
 
   /* 3D-05 on phones (M16): the briefing card is a tablet composition — on a
      phone stage it would cover the terrain it is briefing, so it stands down
-     and its numbers stay a tab away in Analyze. The sketch chips stay, lifted
-     clear of the viewbar's bottom row. */
+     and its numbers stay a tab away in Analyze. The sketch chips stay: they are
+     in the bottom stack, which keeps them clear of the viewbar by itself. */
   .conditions-card { display: none; }
-  .route-templates { bottom: 62px; }
+
+  /* 3D-06 on phones (M16). The leg inspector rides as a bottom sheet, exactly
+     as the segment card above it does and for the same reason — the gate the
+     pilot just tapped has to stay visible while they dial it. The strip only
+     gets shorter: it is the one surface that answers "does this clear", and
+     hiding it on the screen most likely to be at the launch site would be the
+     wrong economy — except for the seconds the sheet is over it, below. */
+  .dive-card {
+    position: fixed;
+    left: 0;
+    right: 0;
+    top: auto;
+    width: auto;
+    bottom: calc(var(--dock-h) + env(safe-area-inset-bottom));
+    max-height: 52vh;
+    max-height: 52dvh;
+    z-index: 1050;
+    border-radius: 14px 14px 0 0;
+    border-bottom: none;
+  }
+  /* …except while the inspector sheet is up, when the two want the same hundred
+     pixels of stage bottom and the sheet wins: the pilot got here by tapping a
+     gate on the strip, the card answers the question that tap asked in words,
+     and Close puts the strip straight back. */
+  .map-stage:has(.dive-card:not([hidden])) .dive-strip { display: none; }
+  .dive-strip-canvas { height: 68px; }
+  /* Thumb-sized on the surface most likely to be used with one. */
+  .dive-strip-gate { width: 28px; height: 28px; font-size: 12px; }
 
   /* The destnav becomes the bottom dock — the phone's thumb-reach home for the
      four destinations. */
@@ -1913,6 +2146,16 @@ body {
 }
 .segment-facts dt { color: var(--muted); }
 .segment-facts dd { color: var(--ink); font-variant-numeric: tabular-nums; }
+/* Two of the three map cards want a narrower label column than the segment
+   inspector: their rows carry an input box or a sentence under the value rather
+   than a short readout, and 9rem of label leaves the right-hand column too thin
+   to read a four-figure altitude in. It has to sit after the rule above rather
+   than beside its own card's block: `.dive-facts` weighs exactly what
+   `.segment-facts` does, so order is the only thing deciding it. */
+.dive-facts,
+.conditions-card .segment-facts {
+  grid-template-columns: minmax(0, 8rem) minmax(0, 1fr);
+}
 .segment-note { display: block; color: var(--muted); font-size: 11.5px; margin-top: 1px; }
 #segment-warnings { margin-top: var(--sp-2); }
 /* The identifier the click actually came back with, and the key every figure

@@ -909,6 +909,10 @@ setupMapView({
   // The conditions card's wind rungs are the wind panel's own ladder model,
   // read back rather than re-derived — one voice for wind (M16).
   windLadder: () => panelModel?.altitude ?? null,
+  // The same terrain field the analysis flies against, so the dive profile draws
+  // the ground the engines measured clearance to — and the same nulls where the
+  // field never looked (M16).
+  groundAt,
   // The route belongs to the mission document now (ADR 0002): the map draws what
   // it reads back through here, and every edit it makes is a command.
   routeWaypoints: missionWaypoints,

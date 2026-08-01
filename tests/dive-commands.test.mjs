@@ -47,6 +47,8 @@ test('a fresh mission has no dive plan, and one gate makes one', () => {
     gates: [{ id: 'gat_2', kind: 'recovery', latitude: 30.62, longitude: -98.12, altitudeMslM: 2560, radiusM: 30 }],
     bailout: null,
     rthAltitudeMslM: null,
+    speedMs: null,
+    pulloutLoadG: null,
   });
   assert.deepEqual(validateMission(next).errors, []);
   assert.equal(doc.scene.dive, null, 'the given document was not mutated');
@@ -128,6 +130,61 @@ test('the RTH altitude sets and clears', () => {
   assert.equal(deps.warnings.at(-1).code, 'W-CMD-REJECTED');
 });
 
+/* ---------- the authored profile: speed and pullout load ---------- */
+
+const profile = (payload) => ({ type: 'setDiveProfile', payload });
+
+test('the profile numbers set one at a time or together', () => {
+  const deps = harness();
+  const speedOnly = missionReduce(start(deps), profile({ speedMs: 28 }), deps);
+  assert.equal(speedOnly.scene.dive.speedMs, 28);
+  assert.equal(speedOnly.scene.dive.pulloutLoadG, null);
+  assert.deepEqual(validateMission(speedOnly).errors, []);
+
+  const loadOnly = missionReduce(start(deps), profile({ pulloutLoadG: 2.5 }), deps);
+  assert.equal(loadOnly.scene.dive.pulloutLoadG, 2.5);
+  assert.equal(loadOnly.scene.dive.speedMs, null);
+  assert.deepEqual(validateMission(loadOnly).errors, []);
+
+  const both = missionReduce(start(deps), profile({ speedMs: 31.5, pulloutLoadG: 3 }), deps);
+  assert.equal(both.scene.dive.speedMs, 31.5);
+  assert.equal(both.scene.dive.pulloutLoadG, 3);
+  assert.deepEqual(validateMission(both).errors, []);
+});
+
+test('an omitted number stands, a null one clears — the two are addressed apart', () => {
+  const deps = harness();
+  const doc = run(start(deps), [profile({ speedMs: 28, pulloutLoadG: 2.5 })], deps);
+  const faster = missionReduce(doc, profile({ speedMs: 34 }), deps);
+  assert.equal(faster.scene.dive.speedMs, 34);
+  assert.equal(faster.scene.dive.pulloutLoadG, 2.5, 'the load this command never named is untouched');
+  const noLoad = missionReduce(faster, profile({ pulloutLoadG: null }), deps);
+  assert.equal(noLoad.scene.dive.pulloutLoadG, null);
+  assert.equal(noLoad.scene.dive.speedMs, 34, 'clearing one number does not clear the other');
+  assert.deepEqual(validateMission(noLoad).errors, []);
+});
+
+test('a rejected profile command changes nothing and says why', () => {
+  const deps = harness();
+  const doc = run(start(deps), [profile({ speedMs: 28, pulloutLoadG: 2.5 })], deps);
+  const bad = [
+    profile({ speedMs: 0 }),
+    profile({ speedMs: -12 }),
+    profile({ speedMs: '35 mph' }),
+    profile({ pulloutLoadG: 1 }),   // 1 g is level flight, not a pullout
+    profile({ pulloutLoadG: 0.9 }),
+    profile({ pulloutLoadG: '3 g' }),
+    profile({}),                    // naming neither number writes nothing
+  ];
+  for (const cmd of bad) {
+    const before = deps.warnings.length;
+    const next = missionReduce(doc, cmd, deps);
+    assert.equal(next, doc, 'same reference back — nothing changed');
+    assert.equal(deps.warnings.length, before + 1);
+    assert.equal(deps.warnings.at(-1).code, 'W-CMD-REJECTED');
+  }
+});
+
 /* ---------- the collapse invariant ---------- */
 
 test('emptying the plan piece by piece lands back on exactly null', () => {
@@ -146,5 +203,28 @@ test('emptying the plan piece by piece lands back on exactly null', () => {
     { type: 'setDiveRthAltitude', payload: { altitudeMslM: null } },
   ], deps);
   assert.equal(emptied.scene.dive, null, 'one representation of "no dive plan", not an empty husk');
+  assert.deepEqual(validateMission(emptied).errors, []);
+});
+
+test('a speed with no gates is a plan; clearing the profile too is what empties it', () => {
+  const deps = harness();
+  const speedOnly = missionReduce(start(deps), profile({ speedMs: 28 }), deps);
+  assert.equal(typeof speedOnly.scene.dive, 'object');
+  assert.notEqual(speedOnly.scene.dive, null, 'an authored speed is content, gates or no gates');
+
+  const full = run(start(deps), [
+    gate('dive', 30.61, -98.11, 2758),
+    { type: 'setDiveBailout', payload: { bailout: { latitude: 30.63, longitude: -98.13 } } },
+    { type: 'setDiveRthAltitude', payload: { altitudeMslM: 3780 } },
+    profile({ speedMs: 28, pulloutLoadG: 2.5 }),
+  ], deps);
+  const held = run(full, [
+    { type: 'removeDiveGate', payload: { kind: 'dive' } },
+    { type: 'setDiveBailout', payload: { bailout: null } },
+    { type: 'setDiveRthAltitude', payload: { altitudeMslM: null } },
+  ], deps);
+  assert.notEqual(held.scene.dive, null, 'the profile numbers hold the plan open on their own');
+  const emptied = missionReduce(held, profile({ speedMs: null, pulloutLoadG: null }), deps);
+  assert.equal(emptied.scene.dive, null);
   assert.deepEqual(validateMission(emptied).errors, []);
 });

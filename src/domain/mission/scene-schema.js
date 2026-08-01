@@ -167,7 +167,7 @@ export function checkCameraProfile(profile, path, err) {
 }
 
 /** @type {readonly string[]} */
-const DIVE_KEYS = Object.freeze(['gates', 'bailout', 'rthAltitudeMslM']);
+const DIVE_KEYS = Object.freeze(['gates', 'bailout', 'rthAltitudeMslM', 'speedMs', 'pulloutLoadG']);
 /** @type {readonly string[]} */
 const GATE_KEYS = Object.freeze(['id', 'kind', 'latitude', 'longitude', 'altitudeMslM', 'radiusM']);
 /** @type {readonly string[]} */
@@ -178,12 +178,19 @@ const isLatLon = (lat, lon) => isNum(lat) && lat >= -90 && lat <= 90 && isNum(lo
 
 /**
  * `scene.dive`'s validated shape (M16):
- * `{ gates, bailout, rthAltitudeMslM }`, the whole block nullable — a mission
- * with no dive plan carries `null` (or, on a document older than M16, no key
- * at all), never an empty bag. Gates carry a *required* altitude, unlike a
- * subject's optional elevation: a gate that does not say how high it is is not
- * a gate, it is a pin. Unknown keys at every level share one code, the same
- * rule `checkCameraShape` states: a bag with a shape is not a junk drawer.
+ * `{ gates, bailout, rthAltitudeMslM, speedMs, pulloutLoadG }`, the whole block
+ * nullable — a mission with no dive plan carries `null` (or, on a document
+ * older than M16, no key at all), never an empty bag. Gates carry a *required*
+ * altitude, unlike a subject's optional elevation: a gate that does not say how
+ * high it is is not a gate, it is a pin. Unknown keys at every level share one
+ * code, the same rule `checkCameraShape` states: a bag with a shape is not a
+ * junk drawer.
+ *
+ * `speedMs` and `pulloutLoadG` are the two authored numbers domain/dive.js's
+ * `pulloutArc` reads, and they carry its bounds rather than looser ones: a
+ * pullout flown at 1 g or less is not a pullout, and a radius divided out of a
+ * zero speed is not an arc. Both are optional-nullable — a document authored
+ * before this pair existed carries neither key.
  *
  * @param {unknown} dive
  * @param {string} path
@@ -248,5 +255,13 @@ export function checkDive(dive, path, err) {
 
   if (dive.rthAltitudeMslM !== null && dive.rthAltitudeMslM !== undefined && !isNum(dive.rthAltitudeMslM)) {
     err(`${path}.rthAltitudeMslM`, 'E-DIVE-RTH', 'The lost-link/RTH altitude must be a number of metres MSL, or null.');
+  }
+
+  if (dive.speedMs !== null && dive.speedMs !== undefined && !isPositive(dive.speedMs)) {
+    err(`${path}.speedMs`, 'E-DIVE-SPEED', 'Dive speed must be a positive number of metres per second, or null.');
+  }
+  if (dive.pulloutLoadG !== null && dive.pulloutLoadG !== undefined
+    && !(isNum(dive.pulloutLoadG) && dive.pulloutLoadG > 1)) {
+    err(`${path}.pulloutLoadG`, 'E-DIVE-LOAD', 'Pullout load must be a load factor above 1 g, or null.');
   }
 }

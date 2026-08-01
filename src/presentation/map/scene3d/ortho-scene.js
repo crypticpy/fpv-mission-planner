@@ -567,6 +567,13 @@ export function createOrthoScene(opts) {
       frame.actions.selectSegment(hit.id);
       return;
     }
+    /* A gate and the corridor into it open the same leg — the pilot aiming at a
+       dot on a pitched view can hit the line instead, exactly as in 2D. */
+    if (hit?.kind === 'dive' && hit.id) {
+      frame.gestures.markerClicked();
+      frame.actions.selectDiveGate(hit.id);
+      return;
+    }
 
     const { x, y } = info ?? {};
     if (!Number.isFinite(x) || !Number.isFinite(y)) return;
@@ -586,17 +593,24 @@ export function createOrthoScene(opts) {
    * real leg, and the pilot may well be opening it because of the ridge.
    *
    * @param {object|null} object
-   * @returns {{ kind: 'launch'|'waypoint'|'leg', id: string|null }|null}
+   * @returns {{ kind: 'launch'|'waypoint'|'leg'|'dive', id: string|null }|null}
    */
   function pickedKind(object) {
     const datum = /** @type {{ kind?: string, id?: string, segmentId?: string|null,
-     *   position?: number[], path?: number[][] }|null} */ (object);
+     *   diveKind?: string, position?: number[], path?: number[][] }|null} */ (object);
     if (!datum || datum.kind === 'terrain') return null;
     if (datum.position && buried(datum.position)) return null;
     if (datum.path && datum.path.every((p) => buried(p))) return null;
     if (datum.kind === 'launch') return { kind: 'launch', id: null };
     if (datum.kind === 'waypoint' && datum.id) return { kind: 'waypoint', id: datum.id };
     if (datum.kind === 'leg' && datum.segmentId) return { kind: 'leg', id: datum.segmentId };
+    /* A dive datum is identified by its gate kind rather than an id: the kind is
+       the gate's identity in the reducer too, so nothing here has to carry a
+       second name for the same thing. Gate dot and corridor answer alike — a
+       corridor is named by the gate it ends at, which is the leg it is. */
+    if ((datum.kind === 'dive-gate' || datum.kind === 'dive-leg') && datum.diveKind) {
+      return { kind: 'dive', id: datum.diveKind };
+    }
     return null;
   }
 

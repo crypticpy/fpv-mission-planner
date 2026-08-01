@@ -1,6 +1,7 @@
 // dive-commands.js — the M16 reducer commands for `scene.dive` (screens
-// 3D-05…08): the dive plan's gates, the bailout landing, and the lost-link/RTH
-// altitude plane. Filed separately from scene-commands.js for the same reason
+// 3D-05…08): the dive plan's gates, the bailout landing, the lost-link/RTH
+// altitude plane, and the speed and pullout load the run is authored at.
+// Filed separately from scene-commands.js for the same reason
 // that file exists apart from mission-reducer.js — same envelope, same two
 // rules ("a rejected command changes nothing", "the reducer never hands back
 // an invalid document"), new concern.
@@ -31,17 +32,21 @@ const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
 const isLatLon = (lat, lon) => isNum(lat) && lat >= -90 && lat <= 90 && isNum(lon) && lon >= -180 && lon <= 180;
 
 /** @param {MissionDocumentV1} doc @returns {DivePlan} */
-const diveOf = (doc) => doc.scene.dive ?? { gates: [], bailout: null, rthAltitudeMslM: null };
+const diveOf = (doc) => doc.scene.dive
+  ?? { gates: [], bailout: null, rthAltitudeMslM: null, speedMs: null, pulloutLoadG: null };
 
 /**
  * Writes the plan back, collapsing an emptied one to `null` — "no dive plan"
  * has exactly one representation, so the UI's "has this mission a dive?" is
- * one null check rather than three emptiness checks.
+ * one null check rather than several emptiness checks. The profile numbers
+ * count as content like any other field, and an absent one reads as null: a
+ * plan authored before they existed still collapses when its gates go.
  * @param {MissionDocumentV1} doc @param {DivePlan} dive
  * @returns {MissionDocumentV1}
  */
 function withDive(doc, dive) {
-  const empty = dive.gates.length === 0 && dive.bailout === null && dive.rthAltitudeMslM === null;
+  const empty = dive.gates.length === 0 && dive.bailout === null && dive.rthAltitudeMslM === null
+    && dive.speedMs == null && dive.pulloutLoadG == null;
   return { ...doc, scene: { ...doc.scene, dive: empty ? null : dive } };
 }
 
@@ -118,5 +123,29 @@ export const DIVE_HANDLERS = {
       reject('The lost-link/RTH altitude must be a number of metres MSL, or null.', 'altitudeMslM');
     }
     return withDive(doc, { ...diveOf(doc), rthAltitudeMslM: isNum(v) ? v : null });
+  },
+
+  /** The two numbers the pullout maths is authored against. Each field is
+   * addressed on its own — an omitted key leaves that field standing, `null`
+   * clears it — so the inspector's speed control never has to resend a load it
+   * did not touch, and a payload naming neither field is a caller mistake
+   * rather than a no-op write. Both bounds are domain/dive.js's own:
+   * `pulloutArc` has no arc to describe at a load of 1 g or less, and no radius
+   * to divide out at zero speed. */
+  setDiveProfile(doc, payload) {
+    const { speedMs, pulloutLoadG } = payload;
+    if (speedMs === undefined && pulloutLoadG === undefined) {
+      reject('A dive profile command needs a speed, a pullout load, or both.', 'speedMs/pulloutLoadG');
+    }
+    const dive = diveOf(doc);
+    const speed = speedMs === undefined ? dive.speedMs ?? null
+      : speedMs === null ? null
+        : isNum(speedMs) && speedMs > 0 ? speedMs
+          : reject('Dive speed must be a positive number of metres per second, or null.', 'speedMs');
+    const load = pulloutLoadG === undefined ? dive.pulloutLoadG ?? null
+      : pulloutLoadG === null ? null
+        : isNum(pulloutLoadG) && pulloutLoadG > 1 ? pulloutLoadG
+          : reject('Pullout load must be a load factor above 1 g, or null.', 'pulloutLoadG');
+    return withDive(doc, { ...dive, speedMs: speed, pulloutLoadG: load });
   },
 };

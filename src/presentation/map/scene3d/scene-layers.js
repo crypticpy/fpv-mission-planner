@@ -29,6 +29,7 @@ import { COORDINATE_SYSTEM } from '@deck.gl/core';
 import { PathLayer, PolygonLayer, ScatterplotLayer, TextLayer } from '@deck.gl/layers';
 
 import { ADVISORY_CLASS_STYLE, advisoryZones } from '../layers/advisory-layer.js';
+import { DIVE_LEG_STYLE, diveLegChain, orderedGates } from '../layers/dive-layer.js';
 import {
   GEOGRAPHIC_SPACE, buildRouteGeometry, buildShotGeometry, parseCssRgb, ringPositions,
   spacePosition,
@@ -238,7 +239,188 @@ export function buildSceneLayers(frame, ctx) {
   layers.push(launchLayer(frame, ctx, space));
   layers.push(...pinLayers(geometry.pins, palette, space));
 
+  /* The dive plan on top of all of it. This is the one geometry in the scene the
+   * pilot is authoring in three dimensions rather than two — a gate is a place
+   * *and* an altitude — so it wins every blend, and its droplines are what tie
+   * an altitude in the air back to the ground it is measured over. */
+  layers.push(...diveLayers(frame, ctx, space));
+
   return layers;
+}
+
+/**
+ * The mountain dive: a corridor per leg, a numbered dot per gate, the altitude
+ * beside it, and a dropline from each gate to the ground under it.
+ *
+ * Which leg is which colour is decided in layers/dive-layer.js and imported
+ * rather than restated, the same arrangement the advisory zones have: two
+ * pictures of one dive that disagreed about where the dive begins would be worse
+ * than either alone.
+ *
+ * The droplines are what a flat map cannot draw at all. A gate's altitude is a
+ * number on a pin in 2D; here it is a height, and a vertical line to the terrain
+ * is the only thing that says *over what* — which is the question the whole
+ * pullout-clearance calculation turns on.
+ *
+ * @param {MapFrame} frame
+ * @param {SceneContext} ctx
+ * @param {SceneSpace} space
+ */
+function diveLayers(frame, ctx, space) {
+  const gates = frame.dive?.gates ?? [];
+  if (!gates.length) return [];
+
+  const spatial = spaceProps(space);
+  const selected = frame.selectedDiveKind ?? null;
+  const { palette, exaggeration } = ctx;
+  /** @param {{ lat: number, lng: number, altitudeMslM: number }} g */
+  const gateZ = (g) => g.altitudeMslM * exaggeration;
+  /** @param {string} kind */
+  const legRgb = (kind) => DIVE_LEG_STYLE[kind]?.rgb ?? palette.unresolved;
+
+  /* The launch end of the first corridor is the pad, at the terrain height under
+     it: the run starts on the ground and climbs, and drawing it from the pad's
+     altitude would be drawing a mission that begins in the air. */
+  const launchGround = ctx.groundZAt(frame.launch.lng, frame.launch.lat);
+  const launchElev = frame.env?.elevM;
+  const launchZ = launchGround ?? (typeof launchElev === 'number' && Number.isFinite(launchElev)
+    ? launchElev * exaggeration
+    : 0);
+
+  const legs = diveLegChain(frame.launch, gates).map((leg) => ({
+    // Both dive data carry the same two fields the pick reads: what sort of thing
+    // this is, and which leg it belongs to.
+    kind: 'dive-leg',
+    diveKind: leg.kind,
+    path: [
+      spacePosition(space, leg.from.lng, leg.from.lat,
+        leg.fromGate ? gateZ(leg.fromGate) : launchZ + space.drapeLiftM),
+      spacePosition(space, leg.to.lng, leg.to.lat, gateZ(leg.gate)),
+    ],
+  }));
+
+  const pins = orderedGates(gates).map(({ gate, ordinal }) => {
+    const ground = ctx.groundZAt(gate.lng, gate.lat);
+    return {
+      // What the pick reads: the kind is the gate's identity everywhere else too.
+      kind: 'dive-gate',
+      diveKind: gate.kind,
+      ordinal,
+      label: String(ordinal),
+      altitude: `${Math.round(gate.altitudeMslM)} m`,
+      position: spacePosition(space, gate.lng, gate.lat, gateZ(gate)),
+      /* Null when the DEM under this gate has not arrived: a dropline to zero is
+         a line to sea level, which says something about the ground that is not
+         known yet. */
+      drop: ground == null ? null : [
+        spacePosition(space, gate.lng, gate.lat, gateZ(gate)),
+        spacePosition(space, gate.lng, gate.lat, ground + space.drapeLiftM),
+      ],
+    };
+  });
+
+  const out = [];
+
+  const drops = pins.filter((p) => p.drop);
+  if (drops.length) {
+    out.push(new PathLayer({
+      id: 'dive-droplines',
+      data: drops,
+      getPath: (d) => d.drop,
+      getColor: [...palette.unresolved, 150],
+      widthUnits: 'pixels',
+      getWidth: 1.5,
+      widthMinPixels: 1,
+      // In the air over its whole length but the last vertex, so it billboards.
+      billboard: true,
+      pickable: false,
+      ...spatial,
+    }));
+  }
+
+  out.push(new PathLayer({
+    id: 'dive-corridors',
+    data: legs,
+    getPath: (d) => d.path,
+    getColor: (d) => [...legRgb(d.diveKind), d.diveKind === selected ? 255 : 205],
+    widthUnits: 'pixels',
+    getWidth: (d) => (d.diveKind === selected ? 7 : 4.5),
+    widthMinPixels: 3,
+    capRounded: true,
+    jointRounded: true,
+    // Entirely in the air between two gates, so ADR 0004's caveat does not bite.
+    billboard: true,
+    pickable: true,
+    updateTriggers: { getColor: selected, getWidth: selected },
+    ...spatial,
+  }));
+
+  out.push(new ScatterplotLayer({
+    id: 'dive-gates',
+    data: pins,
+    getPosition: (d) => d.position,
+    getFillColor: (d) => [...legRgb(d.diveKind), 255],
+    getLineColor: (d) => (d.diveKind === selected
+      ? [...palette.accent, 255]
+      : [...palette.markerBorder, 255]),
+    lineWidthUnits: 'pixels',
+    getLineWidth: (d) => (d.diveKind === selected ? 4 : 2.5),
+    stroked: true,
+    filled: true,
+    radiusUnits: 'pixels',
+    getRadius: 11,
+    radiusMinPixels: 9,
+    billboard: true,
+    pickable: true,
+    updateTriggers: { getLineColor: selected, getLineWidth: selected },
+    ...spatial,
+  }));
+
+  out.push(new TextLayer({
+    id: 'dive-gate-labels',
+    data: pins,
+    getPosition: (d) => d.position,
+    getText: (d) => d.label,
+    getColor: [...palette.label, 255],
+    getSize: 12,
+    sizeUnits: 'pixels',
+    fontWeight: 700,
+    // Digits only, like the waypoint numbers: every label here is an ordinal.
+    characterSet: '0123456789',
+    billboard: true,
+    pickable: false,
+    ...spatial,
+  }));
+
+  out.push(new TextLayer({
+    id: 'dive-gate-altitudes',
+    data: pins,
+    getPosition: (d) => d.position,
+    getText: (d) => d.altitude,
+    getColor: [...palette.unresolved, 255],
+    getSize: 11,
+    sizeUnits: 'pixels',
+    fontWeight: 600,
+    // Digits, a space and the unit — the whole vocabulary this label can hold.
+    characterSet: '0123456789 m',
+    /* Below the dot, then above it, then below again. The gates run in a line and
+       the scene has no zoom floor, so the collision that actually happens is a
+       gate's label against its neighbour's — and alternating is the one rule
+       that cannot produce it without measuring anything. Odd below, even above,
+       the same way round as the flat map's .dive-gate-alt.is-above: a gate keeps
+       the side its label sits on when the pilot switches engines. Deck's pixel
+       offset counts y downwards. */
+    getPixelOffset: (d) => [0, d.ordinal % 2 === 0 ? -20 : 20],
+    billboard: true,
+    pickable: false,
+    updateTriggers: {
+      getText: pins.map((p) => p.altitude).join('\0'),
+      getPixelOffset: pins.map((p) => p.ordinal).join(','),
+    },
+    ...spatial,
+  }));
+
+  return out;
 }
 
 /**

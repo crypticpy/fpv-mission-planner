@@ -225,6 +225,8 @@ import { NAME_MAX_LEN, isValidName, checkCameraShape, checkCameraProfile, checkD
  * @property {DiveGate[]} gates in flight order: approach, dive, recovery, abort
  * @property {DiveBailout|null} bailout
  * @property {number|null} rthAltitudeMslM the lost-link/RTH altitude plane
+ * @property {number|null} [speedMs] the speed the dive is authored at, m/s
+ * @property {number|null} [pulloutLoadG] the load factor the pullout is flown at, g
  */
 
 /** @typedef {{ subjects: Subject[], cameraProfile: CameraProfile|null, templates: SceneTemplate[], dive?: DivePlan|null }} Scene */

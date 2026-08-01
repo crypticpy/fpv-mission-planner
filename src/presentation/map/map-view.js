@@ -38,8 +38,11 @@ import { createLeafletAdapter } from './leaflet-adapter.js';
 import { createLayerRegistry } from './layer-registry.js';
 import { renderAdvisoryLegend } from './advisory-panel.js';
 import { renderConditionsCard, renderRouteTemplates } from './conditions-card.js';
+import { renderDiveInspector } from './dive-inspector.js';
+import { renderDiveStrip } from './dive-profile-strip.js';
 import { liveSelection, nextSelection, renderSegmentInspector } from './segment-inspector.js';
 import { createAdvisoryLayer } from './layers/advisory-layer.js';
+import { createDiveLayer } from './layers/dive-layer.js';
 import { createFootprintLayer } from './layers/footprint-layer.js';
 import { createLaunchLayer } from './layers/launch-layer.js';
 import { createRouteLayer } from './layers/route-layer.js';
@@ -165,7 +168,7 @@ let editNote = null;
 let editor = null;
 
 /** Nothing to draw and nothing to edit, which is the state before a document opens. */
-const NO_SCENE = { subjects: [], cameraProfile: null, templates: [] };
+const NO_SCENE = { subjects: [], cameraProfile: null, templates: [], dive: null };
 
 /** @param {MissionEditorPort} port */
 export function setMissionEditor(port) { editor = port; }
@@ -200,6 +203,11 @@ const registry = createLayerRegistry([
   // The things the route is filming, under its pins: a subject is what a leg is
   // about, and a leg is what the pilot is clicking.
   createSubjectLayer(),
+  /* Over the route and under the pins the pilot drags most: the dive plan is
+     mission geometry, so it draws whenever one exists rather than waiting on the
+     dive workspace's latch — a plan that vanished with a panel would be a plan
+     the pilot cannot see they authored. */
+  createDiveLayer(),
   createSpotsLayer(),
   createLaunchLayer(),
   windLayer,
@@ -749,6 +757,34 @@ export function selectedSegment() { return selectedSegmentId; }
  */
 export function selectSegment(id) {
   selectedSegmentId = nextSelection(selectedSegmentId, id);
+  /* Two inspectors, one seat: opening a route leg puts the dive leg away rather
+     than stacking a second card in the same corner. */
+  if (selectedSegmentId) selectedDiveKind = null;
+  deps?.requestRender();
+}
+
+/* Which dive leg the dive inspector is open on, named by the gate the leg ends
+ * at. Beside `selectedSegmentId` and governed by the same rule — view state, no
+ * command, never persisted — and separate from it because a mission can carry
+ * both a drawn route and a dive plan while only one inspector is on screen. */
+let selectedDiveKind = null;
+
+/** The dive selection, for the surfaces outside the map that highlight the same leg. */
+export function selectedDiveLeg() { return selectedDiveKind; }
+
+/**
+ * Toggle the dive selection from any surface — a gate pin, a corridor, a chip on
+ * the elevation strip. Selecting a leg also summons the dive workspace: a pilot
+ * who just clicked a gate is asking to work on the dive, and an inspector that
+ * opened behind a closed latch would be an inspector nobody can see.
+ * @param {string|null} kind
+ */
+export function selectDiveGate(kind) {
+  selectedDiveKind = nextSelection(selectedDiveKind, kind);
+  if (selectedDiveKind) {
+    selectedSegmentId = null;
+    diveOn = true;
+  }
   deps?.requestRender();
 }
 
@@ -850,6 +886,9 @@ export function renderMapView(snapshot) {
    * the 3D handle, and a local of that name shadows it for the rest of this
    * function, which is a live grenade three statements below. */
   const sceneEdit = sceneNow();
+  /* The dive selection gets the same re-check the route selection just did, and
+     against the same read: a gate the pilot deleted takes its inspector with it. */
+  selectedDiveKind = liveDiveSelection(sceneEdit.dive, selectedDiveKind);
   const frame = buildFrame(snapshot, sceneEdit);
   /* Both engines, always — the 2D pass is what computes the footprint's extent,
    * and it costs a handful of Leaflet overlays in a hidden container. Skipping it
@@ -891,28 +930,46 @@ export function renderMapView(snapshot) {
 }
 
 /**
- * 3D-05's two surfaces, riding the same pass everything else does so a mode
- * switch or a selection change lands on the next render with no wiring of its
- * own. Both wait on the `diveOn` latch — summoned overlays, per the note on
- * the latch itself — and the conditions card further yields to the leg
- * inspector: top-right is one seat, and an open selection is the pilot
- * mid-sentence.
+ * The dive workspace's four surfaces, riding the same pass everything else does
+ * so a mode switch or a selection change lands on the next render with no wiring
+ * of its own.
+ *
+ * Three of them wait on the `diveOn` latch — summoned overlays, per the note on
+ * the latch itself — and the top-right seat is settled in one place here: the
+ * segment inspector outranks the leg inspector, which outranks the standing
+ * briefing, because each is a more specific answer to "what am I looking at".
+ *
+ * The leg inspector is the exception to the latch, and deliberately: the gates
+ * are mission geometry and draw on the flat map too, so a pilot who clicks one
+ * in 2D must get the panel that click promised. A latch that swallowed it would
+ * make the 2D gates a control with no effect.
+ *
  * @param {AnalysisSnapshot} snapshot
  * @param {MapFrame} frame
  */
 function renderDivePanels(snapshot, frame) {
   const up = mode === '3d' && diveOn;
   const workspace = editor?.dive?.() ?? { aircraftName: null, templates: [] };
+  const hasDive = !!frame.dive?.gates.length;
+  /* The pad's elevation as the analysis used it, or nothing. `elevM` is what
+     every other surface measures a height against, and a launch that never
+     resolved one is why the profile can start at the first gate. */
+  const elevM = snapshot.inputs.env?.elevM;
+  const launchMslM = Number.isFinite(elevM) ? /** @type {number} */ (elevM) : null;
+
   renderConditionsCard({
     snapshot,
     ladder: deps.windLadder?.() ?? null,
     aircraftName: workspace.aircraftName,
     units: frame.units,
-    visible: up && !selectedSegmentId,
+    visible: up && !selectedSegmentId && !selectedDiveKind,
   });
   renderRouteTemplates({
     templates: workspace.templates,
-    visible: up,
+    /* The strip takes this row's place once a plan exists: by then the first
+       sketch has been made, and what the pilot needs along the bottom edge is
+       the ground under it. */
+    visible: up && !hasDive,
     onApply: (id) => {
       const result = editor?.applyTemplate?.(id)
         ?? { ok: false, message: 'No mission is open yet — nothing to edit.' };
@@ -922,6 +979,40 @@ function renderDivePanels(snapshot, frame) {
       if (!result.ok) deps?.requestRender();
     },
   });
+  renderDiveStrip({
+    dive: frame.dive,
+    launch: frame.launch,
+    launchMslM,
+    selectedKind: selectedDiveKind,
+    groundAt: groundSampler,
+    visible: up && hasDive,
+    onSelect: selectDiveGate,
+  });
+  renderDiveInspector({
+    dive: frame.dive,
+    launch: frame.launch,
+    launchMslM,
+    selectedKind: selectedDiveKind,
+    groundAt: groundSampler,
+    onClose: () => selectDiveGate(null),
+    /* Without an editor the inspector is a read-out: it shows the leg it was
+       given and refuses to arm its own Apply, which is the honest answer when
+       there is no document to raise a command against. */
+    raise: editor ? raiseEdit : undefined,
+  });
+}
+
+/**
+ * The terrain field, as the two dive surfaces ask for it. Answers null until the
+ * host has one — and null again for anywhere the field never sampled, which both
+ * of them are built to show as a gap rather than as flat ground.
+ * @param {number} lat
+ * @param {number} lng
+ * @returns {number|null}
+ */
+function groundSampler(lat, lng) {
+  const g = deps.groundAt?.(lat, lng);
+  return typeof g === 'number' && Number.isFinite(g) ? g : null;
 }
 
 /**
@@ -935,10 +1026,12 @@ function buildFrame(snapshot, sceneEdit) {
     launch: { ...launch },
     waypoints: routeWaypoints(),
     subjects: sceneEdit.subjects,
+    dive: sceneEdit.dive,
     spots: spotSpec?.spots ?? [],
     routeMode: routeActive(),
     subjectMode: subjectActive(),
     selectedSegmentId,
+    selectedDiveKind,
     advisoryVisible: advisoryOn,
     units: deps.units(),
     env: snapshot.inputs.env ?? {},
@@ -969,8 +1062,42 @@ function buildFrame(snapshot, sceneEdit) {
        * toggle is shared with Analyze's surfaces, so no two clicks can mean
        * different things. */
       selectSegment,
+      /* The dive pair. Selecting raises nothing, exactly like `selectSegment`;
+         moving a gate is one command, and the kind carries the identity, so a
+         dragged gate keeps its id without the layer ever holding one. */
+      selectDiveGate,
+      moveDiveGate: (kind, at) => {
+        const gate = sceneEdit.dive?.gates.find((g) => g.kind === kind);
+        if (!gate) return;
+        raiseEdit({
+          type: 'setDiveGate',
+          payload: {
+            kind,
+            latitude: at.lat,
+            longitude: wrapLng(at.lng),
+            /* Carried, not re-derived: a drag across the map is a move in plan,
+               and the altitude the pilot authored is not the drag's to change. */
+            altitudeMslM: gate.altitudeMslM,
+            radiusM: gate.radiusM,
+          },
+        });
+      },
     },
   };
+}
+
+/**
+ * The dive selection, re-checked against the plan in hand — the same rule
+ * `liveSelection` applies to a route leg: a gate the pilot just deleted takes
+ * its inspector with it, without a word, because editing the plan is not an
+ * error.
+ * @param {import('./map-adapter.js').DiveProjection|null} dive
+ * @param {string|null} kind
+ * @returns {string|null}
+ */
+function liveDiveSelection(dive, kind) {
+  if (!kind) return null;
+  return dive?.gates.some((g) => g.kind === kind) ? kind : null;
 }
 
 /**
