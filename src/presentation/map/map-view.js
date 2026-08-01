@@ -53,6 +53,17 @@ import { createWindLayer } from './layers/wind-layer.js';
  * @typedef {import('./map-adapter.js').SavedSpot} SavedSpot
  */
 
+/**
+ * Which renderer draws the 3D view.
+ *
+ * `'maplibre'` is scene.js — a deck.gl overlay interleaved into a MapLibre map,
+ * which is what ships. `'ortho'` is ortho-scene.js — a standalone Deck over
+ * terrain this app decodes itself, which is what M12 is measuring. They are
+ * alternatives rather than a hierarchy: both take the same options and hand back
+ * the same handle, and everything below this seam is written against the handle.
+ * @typedef {'maplibre'|'ortho'} SceneHost
+ */
+
 /** Where the map opens on a first run, before anything has been saved. */
 const AUSTIN = { lat: 30.2672, lng: -97.7431 };
 const DEFAULT_ZOOM = 12;
@@ -79,6 +90,13 @@ let needsFit = false;
 let tileErrorShown = false;
 /** @type {import('./scene3d/scene.js').SceneHandle|null} */
 let scene = null;
+/* Which engine draws the 3D view when it is asked for. Session-only, like
+ * `advisoryOn` below and for a stronger version of the same reason: the saved map
+ * state is where the map is looking, and which of two renderers a pilot was
+ * trying is not that — least of all when one of them is the experiment. MapLibre
+ * by default, so a session nobody touches is the shipped scene. */
+/** @type {SceneHost} */
+let sceneHost = 'maplibre';
 /** Which engine is on screen. 2D until a pilot says otherwise, every session. */
 /** @type {'2d'|'3d'} */
 let mode = '2d';
@@ -311,6 +329,39 @@ export async function setMode3d(on) {
   return mode === '3d';
 }
 
+/** Which renderer the 3D view is currently set to use. */
+export function sceneHostNow() { return sceneHost; }
+
+/**
+ * Choose the renderer behind the 3D view.
+ *
+ * A live scene belongs to the host that built it, so the swap goes out through
+ * 2D and back in: `deactivate3d` hands the camera to the Leaflet adapter, the old
+ * handle is released, and `activate3d` reads the camera back out and gives it to
+ * the other host. That is not a detour — the flat view is the only vocabulary the
+ * two of them share, and routing through it is what makes the toggle land the
+ * pilot where they were looking rather than at a default.
+ *
+ * Resolves the same thing `setMode3d` does: whether 3D is on screen when it is
+ * done. A host that cannot start falls back through `activate3d`'s own catch, so
+ * pressing the toggle offline leaves a working 2D map and a note, exactly as
+ * pressing the 3D tab does.
+ *
+ * @param {SceneHost} host
+ * @returns {Promise<boolean>}
+ */
+export async function setSceneHost(host) {
+  if (host !== sceneHost && (host === 'maplibre' || host === 'ortho')) {
+    const was = mode;
+    sceneHost = host;
+    if (was === '3d') deactivate3d();
+    try { scene?.destroy(); } catch { /* letting go was the point */ }
+    scene = null;
+    if (was === '3d') await activate3d();
+  }
+  return mode === '3d';
+}
+
 async function activate3d() {
   const from = adapter.view();
   const container = $('map-3d');
@@ -321,12 +372,21 @@ async function activate3d() {
     if (!scene) {
       /* The only path into the chunk, and the reason there is a chunk. Static
        * anywhere and the shell carries MapLibre and deck.gl to every pilot who
-       * never opens 3D — which, offline at a trailhead, is all of them. */
-      const { createScene } = await import('./scene3d/scene.js');
-      scene = createScene({
+       * never opens 3D — which, offline at a trailhead, is all of them. Two
+       * specifiers now, and the bundler splits what they share out behind them:
+       * whichever host is asked for, the other engine is not downloaded. */
+      const create = sceneHost === 'ortho'
+        ? (await import('./scene3d/ortho-scene.js')).createOrthoScene
+        : (await import('./scene3d/scene.js')).createScene;
+      scene = create({
         container,
         center: from.center,
         zoom: from.zoom,
+        /* The one option the two hosts do not share, and it is passed to both
+         * rather than branched on: a cartesian scene needs an origin fixed before
+         * its first frame — `ready` resolves before `render` is ever called — and
+         * the MapLibre host, which is geographic throughout, ignores it. */
+        launch: { ...launch },
         reducedMotion: REDUCED_MOTION,
         onGroundClick: onMapClick,
         onViewChange: persist,

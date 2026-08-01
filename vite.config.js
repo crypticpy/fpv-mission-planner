@@ -102,11 +102,22 @@ export default defineConfig({
          * build is the 3D engine. Should that ever change, this rule is where it
          * has to be reconsidered.
          *
+         * Both rules are asked of every module in the chunk and not of its facade
+         * alone. M12 gave scene3d/ a second dynamic entry (the orthographic host
+         * beside the MapLibre one), and the bundler answered by hoisting what they
+         * share — deck.gl and scene-layers.js, ~194 kB gzip of it — into a chunk
+         * with no facade at all. Read off `facadeModuleId` that chunk is nameless,
+         * takes the default naming, and walks straight into the offline shell:
+         * the precache would triple in size, silently, from a build that reports
+         * no error. A shared chunk is only ever reachable from the lazy graph
+         * here, because nothing eager imports scene3d/ — so the module list is the
+         * honest question and the facade was only ever a proxy for it.
+         *
          * Everything else keeps the bundler's own naming.
          */
         chunkFileNames: (chunk) => {
-          const from = chunk.facadeModuleId ?? '';
-          return (from.includes('/scene3d/') || from.includes('node_modules'))
+          const from = [chunk.facadeModuleId ?? '', ...(chunk.moduleIds ?? [])];
+          return from.some((id) => id.includes('/scene3d/') || id.includes('node_modules'))
             ? 'assets/scene3d-[hash].js'
             : 'assets/[name]-[hash].js';
         },

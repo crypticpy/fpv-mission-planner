@@ -84,6 +84,12 @@
     // where the arithmetic that can be wrong lives, and it is checked.
     "src/presentation/map/tile-sources.js",
     "src/presentation/map/scene3d/scene-geometry.js",
+    // Wave C's pure half joins on the same terms as wave B's: it reaches only
+    // domain/geo.js and scene-geometry.js, both already here, and it exists
+    // *because* the rest of the orthographic host cannot be checked or tested
+    // outside a browser. The engine-facing half, ortho-scene.js, stays out with
+    // scene.js and ortho-terrain.js for the reason spelled out below.
+    "src/presentation/map/scene3d/ortho-view-state.js",
     // M12 wave A's ortho-terrain.js is deliberately absent, and not for want of
     // types: it passes `strict` on its own JSDoc under a scratch config. It
     // imports @deck.gl/core and @deck.gl/mesh-layers, whose typings pull

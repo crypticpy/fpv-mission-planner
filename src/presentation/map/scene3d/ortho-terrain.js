@@ -661,20 +661,30 @@ export function groundAt(grid, x, y) {
  * through it, and black renders a perfectly correct, perfectly invisible
  * mountain.
  *
+ * `modelMatrix` is where the mesh's own frame is reconciled with the scene's.
+ * The vertices are local metres about `grid.origin` with Z in true metres MSL,
+ * and a host draws in local metres about the *launch* at whatever exaggeration
+ * its slider is on — a translation and a Z scale apart. Both belong to the
+ * caller who owns both frames, and applying them as a matrix is what keeps the
+ * slider from rebuilding 35,000 vertices.
+ *
  * @param {object} opts
  * @param {OrthoTerrainMesh} opts.mesh
  * @param {string} [opts.id]
  * @param {[number, number, number]} [opts.color]
  * @param {boolean} [opts.wireframe]
  * @param {boolean} [opts.pickable]
+ * @param {readonly number[]} [opts.modelMatrix]  column-major, 16 entries
  * @returns {SimpleMeshLayer}
  */
 export function orthoTerrainLayer({
   mesh, id = 'ortho-terrain', color = [255, 255, 255], wireframe = false, pickable = false,
+  modelMatrix,
 }) {
   return new SimpleMeshLayer({
     id,
     coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
+    ...(modelMatrix ? { modelMatrix: [...modelMatrix] } : null),
     // Repeated from the Deck's own parameters on purpose: the picking pass builds
     // its state from `layer.props.parameters`, not from the deck-level ones.
     parameters: { ...DEPTH_PARAMETERS },
