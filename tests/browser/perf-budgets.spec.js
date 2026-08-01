@@ -108,8 +108,12 @@ test.describe('performance budgets', () => {
    *
    * Re-based 168 → 172 at M10 wave C: the Analyze panels (route timeline,
    * elevation profile) are always-path feature code, 170.8 on landing. If the
-   * Plan modes ever become lazy chunks (the M7 brief pattern), claw this back. */
-  const ENTRY_BUDGET_KB = 172;
+   * Plan modes ever become lazy chunks (the M7 brief pattern), claw this back.
+   *
+   * Re-based 172 → 174 at M10 wave D: the Review fix panel and the fix-linking
+   * engine, 172.4 on landing — the same always-path category as wave C, and
+   * the same claw-back applies if the Plan modes go lazy. */
+  const ENTRY_BUDGET_KB = 174;
   const SCENE3D_BUDGET_KB = 500;
 
   test('the built bundles are inside their gzip budgets', async () => {

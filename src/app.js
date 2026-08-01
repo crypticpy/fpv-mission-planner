@@ -10,7 +10,7 @@ import {
 } from './presentation/map/map-view.js';
 import { renderFootprintPanel } from './presentation/map/footprint-panel.js';
 import { renderAdvisoryCard } from './presentation/map/advisory-panel.js';
-import { setupShell, syncDest } from './shell.js';
+import { setupShell, syncDest, revealRail } from './shell.js';
 import { setupThemes } from './themes.js';
 import { setupUpdateNotice } from './render/update-notice.js';
 import { readForm } from './forms.js';
@@ -65,6 +65,7 @@ import { renderMissionSummary, summaryModelFrom } from './components/mission-sum
 import { renderSystemState } from './components/system-state.js';
 import { renderRouteTimeline, timelineModelFrom } from './components/route-timeline.js';
 import { renderElevationProfile, profileModelFrom } from './components/elevation-profile.js';
+import { renderReviewPanel, reviewModelFrom } from './components/review-panel.js';
 
 /**
  * The analysis snapshot this render pass drew, for the mission brief (Phase 4
@@ -220,8 +221,14 @@ function update() {
     return;
   }
   if (state.view === 'review') {
-    // Review is the pre-flight read-back: the same summary card Field leads
-    // with, drawn from the same snapshot. The fix list joins it in wave D.
+    // Review is the pre-flight read-back: every finding with its evidence and
+    // fix link (wave D), the final-reserve confirmation, then the same summary
+    // card Field leads with. The fix panel supersedes the passive stack above
+    // it — same constraints, same order, now actionable — so the stack hides
+    // rather than show the rows twice. Leaving Review re-runs update(), where
+    // renderWarnings restores it.
+    $('warnings').hidden = true;
+    renderReviewPanel($('review-fixes'), reviewModelFrom(snapshot), { onAction: applyFix });
     renderMissionSummary($('review-summary'), summaryModelFrom(r));
     return;
   }
@@ -323,6 +330,53 @@ function setDest(dest) {
   if (dest === 'plan' && onMap(state.view)) showMapView();
   saveSession();
   update();
+}
+
+/* The named landing spot for each conditions fix link (fix-links.js): a
+   semantic token → the rail elements that answer to it, first visible wins.
+   More than one candidate where the primary control can be off screen — the
+   pack-temp slider only exists once its switch is on, and manual airspeed
+   only in full detail with a manual cruise policy. */
+const FIX_CONTROLS = {
+  reserve: ['in-reserve'],
+  'live-weather': ['btn-live'],
+  'pack-temp': ['in-packtemp', 'in-packtemp-on'],
+  'cruise-speed': ['in-speed', 'sel-cruise'],
+};
+
+/** A pressed fix link briefly lights the control it landed on.
+ * @param {Element} el */
+function flashControl(el) {
+  el.classList.remove('fix-flash');
+  void el.offsetWidth; // restart the animation on a repeat press
+  el.classList.add('fix-flash');
+  el.addEventListener('animationend', () => el.classList.remove('fix-flash'), { once: true });
+}
+
+/**
+ * Land a Review fix link where its descriptor points (fix-links.js): a leg on
+ * the 2D map, another Plan mode, a control in the conditions rail, or another
+ * destination. The interpreter lives here because this file is the only one
+ * that owns all four surfaces.
+ * @param {import('./application/analysis/fix-links.js').FixAction} action
+ */
+function applyFix(action) {
+  if (action.kind === 'dest') { setDest(action.dest); return; }
+  if (action.kind === 'mode') { setView(action.mode); return; }
+  if (action.kind === 'segment') {
+    setView('2d');
+    // selectSegment toggles — re-selecting the already-open leg would close it.
+    if (selectedSegment() !== action.segmentId) selectSegment(action.segmentId);
+    return;
+  }
+  // conditions: the rail is a sidebar on desktop, a bottom sheet on mobile.
+  revealRail();
+  const el = (FIX_CONTROLS[action.control] ?? [])
+    .map((id) => $(id)).find((c) => c && c.offsetParent !== null);
+  if (!el) return; // beginner mode can hide every candidate; the rail itself is the answer then
+  el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  el.focus({ preventScroll: true });
+  flashControl(el.closest('label') ?? el);
 }
 
 /* ---------- events ---------- */

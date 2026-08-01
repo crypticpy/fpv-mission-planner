@@ -573,12 +573,14 @@
 
   </main>
 
-  <!-- Review (M10): the pre-flight read-back. The summary is the same
-       component Field leads with — one mission, one set of numbers — and the
-       brief button moved here from the map actions, because printing the plan
-       is the last step of reviewing it, not a map control. The fix list joins
-       this panel in M10 wave D. -->
+  <!-- Review (M10): the pre-flight read-back. The fix panel (wave D, built by
+       src/components/review-panel.js) carries every finding with its evidence
+       and its fix link, then the final-reserve confirmation; the summary is
+       the same component Field leads with — one mission, one set of numbers —
+       and the brief button moved here from the map actions, because printing
+       the plan is the last step of reviewing it, not a map control. -->
   <main class="content" id="view-review" role="tabpanel" aria-labelledby="tab-review" hidden>
+    <div id="review-fixes"></div>
     <div id="review-summary"></div>
     <section class="card">
       <h3>Mission brief</h3>

@@ -60,6 +60,13 @@ function closeSheet() {
   if (returnFocus) $('btn-plan-controls').focus();
 }
 
+/** Bring the conditions rail on screen: opens the bottom sheet on the mobile
+ *  layout, a no-op on desktop where the rail is a permanent sidebar. For the
+ *  Review fix links, which land on a rail control and need it visible first. */
+export function revealRail() {
+  openSheet();
+}
+
 /** Mark the open destination on the nav. aria-current="page" doubles as the
  *  CSS hook for the active state in both postures. */
 export function syncDest(dest) {

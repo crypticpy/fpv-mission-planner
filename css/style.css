@@ -1986,3 +1986,56 @@ body.brief-open { overflow: hidden; }
 @media (prefers-reduced-motion: reduce) {
   .sysstate-dots span { animation: none; }
 }
+
+/* ---------- Review fix panel (M10 wave D) ----------
+   The fix rows wear the warning stack's own severity language (.warn tones) —
+   a finding must look identical here and there, because it IS the same
+   finding. What this panel adds is the evidence disclosure under the sentence
+   and the fix link at the row's edge. */
+.review-fixes, .review-reserve { margin-bottom: var(--sp-2); }
+.fixlist { display: flex; flex-direction: column; gap: 6px; margin-top: var(--sp-1); }
+.fixrow { align-items: flex-start; }
+.fixrow .warn-level { padding-top: 1px; }
+.fixrow-body { flex: 1; min-width: 0; }
+.fixrow-text { margin: 0; }
+.fix-evidence { margin-top: 2px; font-size: 11.5px; color: var(--muted); }
+.fix-evidence summary {
+  cursor: pointer;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  user-select: none;
+}
+.fix-evidence p { margin: 3px 0 0; }
+.fix-evidence-label { color: var(--ink-2); }
+.fix-go {
+  flex-shrink: 0;
+  align-self: center;
+  background: var(--button);
+  color: var(--ink-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 10px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.fix-go:hover { color: var(--ink); border-color: var(--accent); background: var(--button-hover); }
+.review-reserve-line { font-size: 12.5px; color: var(--ink-2); margin: 0 0 var(--sp-1); }
+.review-reserve .fix-go { align-self: auto; }
+/* A pressed fix link lights the control it landed on — an opacity fade, not
+   motion, so it stays under prefers-reduced-motion. */
+.fix-flash { animation: fix-flash 1.4s ease-out; }
+@keyframes fix-flash {
+  0%, 55% { outline: 2px solid var(--accent); outline-offset: 3px; }
+  100% { outline: 2px solid transparent; outline-offset: 3px; }
+}
+/* On phones the fix link drops under the sentence rather than squeezing it.
+   The body's basis must claim the chip's line for the wrap to actually happen —
+   with the default basis of 0 the flex line never overflows and never wraps. */
+@media (max-width: 600px) {
+  .fixrow { flex-wrap: wrap; }
+  .fixrow-body { flex-basis: calc(100% - 84px); }
+  .fixrow .fix-go { margin-left: auto; }
+}
