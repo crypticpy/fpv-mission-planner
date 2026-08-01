@@ -451,6 +451,24 @@ let routeOn = null;
  * published. */
 let selectedSegmentId = null;
 
+/**
+ * The selection, readable from outside the map. Analyze's timeline and
+ * elevation profile highlight the same leg the inspector is open on — one
+ * owner, so the surfaces cannot disagree.
+ */
+export function selectedSegment() { return selectedSegmentId; }
+
+/**
+ * Toggle the selection from any surface — a map click, a timeline row, a span
+ * of the elevation profile. The same toggle the engines' click uses, followed
+ * by a render pass so every open surface redraws with the new answer.
+ * @param {string|null} id
+ */
+export function selectSegment(id) {
+  selectedSegmentId = nextSelection(selectedSegmentId, id);
+  deps?.requestRender();
+}
+
 /** The route port, tolerant of a boot render before the mission document exists. */
 const routeWaypoints = () => deps.routeWaypoints?.() ?? [];
 
@@ -624,12 +642,10 @@ function buildFrame(snapshot, sceneEdit) {
       removeSubject: (id) => raiseEdit({ type: 'removeSubject', payload: { id } }),
       selectSpot: (spot) => spotSpec?.onSelect?.(spot),
       /* The one action that raises no command. Clicking the open leg closes it,
-       * clicking another switches, and null is the close button — the toggle
-       * lives here so 2D and 3D cannot disagree about what a click means. */
-      selectSegment: (id) => {
-        selectedSegmentId = nextSelection(selectedSegmentId, id);
-        deps.requestRender();
-      },
+       * clicking another switches, and null is the close button — the exported
+       * toggle is shared with Analyze's surfaces, so no two clicks can mean
+       * different things. */
+      selectSegment,
     },
   };
 }

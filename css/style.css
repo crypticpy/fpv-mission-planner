@@ -767,6 +767,14 @@ tr.row-invalid td:nth-child(12) { color: var(--status-critical); font-weight: 60
   }
   .plan-controls-btn[aria-expanded="true"] { color: var(--ink); border-color: var(--accent); }
 }
+@media (max-width: 700px) {
+  /* Five pills at desktop padding out-measure a 375px phone, and a row that
+     cannot shrink stretches the layout viewport — the whole app then renders
+     zoomed out. Tighten, and let the row wrap before it widens the page. */
+  .view-tabs { flex-wrap: wrap; gap: 4px; }
+  .view-tab { padding: 6px 10px; font-size: 11.5px; letter-spacing: 0.06em; }
+  .plan-controls-btn { padding: 6px 11px; font-size: 11.5px; letter-spacing: 0.06em; }
+}
 
 /* ---------- map view ---------- */
 
@@ -885,6 +893,118 @@ tr.row-invalid td:nth-child(12) { color: var(--status-critical); font-weight: 60
 .map-tiles { grid-template-columns: repeat(5, 1fr); }
 @media (max-width: 1100px) { .map-tiles { grid-template-columns: repeat(2, 1fr); } }
 .wx-note { color: var(--muted); font-size: 11.5px; margin-top: var(--sp-1); }
+
+/* ---------- RouteTimeline + ElevationProfile (M10 wave C) ----------
+   Intent wears three hue families plus muted, because the palette owns four
+   series tokens: moving (transit), looking (reveal/pass/approach), holding
+   (orbit/hold), and the way home. The same mapping colors bar blocks and row
+   chips, so the strip and the table read as one surface. */
+.rtl-bar {
+  display: flex;
+  gap: 2px;
+  height: 26px;
+  margin: var(--sp-2) 0 var(--sp-3);
+}
+.rtl-block {
+  flex: 0 1 auto;
+  flex-basis: 0;
+  min-width: 6px;
+  border: none;
+  border-radius: 4px;
+  padding: 0;
+  cursor: default;
+  opacity: 0.85;
+}
+button.rtl-block { cursor: pointer; }
+button.rtl-block:hover { opacity: 1; }
+.rtl-block[aria-pressed="true"] {
+  opacity: 1;
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.rtl-block[data-intent="transit"], .rtl-chip[data-intent="transit"] { background: var(--series-1); }
+.rtl-block[data-intent="reveal"], .rtl-chip[data-intent="reveal"],
+.rtl-block[data-intent="pass"], .rtl-chip[data-intent="pass"],
+.rtl-block[data-intent="approach"], .rtl-chip[data-intent="approach"] { background: var(--series-2); }
+.rtl-block[data-intent="orbit"], .rtl-chip[data-intent="orbit"],
+.rtl-block[data-intent="hold"], .rtl-chip[data-intent="hold"] { background: var(--series-3); }
+.rtl-block[data-phase="home"], .rtl-chip[data-intent="return"] { background: var(--muted); }
+/* A leg the wind won't allow has no minutes to spend on width: fixed size,
+   hatched in the critical color rather than pretending to a duration. */
+.rtl-block[data-unflyable] {
+  flex: 0 0 18px;
+  min-width: 18px;
+  background: repeating-linear-gradient(135deg,
+    var(--status-critical) 0 3px, transparent 3px 7px);
+  border: 1px solid var(--status-critical);
+  opacity: 0.9;
+}
+/* The reserve's slack — and a one-way mission's unflown home leg: outlines of
+   time, not blocks of spend. */
+.rtl-tail,
+.rtl-block[data-reserved] {
+  background: transparent;
+  border: 1px dashed var(--muted);
+  opacity: 0.9;
+}
+.rtl-rows { display: flex; flex-direction: column; gap: 2px; }
+.rtl-row {
+  display: grid;
+  grid-template-columns: 12px minmax(84px, 1fr) 68px 60px 88px 92px 56px minmax(120px, 1.4fr);
+  gap: 8px;
+  align-items: center;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  padding: 4px 6px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+button.rtl-row { cursor: pointer; }
+button.rtl-row:hover:not(:disabled) { background: var(--surface-2); }
+.rtl-row[aria-pressed="true"] { background: var(--button); outline: 1px solid var(--accent); }
+.rtl-chip { width: 10px; height: 10px; border-radius: 3px; justify-self: center; }
+.rtl-name { color: var(--ink); font-weight: 600; }
+.rtl-intent {
+  color: var(--muted);
+  font-size: 10.5px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.rtl-wind { color: var(--muted); }
+.rtl-home { color: var(--muted); }
+.rtl-home .rtl-name { color: var(--ink-2); font-weight: 500; }
+@media (max-width: 700px) {
+  /* Chip, name, distance, time, Wh — the chip's colour already says the intent.
+     Track minimums must total well under a 375px phone, or the layout viewport
+     grows to fit the row and the whole app renders zoomed out. */
+  .rtl-row { grid-template-columns: 12px minmax(64px, 1fr) 48px 52px 60px; gap: 6px; }
+  .rtl-intent, .rtl-speed, .rtl-wind { display: none; }
+}
+
+.eprofile-head {
+  display: flex;
+  justify-content: flex-end;
+  min-height: 22px;
+  margin-bottom: 2px;
+}
+.eprofile-badge {
+  font-size: 11px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--ink-2);
+}
+.eprofile-badge[data-tone="good"] { border-color: var(--status-good); color: var(--status-good); }
+.eprofile-badge[data-tone="serious"] { border-color: var(--status-serious); color: var(--status-serious); }
+.eprofile-badge[data-tone="critical"] {
+  border-color: var(--status-critical);
+  color: var(--status-critical);
+  font-weight: 600;
+}
+.eprofile-attrib { color: var(--muted); font-size: 10.5px; margin-top: 2px; }
 
 .wind-particles {
   position: absolute;

@@ -6,7 +6,7 @@ import { WEATHER, allBatteries, allManufacturers, saveCustomBattery, saveCustomM
 import { hideTooltip } from './charts.js';
 import {
   setupMapView, showMapView, renderMapView, pauseMapView, resizeMapView,
-  supports3d, setMode3d,
+  supports3d, setMode3d, selectedSegment, selectSegment,
 } from './presentation/map/map-view.js';
 import { renderFootprintPanel } from './presentation/map/footprint-panel.js';
 import { renderAdvisoryCard } from './presentation/map/advisory-panel.js';
@@ -51,7 +51,7 @@ import {
 import { setupInterop } from './interop.js';
 import {
   analyzeNow, analysisRevision, acceptAsync, setupAnalysisHost, groundAt,
-  restoreEvidenceFor, forgetEvidence,
+  restoreEvidenceFor, forgetEvidence, terrainField,
 } from './analysis-host.js';
 import {
   missionSeed, restoreLaunch, pushLaunch, pushLoadout, pushEnvironment, pushPolicy,
@@ -63,6 +63,8 @@ import { renderSessionPlanner } from './render/session.js';
 import { renderWindRibbon, windModelFrom } from './components/wind-ribbon.js';
 import { renderMissionSummary, summaryModelFrom } from './components/mission-summary.js';
 import { renderSystemState } from './components/system-state.js';
+import { renderRouteTimeline, timelineModelFrom } from './components/route-timeline.js';
+import { renderElevationProfile, profileModelFrom } from './components/elevation-profile.js';
 
 /**
  * The analysis snapshot this render pass drew, for the mission brief (Phase 4
@@ -224,7 +226,16 @@ function update() {
     return;
   }
   renderStats(r);
-  if (!beginner()) renderProfile(r);
+  if (!beginner()) {
+    // The drawn route, leg by leg, and the ground under it (M10 wave C). Both
+    // share the map's selection: tapping a leg here opens the same inspector a
+    // click on the map line would, and vice versa.
+    const routeSync = { selectedSegmentId: selectedSegment(), onSelect: selectSegment };
+    renderRouteTimeline($('route-timeline'), timelineModelFrom(snapshot), routeSync);
+    renderElevationProfile($('elevation-profile'),
+      profileModelFrom(snapshot, terrainField()), routeSync);
+    renderProfile(r);
+  }
   renderWindSensitivity(r);
   // The numbers half of the map (M10): the footprint tiles, range vs heading,
   // the terrain corridor and the advisory explanation all read the snapshot,

@@ -104,8 +104,12 @@ test.describe('performance budgets', () => {
    * uncounted. Same meter-equivalent budget (160 + 5.2 ≈ 165) plus M7's real
    * always-path growth (segment editor, shot analysis) minus the brief moving
    * to a lazy chunk, landed at 166.9; 168 keeps the same ~1 kB headroom the
-   * old figure had at M6 ship. */
-  const ENTRY_BUDGET_KB = 168;
+   * old figure had at M6 ship.
+   *
+   * Re-based 168 → 172 at M10 wave C: the Analyze panels (route timeline,
+   * elevation profile) are always-path feature code, 170.8 on landing. If the
+   * Plan modes ever become lazy chunks (the M7 brief pattern), claw this back. */
+  const ENTRY_BUDGET_KB = 172;
   const SCENE3D_BUDGET_KB = 500;
 
   test('the built bundles are inside their gzip budgets', async () => {

@@ -1,9 +1,14 @@
 // charts.js — hand-rolled SVG charts: hairline grid, 2px lines, ≤24px bars with
 // rounded data-ends, crosshair + tooltip hover layer. Colors come from CSS vars.
+//
+// The scaffolding (svgEl, M, frame, drawAxes, showTooltip, bindHit) is exported
+// for components that draw a chart lineChart can't express — the elevation
+// profile's per-leg hit spans, say — so a bespoke chart still gets this module's
+// margins, ticks and tooltip rather than a lookalike of them.
 
 const NS = 'http://www.w3.org/2000/svg';
 
-function svgEl(tag, attrs = {}) {
+export function svgEl(tag, attrs = {}) {
   const n = document.createElementNS(NS, tag);
   for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
   return n;
@@ -46,7 +51,7 @@ function tooltip() {
   return tooltipEl;
 }
 
-function showTooltip(x, y, rows, title) {
+export function showTooltip(x, y, rows, title) {
   const tip = tooltip();
   tip.replaceChildren();
   if (title) {
@@ -83,16 +88,16 @@ export function hideTooltip() {
 
 /* Touch never fires a bare pointermove — pointerdown makes tap-to-inspect work.
    pointercancel fires when the browser claims the gesture for scrolling. */
-function bindHit(hit, show, hide) {
+export function bindHit(hit, show, hide) {
   hit.addEventListener('pointerdown', show);
   hit.addEventListener('pointermove', show);
   hit.addEventListener('pointerleave', hide);
   hit.addEventListener('pointercancel', hide);
 }
 
-const M = { top: 14, right: 18, bottom: 34, left: 52 };
+export const M = { top: 14, right: 18, bottom: 34, left: 52 };
 
-function frame(container, height) {
+export function frame(container, height) {
   container.replaceChildren();
   const width = container.clientWidth || 560;
   const svg = svgEl('svg', { viewBox: `0 0 ${width} ${height}`, width: '100%', height });
@@ -100,7 +105,7 @@ function frame(container, height) {
   return { svg, width, height, iw: width - M.left - M.right, ih: height - M.top - M.bottom };
 }
 
-function drawAxes(svg, xTicks, yTicks, xs, ys, opts = {}) {
+export function drawAxes(svg, xTicks, yTicks, xs, ys, opts = {}) {
   for (const t of yTicks) {
     const y = ys(t);
     svg.appendChild(svgEl('line', { x1: M.left, x2: M.left + opts.iw, y1: y, y2: y,

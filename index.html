@@ -335,7 +335,20 @@
       <div class="tile full-only" id="tile-da"><p class="tile-label">Density altitude</p><p class="tile-value">—</p><p class="tile-sub"></p></div>
     </section>
 
+    <!-- M10 wave C: the route as the analysis sees it — a per-leg time strip and
+         the ground under the line. Both components build their own DOM and sync
+         segment selection with the map's inspector. -->
+    <section class="card full-only">
+      <h3>Route timeline</h3>
+      <p class="card-sub">Every leg of the drawn route as minutes and Wh, with the reserve's slack on the tail — tap a leg to open it on the map</p>
+      <div id="route-timeline"></div>
+    </section>
 
+    <section class="card full-only">
+      <h3>Elevation along the route</h3>
+      <p class="card-sub">The ground under the drawn line, the planned altitude over it, and the closest the two come</p>
+      <div id="elevation-profile"></div>
+    </section>
 
     <section class="card full-only">
       <h3>Mission profile</h3>
