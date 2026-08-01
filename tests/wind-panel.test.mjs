@@ -256,3 +256,103 @@ test('auditioning another hour raises the honesty banner and the readout', () =>
   assert.match(m.outlook.banner, /^Planning for .+ — forecast, not current conditions\.$/);
   assert.match(m.outlook.readout, /22 gusting 24 mph, from SSW/);
 });
+
+/* ---------- the W-03 headings segment (M11 wave C) ---------- */
+
+// Speeds picked so every figure converts to a round imperial number: vg in m/s
+// per mph, whPerKm chosen so Wh/km ÷ (mi/km) lands on one decimal exactly.
+const MPH = 0.44704;
+const solvedPlan = (over = {}) => ({
+  speedLimitMs: 20,
+  flight: { viable: true },
+  wind: { planningMs: 20 * MPH },
+  radiusKm: 3.21869,
+  legs: {
+    out: { v: 15, vg: 10 * MPH, whPerKm: 6.21371 },
+    back: { v: 15, vg: 30 * MPH, whPerKm: 3.106855 },
+    home: { v: 15, vg: 10 * MPH, whPerKm: 6.21371 },
+  },
+  ...over,
+});
+// 3.21869 km = 2.0 mi, 8.04672 = 5.0, 4.82803 = 3.0 — the reaches the rows quote.
+const fpFix = (over = {}) => ({
+  launch: { lat: 30, lng: -97 },
+  windFromDeg: 192, plannedCourseDeg: 192,
+  upwindKm: 3.21869, downwindKm: 8.04672, crosswindKm: 4.82803,
+  courses: [], radii: [], byCourse: [], bestByCourse: [], areaKm2: 0,
+  ...over,
+});
+
+test('no headings names the actual absence: no pack, no lift, or no sweep', () => {
+  seed();
+  assert.match(windPanelModelFrom(null).headings.noHeadings, /pick an aircraft and pack/);
+  assert.match(windPanelModelFrom({ plan: { code: 'no_pack', warnings: [] } }).headings.noHeadings,
+    /pick an aircraft and pack/);
+  assert.match(
+    windPanelModelFrom({ plan: solvedPlan({ flight: { viable: false } }), footprint: fpFix() })
+      .headings.noHeadings,
+    /Nothing lifts off/);
+  // A solved plan with no footprint is a boot-time state, not a verdict.
+  assert.match(windPanelModelFrom({ plan }).headings.noHeadings, /footprint hasn’t swept/);
+});
+
+test('heading rows read the footprint reaches on the wind-relative courses', () => {
+  seed(); // windMode headOut
+  const h = windPanelModelFrom({ plan: solvedPlan(), footprint: fpFix() }).headings;
+  assert.equal(h.noHeadings, null);
+  assert.deepEqual(h.rows.map((r) => [r.mode, r.label, r.course, r.reach]), [
+    ['headOut', 'Into the wind', '192°', '2.0 mi'],
+    ['cross', 'Crosswind', '282° / 102°', '3.0 mi'],
+    ['tailOut', 'Downwind out', '12°', '5.0 mi'],
+  ]);
+  assert.deepEqual(h.rows.map((r) => r.active), [true, false, false]);
+  assert.match(h.rows[0].sr, / · planned$/);
+  assert.doesNotMatch(h.rows[1].sr, /planned/);
+});
+
+test('the legs decompose the planned course with the plan\'s own solved speeds', () => {
+  seed();
+  const h = windPanelModelFrom({ plan: solvedPlan(), footprint: fpFix() }).headings;
+  assert.equal(h.strand, null);
+  assert.deepEqual(h.legs.map((l) => [l.name, l.course]), [
+    ['Out', '192° SSW'], ['Home', '12° NNE'],
+  ]);
+  assert.equal(h.legs[0].figures, '10 mph over ground · headwind 20 mph · 10.0 Wh/mi');
+  assert.equal(h.legs[1].figures, '30 mph over ground · tailwind 20 mph · 5.0 Wh/mi');
+});
+
+test('a crosswind plan carries the cross component on both legs', () => {
+  seed();
+  state.env.windMode = 'cross';
+  const h = windPanelModelFrom({
+    plan: solvedPlan(), footprint: fpFix({ plannedCourseDeg: 282 }),
+  }).headings;
+  assert.deepEqual(h.rows.map((r) => r.active), [false, true, false]);
+  assert.equal(h.legs[0].course, '282° WNW');
+  assert.equal(h.legs[1].course, '102° ESE');
+  assert.equal(h.legs[0].figures, '10 mph over ground · crosswind 20 mph · 10.0 Wh/mi');
+  assert.equal(h.legs[1].figures, '30 mph over ground · crosswind 20 mph · 5.0 Wh/mi');
+});
+
+test('a zero radius strands the legs but keeps the reaches honest', () => {
+  seed();
+  const h = windPanelModelFrom({
+    plan: solvedPlan({ radiusKm: 0 }),
+    footprint: fpFix({ upwindKm: 0, downwindKm: 0, crosswindKm: 0 }),
+  }).headings;
+  assert.equal(h.legs.length, 0);
+  assert.match(h.strand, /No out-and-back closes/);
+  assert.deepEqual(h.rows.map((r) => r.reach), ['0.0 mi', '0.0 mi', '0.0 mi']);
+});
+
+test('auditioning another hour stamps the exposure hint', () => {
+  seed();
+  setForecast({ hours: hoursN(13), days: [] }, null);
+  let h = windPanelModelFrom({ plan: solvedPlan(), footprint: fpFix() }).headings;
+  assert.equal(h.hint, null); // on Now, no hint — the exposure is the current sky
+  failing = true;
+  setForecastHour(3);
+  failing = false;
+  h = windPanelModelFrom({ plan: solvedPlan(), footprint: fpFix() }).headings;
+  assert.match(h.hint, /^Exposure for /);
+});

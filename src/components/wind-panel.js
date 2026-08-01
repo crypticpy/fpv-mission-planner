@@ -13,8 +13,8 @@
 // planning against.
 import { svgEl } from '../charts.js';
 import { state, units, beginner } from '../state.js';
-import { compass, f0 } from '../render/format.js';
-import { U } from '../domain/physics.js';
+import { compass, f0, f1 } from '../render/format.js';
+import { U, legVecsFromCourse } from '../domain/physics.js';
 import { GUST_SHARE_CAUTION } from '../render/dashboard.js';
 import {
   launchWind, activeWindAt, windLevels, windSounding, peakShear, CRUISE_ALTS_M,
@@ -51,6 +51,26 @@ import { forecastOutlook, hourName, hourSummary, clockTime } from '../render/for
  * @property {{ label: string, wind: string, tempF: number }[]} sounding
  * @property {string|null} noLadder  why there are no rungs, when there are none
  *
+ * @typedef {object} HeadingLeg
+ * @property {string} name     'Out' | 'Home'
+ * @property {string} course   '192° SSW'
+ * @property {string} figures  ground speed, wind components, burn — one line
+ *
+ * @typedef {object} HeadingRow
+ * @property {string} mode     the rail select's own value: headOut | cross | tailOut
+ * @property {string} label    'Into the wind'
+ * @property {string} course   '192°', or both cross courses
+ * @property {string} reach    out-and-back reach on that course, formatted
+ * @property {boolean} active  the outbound leg the plan flies
+ * @property {string} sr       full spoken form
+ *
+ * @typedef {object} HeadingsModel
+ * @property {HeadingLeg[]} legs   outbound and home, [] when no leg closes
+ * @property {string|null} strand  why there are no legs, when the craft flies
+ * @property {HeadingRow[]} rows
+ * @property {string|null} hint    which sky the exposure describes, off "now"
+ * @property {string|null} noHeadings  why there is nothing here at all
+ *
  * @typedef {object} WindPanelModel
  * @property {{ value: string, unit: string, dir: string, level: string }} hero
  * @property {{ value: string, meta: string }} surface
@@ -60,6 +80,7 @@ import { forecastOutlook, hourName, hourSummary, clockTime } from '../render/for
  *              sun: string|null }|null} outlook
  * @property {string|null} noOutlook  why there is no outlook, when there is none
  * @property {AltitudeModel} altitude  the W-02 segment
+ * @property {HeadingsModel} headings  the W-03 segment
  */
 
 /**
@@ -162,6 +183,89 @@ function altitudeModelFrom(o) {
 }
 
 /**
+ * W-03's model: the planned course decomposed leg by leg, and the three
+ * wind-relative courses with the out-and-back reach the footprint sweep
+ * already computed for each. Tapping a row walks the rail's outbound-leg
+ * select path, so this segment is that control with its consequences printed.
+ *
+ * The wind components come off legVecsFromCourse — the same decomposition the
+ * sweep and the route integrator use — at the plan's own planning wind, and
+ * the speeds and burn are the solved legs' own numbers, not a re-derivation.
+ * @param {import('../application/analysis/analysis-contracts.js').AnalysisSnapshot|null} snapshot
+ * @param {ReturnType<typeof forecastOutlook>} o
+ * @returns {HeadingsModel}
+ */
+function headingsModelFrom(snapshot, o) {
+  const u = units();
+  const r = snapshot?.plan ?? null;
+  const fp = snapshot?.footprint ?? null;
+  const none = (/** @type {string} */ why) =>
+    ({ legs: [], strand: null, rows: [], hint: null, noHeadings: why });
+  if (!r || 'code' in r) return none('No heading picture — pick an aircraft and pack first.');
+  if (r.flight && !r.flight.viable) return none('Nothing lifts off in this setup — no heading is flyable.');
+  if (!fp) return none('No heading picture — the footprint hasn’t swept yet.');
+
+  const spdMs = (/** @type {number} */ ms) => `${f0(u.speedFromMs(ms))} ${u.speedUnit}`;
+  const dist = (/** @type {number} */ km) =>
+    `${u.distanceFromKm(km).toFixed(1)} ${u.distanceUnit}`;
+  // The wind axis rounded to the whole degree the courses quote — the same
+  // rounding the Analyze footprint tiles apply.
+  const upC = ((Math.round(fp.windFromDeg) % 360) + 360) % 360;
+
+  const rows = [
+    { mode: 'headOut', label: 'Into the wind', course: `${upC}°`, reachKm: fp.upwindKm },
+    { mode: 'cross', label: 'Crosswind', course: `${(upC + 90) % 360}° / ${(upC + 270) % 360}°`,
+      reachKm: fp.crosswindKm },
+    { mode: 'tailOut', label: 'Downwind out', course: `${(upC + 180) % 360}°`, reachKm: fp.downwindKm },
+  ].map((row) => {
+    const active = state.env.windMode === row.mode;
+    return {
+      mode: row.mode, label: row.label, course: row.course, reach: dist(row.reachKm), active,
+      sr: `${row.label} — course ${row.course} — out-and-back reach `
+        + `${dist(row.reachKm)}${active ? ' · planned' : ''}`,
+    };
+  });
+
+  /** @type {HeadingLeg[]} */
+  const legs = [];
+  let strand = null;
+  const out = r.legs?.out, back = r.legs?.back;
+  if (out && back && r.radiusKm > 0) {
+    const vecs = legVecsFromCourse(fp.plannedCourseDeg, fp.windFromDeg, r.wind.planningMs);
+    const wind = (/** @type {{ head: number, cross: number }} */ vec) => {
+      const parts = [];
+      // Components that round to 0 in the pilot's units stay unprinted — a
+      // "headwind 0 mph" is noise, not honesty.
+      if (vec.head && f0(u.speedFromMs(Math.abs(vec.head))) !== '0') {
+        parts.push(`${vec.head > 0 ? 'headwind' : 'tailwind'} ${spdMs(Math.abs(vec.head))}`);
+      }
+      if (vec.cross && f0(u.speedFromMs(vec.cross)) !== '0') parts.push(`crosswind ${spdMs(vec.cross)}`);
+      return parts.length ? parts.join(' · ') : 'calm air';
+    };
+    const leg = (/** @type {string} */ name, /** @type {number} */ courseDeg,
+      /** @type {{ vg: number, whPerKm: number }} */ sol,
+      /** @type {{ head: number, cross: number }} */ vec) => ({
+      name,
+      course: `${f0(courseDeg)}° ${compass(courseDeg)}`,
+      figures: `${spdMs(sol.vg)} over ground · ${wind(vec)}`
+        + ` · ${f1(u.burnFromWhPerKm(sol.whPerKm))} ${u.burnUnit}`,
+    });
+    legs.push(
+      leg('Out', fp.plannedCourseDeg, out, vecs[0]),
+      leg('Home', (fp.plannedCourseDeg + 180) % 360, back, vecs[1]),
+    );
+  } else {
+    strand = 'No out-and-back closes in this wind — nothing gets home.';
+  }
+
+  return {
+    legs, strand, rows,
+    hint: o && o.selected !== o.now ? `Exposure for ${hourName(o.hours[o.selected].time)}` : null,
+    noHeadings: null,
+  };
+}
+
+/**
  * W-01's model, read off the same state every other wind surface reads.
  * @param {import('../application/analysis/analysis-contracts.js').AnalysisSnapshot|null} snapshot
  * @returns {WindPanelModel}
@@ -194,7 +298,8 @@ export function windPanelModelFrom(snapshot) {
   if (!o) {
     return {
       hero, surface, gust, windFromDeg: env.windFromDeg,
-      outlook: null, noOutlook: whyNoLive('hourly outlook'), altitude: altitudeModelFrom(null),
+      outlook: null, noOutlook: whyNoLive('hourly outlook'),
+      altitude: altitudeModelFrom(null), headings: headingsModelFrom(snapshot, null),
     };
   }
 
@@ -234,6 +339,7 @@ export function windPanelModelFrom(snapshot) {
     },
     noOutlook: null,
     altitude: altitudeModelFrom(o),
+    headings: headingsModelFrom(snapshot, o),
   };
 }
 
@@ -365,10 +471,56 @@ function altitudeSection(a, onSelectLevel) {
   return sec;
 }
 
+/** The W-03 segment: the planned course leg by leg, then reach by course. */
+function headingsSection(h, onSelectMode) {
+  const sec = document.createElement('section');
+  sec.className = 'windpanel-headings';
+  if (h.noHeadings) {
+    sec.append(line('windpanel-nodata', h.noHeadings));
+    return sec;
+  }
+  if (h.hint) sec.append(line('windpanel-hint', h.hint));
+  sec.append(line('windpanel-outlook-title', 'Planned course'));
+  if (h.legs.length) {
+    for (const l of h.legs) {
+      const leg = document.createElement('div');
+      leg.className = 'windpanel-leg';
+      const head = document.createElement('div');
+      head.className = 'windpanel-leg-head';
+      head.append(span('windpanel-leg-name', l.name), span('windpanel-leg-course', l.course));
+      leg.append(head, line('windpanel-leg-figures', l.figures));
+      sec.append(leg);
+    }
+  } else {
+    sec.append(line('windpanel-strand', h.strand ?? ''));
+  }
+  sec.append(line('windpanel-outlook-title', 'Reach by course'));
+  const rows = document.createElement('div');
+  rows.className = 'windpanel-headingrows';
+  for (const r of h.rows) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'windpanel-heading';
+    b.dataset.i = `H${r.mode}`;
+    b.setAttribute('aria-pressed', String(r.active));
+    b.setAttribute('aria-label', r.sr);
+    b.addEventListener('click', () => onSelectMode(r.mode));
+    b.append(
+      span('windpanel-heading-label', r.label),
+      span('windpanel-heading-course', r.course),
+      span('windpanel-heading-reach', r.reach),
+    );
+    rows.append(b);
+  }
+  sec.append(rows);
+  return sec;
+}
+
 /** The panel's segments. The tab bar exists because there are two (M11 §W-02). */
 const SEGS = [
   { id: 'now', label: 'Now' },
   { id: 'altitude', label: 'Altitude' },
+  { id: 'headings', label: 'Headings' },
 ];
 
 /**
@@ -376,9 +528,11 @@ const SEGS = [
  * @param {WindPanelModel|null} m  null hides the panel (no snapshot yet)
  * @param {{ open: boolean, seg: string, onSelectSeg: (id: string) => void,
  *           onSelectHour: (i: number) => void,
- *           onSelectLevel: (m: number) => void }} opts
+ *           onSelectLevel: (m: number) => void,
+ *           onSelectMode: (mode: string) => void }} opts
  */
-export function renderWindPanel(host, m, { open, seg = 'now', onSelectSeg, onSelectHour, onSelectLevel }) {
+export function renderWindPanel(host, m,
+  { open, seg = 'now', onSelectSeg, onSelectHour, onSelectLevel, onSelectMode }) {
   host.hidden = !open || !m;
   if (host.hidden) { host.replaceChildren(); return; }
 
@@ -406,8 +560,8 @@ export function renderWindPanel(host, m, { open, seg = 'now', onSelectSeg, onSel
     bar.append(t);
   }
 
-  const view = seg === 'altitude'
-    ? altitudeSection(m.altitude, onSelectLevel)
+  const view = seg === 'altitude' ? altitudeSection(m.altitude, onSelectLevel)
+    : seg === 'headings' ? headingsSection(m.headings, onSelectMode)
     : nowSection(m, onSelectHour);
   view.id = 'windpanel-view';
   view.setAttribute('role', 'tabpanel');

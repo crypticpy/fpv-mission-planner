@@ -115,6 +115,11 @@ function drawWindChrome() {
     // The ladder's tap-to-set walks the cruise-altitude select's own path, so
     // a rung and the rail can never disagree about which level is planned.
     onSelectLevel: (m) => { if (!beginner() && isCruiseAlt(m)) setCruiseAlt(m); },
+    // Same rule for the heading rows and the outbound-leg select (W-03). The
+    // membership check mirrors the select trusting only its own options.
+    onSelectMode: (mode) => {
+      if (['headOut', 'tailOut', 'cross'].includes(mode)) setWindMode(mode);
+    },
   });
 }
 
@@ -457,6 +462,18 @@ function setCruiseAlt(m) {
   }
   populateControls();
   update();
+}
+
+/**
+ * Point the outbound leg another way across the wind (M11, W-03). The panel's
+ * heading rows land here and walk the rail select's own change path — same
+ * state write, same re-plan — with the select synced so the two controls can
+ * never disagree about which leg is planned.
+ */
+function setWindMode(mode) {
+  state.env.windMode = mode;
+  $('sel-windmode').value = mode;
+  editEnv();
 }
 
 /* A rail edit is a mission edit (ADR 0002). Each control's own handler says which

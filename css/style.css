@@ -2077,6 +2077,37 @@ button.windpanel-level { cursor: pointer; }
   color: var(--ink-2);
   font-variant-numeric: tabular-nums;
 }
+
+/* Heading exposure (W-03): the planned course decomposed leg by leg, and the
+   three wind-relative courses as tappable rows — the rail's outbound-leg
+   select, laid out as what each choice buys. */
+.windpanel-headings .windpanel-outlook-title { margin-top: var(--sp-3); }
+.windpanel-leg { padding: 6px 0; border-bottom: 1px solid var(--border); }
+.windpanel-leg:last-of-type { border-bottom: 0; }
+.windpanel-leg-head { display: flex; align-items: baseline; gap: var(--sp-2); }
+.windpanel-leg-name { font-family: var(--font-display); font-size: 12.5px; font-weight: 700; }
+.windpanel-leg-course { font-size: 11.5px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.windpanel-leg-figures { margin: 2px 0 0; font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.windpanel-strand { margin: var(--sp-1) 0 0; font-size: 12px; color: var(--ink-2); }
+.windpanel-headingrows { display: flex; flex-direction: column; gap: var(--sp-1); margin-top: var(--sp-1); }
+.windpanel-heading {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: baseline;
+  gap: var(--sp-2);
+  padding: 8px var(--sp-2);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.windpanel-heading[aria-pressed="true"] { border-color: var(--accent); }
+.windpanel-heading-label { font-family: var(--font-display); font-size: 12.5px; font-weight: 700; white-space: nowrap; }
+.windpanel-heading-course { font-size: 11px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.windpanel-heading-reach { font-size: 13px; font-variant-numeric: tabular-nums; }
 .windpanel-sounding-label { color: var(--muted); }
 
 @media (max-width: 900px) {
